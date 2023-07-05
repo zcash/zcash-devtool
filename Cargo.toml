@@ -16,7 +16,7 @@ secrecy = "0.8"
 tls-api-rustls = "0.6"
 tokio = { version = "1.21.0", features = ["fs", "macros", "rt-multi-thread"] }
 tonic = { version = "0.9", features = ["gzip", "tls-webpki-roots"] }
-zcash_client_backend = { version = "0.8", features = ["lightwalletd-tonic"] }
-zcash_client_sqlite = { version = "0.6", features = ["unstable"] }
+zcash_client_backend = { version = "0.9", features = ["lightwalletd-tonic"] }
+zcash_client_sqlite = { version = "0.7", features = ["unstable"] }
 zcash_primitives = "0.11"
 zcash_proofs = "0.11"
