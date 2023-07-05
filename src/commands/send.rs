@@ -46,8 +46,7 @@ impl Command {
     ) -> Result<(), anyhow::Error> {
         let account = AccountId::from(0);
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let db_data = WalletDb::for_path(db_data, params)?;
-        let mut db_data = db_data.get_update_ops()?;
+        let mut db_data = WalletDb::for_path(db_data, params)?;
 
         let seed = get_wallet_seed(wallet_dir)?;
         let usk = UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account)
