@@ -24,18 +24,20 @@ impl Command {
         let address = db_data
             .get_current_address(account)?
             .ok_or(error::Error::InvalidRecipient)?;
-        let (balance, verified_balance) = {
+        let (height, balance, verified_balance) = {
             let (target_height, anchor_height) = db_data
                 .get_target_and_anchor_heights(MIN_CONFIRMATIONS)?
                 .ok_or(error::WalletErrorT::ScanRequired)
                 .map_err(|e| anyhow!("{:?}", e))?;
             (
+                target_height,
                 db_data.get_balance_at(account, target_height)?,
                 db_data.get_balance_at(account, anchor_height)?,
             )
         };
 
         println!("{}", address.encode(&params));
+        println!("  Height:   {}", height);
         println!("  Balance:  {} zatoshis", u64::from(balance));
         println!("  Verified: {} zatoshis", u64::from(verified_balance));
 
