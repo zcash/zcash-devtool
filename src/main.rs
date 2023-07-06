@@ -3,6 +3,8 @@
 //! This is **NOT IMPLEMENTED SECURELY**, and it is not written to be efficient or usable!
 //! It is only intended to show the overall light client workflow using this crate.
 
+use std::env;
+
 use gumdrop::Options;
 
 use zcash_primitives::consensus::TEST_NETWORK;
@@ -47,6 +49,10 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let opts = MyOptions::parse_args_default_or_exit();
+
+    let filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+
     let params = TEST_NETWORK;
 
     match opts.command {
