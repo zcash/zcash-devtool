@@ -31,10 +31,10 @@ use crate::{
 // Options accepted for the `send` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(help = "the recipient's Sapling or transparent address")]
+    #[options(required, help = "the recipient's Sapling or transparent address")]
     address: String,
 
-    #[options(help = "the amount in zatoshis")]
+    #[options(required, help = "the amount in zatoshis")]
     value: u64,
 }
 
