@@ -2746,6 +2746,7 @@ dependencies = [
  "futures-util",
  "gumdrop",
  "prost",
+ "rayon",
  "schemer",
  "secrecy",
  "tokio",

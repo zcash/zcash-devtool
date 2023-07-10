@@ -4,6 +4,7 @@
 //! It is only intended to show the overall light client workflow using this crate.
 
 use std::env;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use gumdrop::Options;
 
@@ -46,21 +47,36 @@ enum Command {
     Send(commands::send::Command),
 }
 
-#[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
+fn main() -> Result<(), anyhow::Error> {
     let opts = MyOptions::parse_args_default_or_exit();
 
     let filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
+    rayon::ThreadPoolBuilder::new()
+        .thread_name(|i| format!("zec-rayon-{}", i))
+        .build_global()
+        .expect("Only initialized once");
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_name_fn(|| {
+            static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
+            let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
+            format!("zec-tokio-{}", id)
+        })
+        .build()?;
+
     let params = TEST_NETWORK;
 
-    match opts.command {
-        Some(Command::Init(command)) => command.run(params, opts.wallet_dir).await,
-        Some(Command::Upgrade(command)) => command.run(params, opts.wallet_dir),
-        Some(Command::Sync(command)) => command.run(params, opts.wallet_dir).await,
-        Some(Command::Balance(command)) => command.run(params, opts.wallet_dir),
-        Some(Command::Send(command)) => command.run(params, opts.wallet_dir).await,
-        _ => Ok(()),
-    }
+    runtime.block_on(async {
+        match opts.command {
+            Some(Command::Init(command)) => command.run(params, opts.wallet_dir).await,
+            Some(Command::Upgrade(command)) => command.run(params, opts.wallet_dir),
+            Some(Command::Sync(command)) => command.run(params, opts.wallet_dir).await,
+            Some(Command::Balance(command)) => command.run(params, opts.wallet_dir),
+            Some(Command::Send(command)) => command.run(params, opts.wallet_dir).await,
+            _ => Ok(()),
+        }
+    })
 }
