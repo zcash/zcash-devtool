@@ -14,6 +14,7 @@ mod commands;
 mod data;
 mod error;
 mod remote;
+mod ui;
 
 const MIN_CONFIRMATIONS: u32 = 3;
 

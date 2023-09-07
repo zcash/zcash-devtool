@@ -5,7 +5,7 @@ use zcash_client_backend::data_api::WalletRead;
 use zcash_client_sqlite::WalletDb;
 use zcash_primitives::{consensus::Parameters, zip32::AccountId};
 
-use crate::{data::get_db_paths, error, MIN_CONFIRMATIONS};
+use crate::{data::get_db_paths, error, ui::format_zec, MIN_CONFIRMATIONS};
 
 // Options accepted for the `balance` command
 #[derive(Debug, Options)]
@@ -29,7 +29,7 @@ impl Command {
         let notes = db_data.get_spendable_sapling_notes(account, target_height, &[])?;
 
         for note in notes {
-            println!("{}: {} zatoshis", note.note_id, u64::from(note.note_value));
+            println!("{}: {}", note.note_id, format_zec(note.note_value));
         }
 
         Ok(())
