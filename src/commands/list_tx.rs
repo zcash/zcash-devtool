@@ -4,13 +4,10 @@ use gumdrop::Options;
 use rusqlite::{named_params, Connection};
 use zcash_primitives::{
     consensus::BlockHeight,
-    transaction::{
-        components::{amount::NonNegativeAmount, Amount},
-        TxId,
-    },
+    transaction::{components::amount::NonNegativeAmount, TxId},
 };
 
-use crate::data::get_db_paths;
+use crate::{data::get_db_paths, ui::format_zec};
 
 // Options accepted for the `list` command
 #[derive(Debug, Options)]
@@ -128,7 +125,7 @@ impl Transaction {
         println!(
             "  Fee paid: {}",
             self.fee_paid
-                .map(|v| format!("{} zatoshis", u64::from(Amount::from(v))))
+                .map(|v| format_zec(v.into()))
                 .as_ref()
                 .map(|s| s.as_str())
                 .unwrap_or("Unknown"),

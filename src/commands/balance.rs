@@ -5,7 +5,7 @@ use zcash_client_backend::data_api::WalletRead;
 use zcash_client_sqlite::WalletDb;
 use zcash_primitives::{consensus::Parameters, zip32::AccountId};
 
-use crate::{data::get_db_paths, error, MIN_CONFIRMATIONS};
+use crate::{data::get_db_paths, error, ui::format_zec, MIN_CONFIRMATIONS};
 
 // Options accepted for the `balance` command
 #[derive(Debug, Options)]
@@ -38,8 +38,8 @@ impl Command {
 
         println!("{}", address.encode(&params));
         println!("  Height:   {}", height);
-        println!("  Balance:  {} zatoshis", u64::from(balance));
-        println!("  Verified: {} zatoshis", u64::from(verified_balance));
+        println!("  Balance:  {}", format_zec(balance));
+        println!("  Verified: {}", format_zec(verified_balance));
 
         Ok(())
     }
