@@ -4,6 +4,7 @@
 //! It is only intended to show the overall light client workflow using this crate.
 
 use std::env;
+use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use gumdrop::Options;
@@ -16,7 +17,7 @@ mod error;
 mod remote;
 mod ui;
 
-const MIN_CONFIRMATIONS: u32 = 3;
+const MIN_CONFIRMATIONS: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(3) };
 
 #[derive(Debug, Options)]
 struct MyOptions {

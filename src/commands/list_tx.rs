@@ -125,7 +125,7 @@ impl Transaction {
         println!(
             "  Fee paid: {}",
             self.fee_paid
-                .map(|v| format_zec(v.into()))
+                .map(format_zec)
                 .as_ref()
                 .map(|s| s.as_str())
                 .unwrap_or("Unknown"),

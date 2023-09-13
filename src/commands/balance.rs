@@ -24,22 +24,30 @@ impl Command {
         let address = db_data
             .get_current_address(account)?
             .ok_or(error::Error::InvalidRecipient)?;
-        let (height, balance, verified_balance) = {
-            let (target_height, anchor_height) = db_data
-                .get_target_and_anchor_heights(MIN_CONFIRMATIONS)?
-                .ok_or(error::WalletErrorT::ScanRequired)
-                .map_err(|e| anyhow!("{:?}", e))?;
-            (
-                target_height,
-                db_data.get_balance_at(account, target_height)?,
-                db_data.get_balance_at(account, anchor_height)?,
-            )
-        };
 
-        println!("{}", address.encode(&params));
-        println!("  Height:   {}", height);
-        println!("  Balance:  {}", format_zec(balance));
-        println!("  Verified: {}", format_zec(verified_balance));
+        if let Some(wallet_summary) = db_data.get_wallet_summary(MIN_CONFIRMATIONS.into())? {
+            let balance = wallet_summary
+                .account_balances()
+                .get(&account)
+                .ok_or_else(|| anyhow!("Missing account 0"))?;
+
+            println!("{:#?}", wallet_summary);
+            println!("{}", address.encode(&params));
+            println!("     Height: {}", wallet_summary.chain_tip_height());
+            if let Some(progress) = wallet_summary.scan_progress() {
+                println!(
+                    "     Synced: {:0.3}%",
+                    (*progress.numerator() as f64) * 100f64 / (*progress.denominator() as f64)
+                );
+            }
+            println!("    Balance: {}", format_zec(balance.total()));
+            println!(
+                "  Spendable: {}",
+                format_zec(balance.sapling_balance.spendable_value)
+            );
+        } else {
+            println!("Insufficient information to build a wallet summary.");
+        }
 
         Ok(())
     }

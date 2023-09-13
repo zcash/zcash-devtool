@@ -1,15 +1,25 @@
 use std::fmt;
 
 use zcash_client_backend::{
-    data_api::{error::Error as WalletError, wallet::input_selection::GreedyInputSelectorError},
+    data_api::{
+        error::Error as WalletError, wallet::input_selection::GreedyInputSelectorError,
+        BirthdayError,
+    },
     keys::DerivationError,
     zip321::Zip321Error,
 };
-use zcash_client_sqlite::{error::SqliteClientError, FsBlockDbError, NoteId};
+use zcash_client_sqlite::{
+    error::SqliteClientError, wallet::commitment_tree, FsBlockDbError, ReceivedNoteId,
+};
 use zcash_primitives::transaction::fees::zip317::FeeError;
 
-pub(crate) type WalletErrorT =
-    WalletError<SqliteClientError, GreedyInputSelectorError<FeeError, NoteId>, FeeError, NoteId>;
+pub(crate) type WalletErrorT = WalletError<
+    SqliteClientError,
+    commitment_tree::Error,
+    GreedyInputSelectorError<FeeError, ReceivedNoteId>,
+    FeeError,
+    ReceivedNoteId,
+>;
 
 #[derive(Debug)]
 pub enum Error {
@@ -18,6 +28,7 @@ pub enum Error {
     InvalidAmount,
     InvalidRecipient,
     InvalidKeysFile,
+    InvalidTreeState,
     MissingParameters,
     SendFailed { code: i32, reason: String },
     Wallet(WalletErrorT),
@@ -32,6 +43,7 @@ impl fmt::Display for Error {
             Error::InvalidAmount => write!(f, "Invalid amount"),
             Error::InvalidRecipient => write!(f, "Invalid recipient"),
             Error::InvalidKeysFile => write!(f, "Invalid keys file"),
+            Error::InvalidTreeState => write!(f, "Invalid TreeState received from server"),
             Error::MissingParameters => write!(f, "Missing proving parameters"),
             Error::SendFailed { code, reason } => write!(f, "Send failed: ({}) {}", code, reason),
             Error::Wallet(e) => e.fmt(f),
@@ -41,6 +53,12 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+impl From<BirthdayError> for Error {
+    fn from(_: BirthdayError) -> Self {
+        Error::InvalidTreeState
+    }
+}
 
 impl From<DerivationError> for Error {
     fn from(e: DerivationError) -> Self {
