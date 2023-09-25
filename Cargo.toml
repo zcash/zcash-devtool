@@ -20,7 +20,7 @@ tokio = { version = "1.21.0", features = ["fs", "macros", "rt-multi-thread"] }
 tonic = { version = "0.10", features = ["gzip", "tls-webpki-roots"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-zcash_client_backend = { version = "=0.10.0-rc.1", features = ["lightwalletd-tonic"] }
-zcash_client_sqlite = { version = "=0.8.0-rc.1", features = ["unstable"] }
-zcash_primitives = "=0.13.0-rc.1"
-zcash_proofs = "=0.13.0-rc.1"
+zcash_client_backend = { version = "0.10", features = ["lightwalletd-tonic"] }
+zcash_client_sqlite = { version = "0.8", features = ["unstable"] }
+zcash_primitives = "0.13"
+zcash_proofs = "0.13"
