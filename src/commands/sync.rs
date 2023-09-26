@@ -4,10 +4,10 @@ use anyhow::anyhow;
 use futures_util::TryStreamExt;
 use gumdrop::Options;
 use prost::Message;
-use tokio::{fs::File, io::AsyncWriteExt};
+use tokio::{fs::File, io::AsyncWriteExt, task::JoinHandle};
 
 use tonic::transport::Channel;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 use zcash_client_backend::{
     data_api::{
         chain::{error::Error as ChainError, scan_cached_blocks, BlockSource, CommitmentTreeRoot},
@@ -65,6 +65,10 @@ impl Command {
             // 5) Get the suggested scan ranges from the wallet database
             let mut scan_ranges = db_data.suggest_scan_ranges()?;
 
+            // Store the handles to cached block deletions (which we spawn into separate
+            // tasks to allow us to continue downloading and scanning other ranges).
+            let mut block_deletions = vec![];
+
             // 6) Run the following loop until the wallet's view of the chain tip as of
             //    the previous wallet session is valid.
             loop {
@@ -74,11 +78,20 @@ impl Command {
                     Some(scan_range) if scan_range.priority() == ScanPriority::Verify => {
                         // Download the blocks in `scan_range` into the block source,
                         // overwriting any existing blocks in this range.
-                        download_blocks(client, fsblockdb_root, db_cache, scan_range).await?;
+                        let block_meta =
+                            download_blocks(client, fsblockdb_root, db_cache, scan_range).await?;
 
-                        // Scan the downloaded blocks and check for scanning errors that indicate that the wallet's chain tip
-                        // is out of sync with blockchain history.
-                        if scan_blocks(params, fsblockdb_root, db_cache, db_data, scan_range)? {
+                        // Scan the downloaded blocks and check for scanning errors that
+                        // indicate the wallet's chain tip is out of sync with blockchain
+                        // history.
+                        let scan_ranges_updated =
+                            scan_blocks(params, fsblockdb_root, db_cache, db_data, scan_range)?;
+
+                        // Delete the now-scanned blocks, because keeping the entire chain
+                        // in CompactBlock files on disk is horrendous for the filesystem.
+                        block_deletions.push(delete_cached_blocks(fsblockdb_root, block_meta));
+
+                        if scan_ranges_updated {
                             // The suggested scan ranges have been updated, so we re-request.
                             scan_ranges = db_data.suggest_scan_ranges()?;
                         } else {
@@ -120,16 +133,31 @@ impl Command {
                 })
             }) {
                 // Download the blocks in `scan_range` into the block source.
-                download_blocks(client, fsblockdb_root, db_cache, &scan_range).await?;
+                let block_meta =
+                    download_blocks(client, fsblockdb_root, db_cache, &scan_range).await?;
 
                 // Scan the downloaded blocks.
-                if scan_blocks(params, fsblockdb_root, db_cache, db_data, &scan_range)? {
+                let scan_ranges_updated =
+                    scan_blocks(params, fsblockdb_root, db_cache, db_data, &scan_range)?;
+
+                // Delete the now-scanned blocks.
+                block_deletions.push(delete_cached_blocks(fsblockdb_root, block_meta));
+
+                if scan_ranges_updated {
                     // The suggested scan ranges have been updated (either due to a continuity
                     // error or because a higher priority range has been added).
+                    info!("Waiting for cached blocks to be deleted...");
+                    for deletion in block_deletions {
+                        deletion.await?;
+                    }
                     return Ok(true);
                 }
             }
 
+            info!("Waiting for cached blocks to be deleted...");
+            for deletion in block_deletions {
+                deletion.await?;
+            }
             Ok(false)
         }
 
@@ -200,7 +228,7 @@ async fn download_blocks(
     fsblockdb_root: &Path,
     db_cache: &FsBlockDb,
     scan_range: &ScanRange,
-) -> Result<(), anyhow::Error> {
+) -> Result<Vec<BlockMeta>, anyhow::Error> {
     info!("Fetching {}", scan_range);
     let mut start = service::BlockId::default();
     start.height = scan_range.block_range().start.into();
@@ -245,7 +273,18 @@ async fn download_blocks(
         .write_block_metadata(&block_meta)
         .map_err(error::Error::from)?;
 
-    Ok(())
+    Ok(block_meta)
+}
+
+fn delete_cached_blocks(fsblockdb_root: &Path, block_meta: Vec<BlockMeta>) -> JoinHandle<()> {
+    let fsblockdb_root = fsblockdb_root.to_owned();
+    tokio::spawn(async move {
+        for meta in block_meta {
+            if let Err(e) = tokio::fs::remove_file(get_block_path(&fsblockdb_root, &meta)).await {
+                error!("Failed to remove {:?}: {}", meta, e);
+            }
+        }
+    })
 }
 
 /// Scans the given block range and checks for scanning errors that indicate the wallet's
