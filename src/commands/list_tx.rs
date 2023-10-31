@@ -4,7 +4,10 @@ use gumdrop::Options;
 use rusqlite::{named_params, Connection};
 use zcash_primitives::{
     consensus::BlockHeight,
-    transaction::{components::amount::NonNegativeAmount, TxId},
+    transaction::{
+        components::{amount::NonNegativeAmount, Amount},
+        TxId,
+    },
 };
 
 use crate::{data::get_db_paths, ui::format_zec};
@@ -24,6 +27,7 @@ impl Command {
             "SELECT mined_height,
                 txid,
                 expiry_height,
+                account_balance_delta,
                 fee_paid,
                 sent_note_count,
                 received_note_count,
@@ -38,7 +42,7 @@ impl Command {
         for row in stmt_txs.query_and_then(
             named_params! {":account_id": 0},
             |row| -> anyhow::Result<_> {
-                Transaction::from_parts(
+                WalletTx::from_parts(
                     row.get(0)?,
                     row.get(1)?,
                     row.get(2)?,
@@ -48,6 +52,7 @@ impl Command {
                     row.get(6)?,
                     row.get(7)?,
                     row.get(8)?,
+                    row.get(9)?,
                 )
             },
         )? {
@@ -60,10 +65,11 @@ impl Command {
     }
 }
 
-struct Transaction {
+struct WalletTx {
     mined_height: Option<BlockHeight>,
     txid: TxId,
     expiry_height: Option<BlockHeight>,
+    account_balance_delta: Amount,
     fee_paid: Option<NonNegativeAmount>,
     sent_note_count: usize,
     received_note_count: usize,
@@ -72,11 +78,12 @@ struct Transaction {
     expired_unmined: bool,
 }
 
-impl Transaction {
+impl WalletTx {
     fn from_parts(
         mined_height: Option<u32>,
         txid: Vec<u8>,
         expiry_height: Option<u32>,
+        account_balance_delta: i64,
         fee_paid: Option<u64>,
         sent_note_count: usize,
         received_note_count: usize,
@@ -84,10 +91,12 @@ impl Transaction {
         block_time: Option<i64>,
         expired_unmined: bool,
     ) -> anyhow::Result<Self> {
-        Ok(Transaction {
+        Ok(WalletTx {
             mined_height: mined_height.map(BlockHeight::from_u32),
             txid: TxId::from_bytes(txid.try_into().map_err(|_| anyhow!("Invalid TxId"))?),
             expiry_height: expiry_height.map(BlockHeight::from_u32),
+            account_balance_delta: Amount::from_i64(account_balance_delta)
+                .map_err(|()| anyhow!("Amount out of range"))?,
             fee_paid: fee_paid
                 .map(|v| NonNegativeAmount::from_u64(v).map_err(|()| anyhow!("Fee out of range")))
                 .transpose()?,
@@ -122,6 +131,7 @@ impl Transaction {
                 height_to_str(self.expiry_height, "Unknown"),
             );
         }
+        println!("    Amount: {}", format_zec(self.account_balance_delta));
         println!(
             "  Fee paid: {}",
             self.fee_paid
