@@ -3,9 +3,10 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 use secrecy::{SecretVec, Zeroize};
+use tracing::error;
 
 use zcash_client_sqlite::chain::BlockMeta;
-use zcash_primitives::zip339::Mnemonic;
+use zcash_primitives::{consensus::BlockHeight, zip339::Mnemonic};
 
 use crate::error;
 
@@ -57,10 +58,18 @@ pub(crate) fn get_keys_file<P: AsRef<Path>>(
 pub(crate) fn get_wallet_seed<P: AsRef<Path>>(
     wallet_dir: Option<P>,
 ) -> Result<SecretVec<u8>, anyhow::Error> {
+    let (seed, _) = get_wallet_seed_and_birthday(wallet_dir)?;
+    Ok(seed)
+}
+
+pub(crate) fn get_wallet_seed_and_birthday<P: AsRef<Path>>(
+    wallet_dir: Option<P>,
+) -> Result<(SecretVec<u8>, BlockHeight), anyhow::Error> {
     let keys_file = get_keys_file(wallet_dir)?;
+    let mut keys_file_lines = keys_file.lines();
+
     let mnemonic = Mnemonic::from_phrase(
-        keys_file
-            .lines()
+        keys_file_lines
             .next()
             .ok_or(error::Error::InvalidKeysFile)??
             .split('#')
@@ -69,25 +78,22 @@ pub(crate) fn get_wallet_seed<P: AsRef<Path>>(
             .trim(),
     )?;
     let mut seed = mnemonic.to_seed("");
-    let secret = seed.to_vec();
+    let secret = SecretVec::new(seed.to_vec());
     seed.zeroize();
-    Ok(SecretVec::new(secret))
-}
 
-// fn get_wallet_birthday<P: AsRef<Path>>(wallet_dir: Option<P>) -> Result<BlockHeight, error::Error> {
-//     let keys_file = get_keys_file(wallet_dir)?;
-//     keys_file
-//         .lines()
-//         .nth(1)
-//         .ok_or(error::Error::InvalidKeysFile)??
-//         .split('#')
-//         .next()
-//         .ok_or(error::Error::InvalidKeysFile)?
-//         .trim()
-//         .parse::<u32>()
-//         .map(BlockHeight::from)
-//         .map_err(|_| error::Error::InvalidKeysFile)
-// }
+    let birthday = keys_file_lines
+        .next()
+        .ok_or(error::Error::InvalidKeysFile)??
+        .split('#')
+        .next()
+        .ok_or(error::Error::InvalidKeysFile)?
+        .trim()
+        .parse::<u32>()
+        .map(BlockHeight::from)
+        .map_err(|_| error::Error::InvalidKeysFile)?;
+
+    Ok((secret, birthday))
+}
 
 pub(crate) fn get_db_paths<P: AsRef<Path>>(wallet_dir: Option<P>) -> (PathBuf, PathBuf) {
     let a = wallet_dir
@@ -102,4 +108,22 @@ pub(crate) fn get_db_paths<P: AsRef<Path>>(wallet_dir: Option<P>) -> (PathBuf, P
 
 pub(crate) fn get_block_path(fsblockdb_root: &Path, meta: &BlockMeta) -> PathBuf {
     meta.block_file_path(&fsblockdb_root.join(BLOCKS_FOLDER))
+}
+
+pub(crate) async fn erase_wallet_state<P: AsRef<Path>>(wallet_dir: Option<P>) {
+    let (fsblockdb_root, db_data) = get_db_paths(wallet_dir);
+    let blocks_meta = fsblockdb_root.join("blockmeta.sqlite");
+    let blocks_folder = fsblockdb_root.join(BLOCKS_FOLDER);
+
+    if let Err(e) = tokio::fs::remove_dir_all(&blocks_folder).await {
+        error!("Failed to remove {:?}: {}", blocks_folder, e);
+    }
+
+    if let Err(e) = tokio::fs::remove_file(&blocks_meta).await {
+        error!("Failed to remove {:?}: {}", blocks_meta, e);
+    }
+
+    if let Err(e) = tokio::fs::remove_file(&db_data).await {
+        error!("Failed to remove {:?}: {}", db_data, e);
+    }
 }
