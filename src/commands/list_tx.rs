@@ -33,9 +33,24 @@ impl Command {
                 received_note_count,
                 memo_count,
                 block_time,
-                expired_unmined
+                expired_unmined,
+                -- Fallback order for transaction history ordering:
+                COALESCE(
+                    -- Block height the transaction was mined at (if mined and known).
+                    mined_height,
+                    -- Expiry height for the transaction (if non-zero, which is always the
+                    -- case for transactions we create).
+                    CASE WHEN expiry_height == 0 THEN NULL ELSE expiry_height END
+                    -- Mempool height (i.e. chain height + 1, so it appears most recently
+                    -- in history). We represent this with NULL.
+                ) AS sort_height
             FROM v_transactions
-            WHERE account_id = :account_id",
+            WHERE account_id = :account_id
+            ORDER BY
+                -- By default, integer ordering places NULL before all values. Flip this
+                -- around so that transactions in the mempool are shown as most recent.
+                CASE WHEN sort_height IS NULL THEN 1 ELSE 0 END,
+                sort_height",
         )?;
 
         println!("Transactions:");
