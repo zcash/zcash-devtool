@@ -36,6 +36,9 @@ enum Command {
     #[options(help = "initialise a new light wallet")]
     Init(commands::init::Command),
 
+    #[options(help = "reset an existing light wallet to its initalised state")]
+    Reset(commands::reset::Command),
+
     #[options(help = "upgrade an existing light wallet")]
     Upgrade(commands::upgrade::Command),
 
@@ -80,6 +83,7 @@ fn main() -> Result<(), anyhow::Error> {
     runtime.block_on(async {
         match opts.command {
             Some(Command::Init(command)) => command.run(params, opts.wallet_dir).await,
+            Some(Command::Reset(command)) => command.run(params, opts.wallet_dir).await,
             Some(Command::Upgrade(command)) => command.run(params, opts.wallet_dir),
             Some(Command::Sync(command)) => command.run(params, opts.wallet_dir).await,
             Some(Command::Balance(command)) => command.run(params, opts.wallet_dir),

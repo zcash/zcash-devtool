@@ -1,9 +1,10 @@
 use gumdrop::Options;
 use secrecy::{SecretVec, Zeroize};
+use tonic::transport::Channel;
 
 use zcash_client_backend::{
     data_api::{AccountBirthday, WalletWrite},
-    proto::service,
+    proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
 };
 use zcash_client_sqlite::{
     chain::init::init_blockmeta_db, wallet::init::init_wallet_db, FsBlockDb, WalletDb,
@@ -61,6 +62,23 @@ impl Command {
         // Save the wallet keys to disk.
         init_wallet_keys(wallet_dir.as_ref(), &mnemonic, birthday)?;
 
+        let seed = {
+            let mut seed = mnemonic.to_seed("");
+            let secret = seed.to_vec();
+            seed.zeroize();
+            SecretVec::new(secret)
+        };
+
+        Self::init_dbs(client, params, wallet_dir, seed, birthday).await
+    }
+
+    pub(crate) async fn init_dbs(
+        mut client: CompactTxStreamerClient<Channel>,
+        params: impl Parameters + 'static,
+        wallet_dir: Option<String>,
+        seed: SecretVec<u8>,
+        birthday: u64,
+    ) -> Result<(), anyhow::Error> {
         // Initialise the block and wallet DBs.
         let (db_cache, db_data) = get_db_paths(wallet_dir);
         let mut db_cache = FsBlockDb::for_path(db_cache).map_err(error::Error::from)?;
@@ -79,12 +97,6 @@ impl Command {
         };
 
         // Add one account.
-        let seed = {
-            let mut seed = mnemonic.to_seed("");
-            let secret = seed.to_vec();
-            seed.zeroize();
-            SecretVec::new(secret)
-        };
         let (account, _) = db_data.create_account(&seed, birthday)?;
         assert_eq!(account, AccountId::from(0));
 
