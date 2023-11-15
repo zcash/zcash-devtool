@@ -261,7 +261,7 @@ async fn download_blocks(
             };
 
             let encoded = block.encode_to_vec();
-            let mut block_file = File::create(get_block_path(&fsblockdb_root, &meta)).await?;
+            let mut block_file = File::create(get_block_path(fsblockdb_root, &meta)).await?;
             block_file.write_all(&encoded).await?;
 
             Ok(meta)
@@ -338,7 +338,7 @@ fn scan_blocks<P: Parameters + Send + 'static>(
                         sapling_outputs_count: 0,
                         orchard_actions_count: 0,
                     };
-                    std::fs::remove_file(get_block_path(&fsblockdb_root, &meta))
+                    std::fs::remove_file(get_block_path(fsblockdb_root, &meta))
                         .map_err(|e| ChainError::<(), _>::BlockSource(FsBlockDbError::Fs(e)))
                 })
                 .map_err(|e| anyhow!("{:?}", e))?;

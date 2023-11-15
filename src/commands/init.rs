@@ -54,7 +54,7 @@ impl Command {
 
         // Parse or create the wallet's mnemonic phrase.
         let mnemonic = if let Some(phrase) = opts.phrase {
-            Mnemonic::from_phrase(&phrase)?
+            Mnemonic::from_phrase(phrase)?
         } else {
             Mnemonic::generate(Count::Words24)
         };
@@ -90,8 +90,10 @@ impl Command {
         let birthday = {
             // Fetch the tree state corresponding to the last block prior to the wallet's
             // birthday height. NOTE: THIS APPROACH LEAKS THE BIRTHDAY TO THE SERVER!
-            let mut request = service::BlockId::default();
-            request.height = birthday - 1;
+            let request = service::BlockId {
+                height: birthday - 1,
+                ..Default::default()
+            };
             let treestate = client.get_tree_state(request).await?.into_inner();
             AccountBirthday::from_treestate(treestate, None).map_err(error::Error::from)?
         };

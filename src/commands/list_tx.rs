@@ -72,7 +72,7 @@ impl Command {
             },
         )? {
             let tx = row?;
-            println!("");
+            println!();
             tx.print();
         }
 
@@ -94,6 +94,7 @@ struct WalletTx {
 }
 
 impl WalletTx {
+    #[allow(clippy::too_many_arguments)]
     fn from_parts(
         mined_height: Option<u32>,
         txid: Vec<u8>,
@@ -151,8 +152,7 @@ impl WalletTx {
             "  Fee paid: {}",
             self.fee_paid
                 .map(format_zec)
-                .as_ref()
-                .map(|s| s.as_str())
+                .as_deref()
                 .unwrap_or("Unknown"),
         );
         println!(

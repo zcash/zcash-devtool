@@ -25,7 +25,7 @@ pub(crate) fn init_wallet_keys<P: AsRef<Path>>(
         .as_ref()
         .map(|p| p.as_ref())
         .unwrap_or(DEFAULT_WALLET_DIR.as_ref());
-    fs::create_dir_all(&wallet_dir)?;
+    fs::create_dir_all(wallet_dir)?;
 
     // Write the mnemonic phrase to disk along with its birthday.
     let mut keys_file = {
