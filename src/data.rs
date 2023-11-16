@@ -6,7 +6,10 @@ use secrecy::{SecretVec, Zeroize};
 use tracing::error;
 
 use zcash_client_sqlite::chain::BlockMeta;
-use zcash_primitives::{consensus::BlockHeight, zip339::Mnemonic};
+use zcash_primitives::{
+    consensus::{self, BlockHeight},
+    zip339::Mnemonic,
+};
 
 use crate::error;
 
@@ -15,10 +18,49 @@ const KEYS_FILE: &str = "keys.txt";
 const BLOCKS_FOLDER: &str = "blocks";
 const DATA_DB: &str = "data.sqlite";
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Network {
+    Test,
+    Main,
+}
+
+impl Default for Network {
+    fn default() -> Self {
+        Network::Test
+    }
+}
+
+impl Network {
+    pub(crate) fn parse(name: &str) -> Result<Network, String> {
+        match name {
+            "main" => Ok(Network::Main),
+            "test" => Ok(Network::Test),
+            other => Err(format!("Unsupported network: {}", other)),
+        }
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        match self {
+            Network::Test => "test",
+            Network::Main => "main",
+        }
+    }
+}
+
+impl From<Network> for consensus::Network {
+    fn from(value: Network) -> Self {
+        match value {
+            Network::Test => consensus::Network::TestNetwork,
+            Network::Main => consensus::Network::MainNetwork,
+        }
+    }
+}
+
 pub(crate) fn init_wallet_keys<P: AsRef<Path>>(
     wallet_dir: Option<P>,
     mnemonic: &Mnemonic,
     birthday: u64,
+    network: Network,
 ) -> Result<(), anyhow::Error> {
     // Create the wallet directory.
     let wallet_dir = wallet_dir
@@ -39,6 +81,7 @@ pub(crate) fn init_wallet_keys<P: AsRef<Path>>(
         mnemonic.phrase()
     )?;
     writeln!(&mut keys_file, "{} # wallet birthday", birthday)?;
+    writeln!(&mut keys_file, "{} # network", network.name())?;
 
     Ok(())
 }
@@ -55,16 +98,37 @@ pub(crate) fn get_keys_file<P: AsRef<Path>>(
     Ok(BufReader::new(File::open(p)?))
 }
 
+pub(crate) struct WalletKeys {
+    network: consensus::Network,
+    seed: SecretVec<u8>,
+    birthday: BlockHeight,
+}
+
+impl WalletKeys {
+    pub(crate) fn seed(&self) -> &SecretVec<u8> {
+        &self.seed
+    }
+
+    pub(crate) fn birthday(&self) -> BlockHeight {
+        self.birthday
+    }
+}
+
+pub(crate) fn get_wallet_network<P: AsRef<Path>>(
+    wallet_dir: Option<P>,
+) -> Result<consensus::Network, anyhow::Error> {
+    Ok(read_keys(wallet_dir)?.network)
+}
+
 pub(crate) fn get_wallet_seed<P: AsRef<Path>>(
     wallet_dir: Option<P>,
 ) -> Result<SecretVec<u8>, anyhow::Error> {
-    let (seed, _) = get_wallet_seed_and_birthday(wallet_dir)?;
-    Ok(seed)
+    Ok(read_keys(wallet_dir)?.seed)
 }
 
-pub(crate) fn get_wallet_seed_and_birthday<P: AsRef<Path>>(
+pub(crate) fn read_keys<P: AsRef<Path>>(
     wallet_dir: Option<P>,
-) -> Result<(SecretVec<u8>, BlockHeight), anyhow::Error> {
+) -> Result<WalletKeys, anyhow::Error> {
     let keys_file = get_keys_file(wallet_dir)?;
     let mut keys_file_lines = keys_file.lines();
 
@@ -77,9 +141,9 @@ pub(crate) fn get_wallet_seed_and_birthday<P: AsRef<Path>>(
             .ok_or(error::Error::InvalidKeysFile)?
             .trim(),
     )?;
-    let mut seed = mnemonic.to_seed("");
-    let secret = SecretVec::new(seed.to_vec());
-    seed.zeroize();
+    let mut seed_bytes = mnemonic.to_seed("");
+    let seed = SecretVec::new(seed_bytes.to_vec());
+    seed_bytes.zeroize();
 
     let birthday = keys_file_lines
         .next()
@@ -92,7 +156,24 @@ pub(crate) fn get_wallet_seed_and_birthday<P: AsRef<Path>>(
         .map(BlockHeight::from)
         .map_err(|_| error::Error::InvalidKeysFile)?;
 
-    Ok((secret, birthday))
+    let network = keys_file_lines.next().transpose()?.map_or_else(
+        || Ok(consensus::Network::TestNetwork),
+        |line| {
+            let network_name = line
+                .split('#')
+                .next()
+                .ok_or(error::Error::InvalidKeysFile)?;
+            Network::parse(network_name.trim())
+                .map(consensus::Network::from)
+                .map_err(|_| error::Error::InvalidKeysFile)
+        },
+    )?;
+
+    Ok(WalletKeys {
+        network,
+        seed,
+        birthday,
+    })
 }
 
 pub(crate) fn get_db_paths<P: AsRef<Path>>(wallet_dir: Option<P>) -> (PathBuf, PathBuf) {
