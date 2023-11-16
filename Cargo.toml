@@ -24,3 +24,9 @@ zcash_client_backend = { version = "0.10", features = ["lightwalletd-tonic"] }
 zcash_client_sqlite = { version = "0.8", features = ["unstable"] }
 zcash_primitives = "0.13"
 zcash_proofs = "0.13"
+
+[patch.crates-io]
+zcash_primitives = { git = "https://github.com/zcash/librustzcash.git", rev = "236cd569ee4a824d98920d1a61b8cc2b90ceba1d" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash.git", rev = "236cd569ee4a824d98920d1a61b8cc2b90ceba1d" }
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash.git", rev = "236cd569ee4a824d98920d1a61b8cc2b90ceba1d" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash.git", rev = "236cd569ee4a824d98920d1a61b8cc2b90ceba1d" }
