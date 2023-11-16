@@ -7,7 +7,7 @@ use zcash_client_backend::{
         wallet::{input_selection::GreedyInputSelector, spend},
         WalletRead,
     },
-    fees::zip317::SingleOutputChangeStrategy,
+    fees::standard::SingleOutputChangeStrategy,
     keys::UnifiedSpendingKey,
     proto::service,
     wallet::OvkPolicy,
@@ -15,13 +15,12 @@ use zcash_client_backend::{
 };
 use zcash_client_sqlite::WalletDb;
 use zcash_primitives::{
-    consensus::Parameters,
-    transaction::{components::Amount, fees::zip317::FeeRule},
-    zip32::AccountId,
+    consensus::Parameters, transaction::components::amount::NonNegativeAmount, zip32::AccountId,
 };
 use zcash_proofs::prover::LocalTxProver;
 
 use crate::{
+    commands::propose::{parse_fee_rule, FeeRule},
     data::{get_db_paths, get_wallet_seed},
     error,
     remote::connect_to_lightwalletd,
@@ -36,6 +35,13 @@ pub(crate) struct Command {
 
     #[options(required, help = "the amount in zatoshis")]
     value: u64,
+
+    #[options(
+        required,
+        help = "fee strategy: \"fixed\" or \"zip317\"",
+        parse(try_from_str = "parse_fee_rule")
+    )]
+    fee_rule: FeeRule,
 }
 
 impl Command {
@@ -59,14 +65,15 @@ impl Command {
         let prover =
             LocalTxProver::with_default_location().ok_or(error::Error::MissingParameters)?;
         let input_selector = GreedyInputSelector::new(
-            SingleOutputChangeStrategy::new(FeeRule::standard()),
+            SingleOutputChangeStrategy::new(self.fee_rule.into(), None),
             Default::default(),
         );
 
         let request = TransactionRequest::new(vec![Payment {
             recipient_address: RecipientAddress::decode(&params, &self.address)
                 .ok_or(error::Error::InvalidRecipient)?,
-            amount: Amount::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
+            amount: NonNegativeAmount::from_u64(self.value)
+                .map_err(|_| error::Error::InvalidAmount)?,
             memo: None,
             label: None,
             message: None,
@@ -77,7 +84,8 @@ impl Command {
         let id_tx = spend(
             &mut db_data,
             &params,
-            prover,
+            &prover,
+            &prover,
             &input_selector,
             &usk,
             request,

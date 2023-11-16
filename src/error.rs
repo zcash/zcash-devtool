@@ -18,7 +18,6 @@ pub(crate) type WalletErrorT = WalletError<
     commitment_tree::Error,
     GreedyInputSelectorError<FeeError, ReceivedNoteId>,
     FeeError,
-    ReceivedNoteId,
 >;
 
 #[derive(Debug)]

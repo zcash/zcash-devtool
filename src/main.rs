@@ -54,6 +54,9 @@ enum Command {
     #[options(help = "list the unspent notes in the wallet")]
     ListUnspent(commands::list_unspent::Command),
 
+    #[options(help = "propose a transfer of funds to the given address and display the proposal")]
+    Propose(commands::propose::Command),
+
     #[options(help = "send funds to the given address")]
     Send(commands::send::Command),
 }
@@ -89,6 +92,7 @@ fn main() -> Result<(), anyhow::Error> {
             Some(Command::Balance(command)) => command.run(params, opts.wallet_dir),
             Some(Command::ListTx(command)) => command.run(opts.wallet_dir),
             Some(Command::ListUnspent(command)) => command.run(params, opts.wallet_dir),
+            Some(Command::Propose(command)) => command.run(params, opts.wallet_dir).await,
             Some(Command::Send(command)) => command.run(params, opts.wallet_dir).await,
             _ => Ok(()),
         }

@@ -1,11 +1,14 @@
 use anyhow::anyhow;
 use gumdrop::Options;
 
-use zcash_client_backend::data_api::WalletRead;
+use zcash_client_backend::data_api::{SaplingInputSource, WalletRead};
 use zcash_client_sqlite::WalletDb;
 use zcash_primitives::{
     consensus::Parameters,
-    transaction::components::amount::{Amount, MAX_MONEY},
+    transaction::components::{
+        amount::{Amount, MAX_MONEY},
+        sapling::fees::InputView,
+    },
     zip32::AccountId,
 };
 
@@ -41,7 +44,7 @@ impl Command {
         )?;
 
         for note in notes {
-            println!("{}: {}", note.note_id, format_zec(note.note_value));
+            println!("{}: {}", note.note_id(), format_zec(note.value()));
         }
 
         Ok(())
