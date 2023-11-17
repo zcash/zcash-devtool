@@ -7,9 +7,8 @@ use std::env;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use data::get_wallet_network;
 use gumdrop::Options;
-
-use zcash_primitives::consensus::TEST_NETWORK;
 
 mod commands;
 mod data;
@@ -81,7 +80,7 @@ fn main() -> Result<(), anyhow::Error> {
         })
         .build()?;
 
-    let params = TEST_NETWORK;
+    let params = get_wallet_network(opts.wallet_dir.as_ref())?;
 
     runtime.block_on(async {
         match opts.command {

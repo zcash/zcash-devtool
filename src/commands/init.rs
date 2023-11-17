@@ -16,9 +16,9 @@ use zcash_primitives::{
 };
 
 use crate::{
-    data::{get_db_paths, init_wallet_keys},
+    data::{get_db_paths, init_wallet_keys, Network},
     error,
-    remote::connect_to_lightwalletd,
+    remote::{connect_to_lightwalletd, Lightwalletd},
 };
 
 // Options accepted for the `init` command
@@ -29,18 +29,24 @@ pub(crate) struct Command {
 
     #[options(help = "the wallet's birthday (default is current chain height)")]
     birthday: Option<u64>,
+
+    #[options(
+        help = "the network the wallet will be used with: \"test\" or \"main\" (default is \"test\")",
+        parse(try_from_str = "Network::parse")
+    )]
+    network: Network,
 }
 
 impl Command {
     pub(crate) async fn run(
         self,
-        params: impl Parameters + 'static,
+        params: impl Parameters + Lightwalletd + 'static,
         wallet_dir: Option<String>,
     ) -> Result<(), anyhow::Error> {
         let opts = self;
 
         // Get the current chain height (for the wallet's birthday).
-        let mut client = connect_to_lightwalletd().await?;
+        let mut client = connect_to_lightwalletd(&params).await?;
         let birthday = if let Some(birthday) = opts.birthday {
             birthday
         } else {
@@ -60,7 +66,7 @@ impl Command {
         };
 
         // Save the wallet keys to disk.
-        init_wallet_keys(wallet_dir.as_ref(), &mnemonic, birthday)?;
+        init_wallet_keys(wallet_dir.as_ref(), &mnemonic, birthday, opts.network)?;
 
         let seed = {
             let mut seed = mnemonic.to_seed("");
@@ -69,14 +75,14 @@ impl Command {
             SecretVec::new(secret)
         };
 
-        Self::init_dbs(client, params, wallet_dir, seed, birthday).await
+        Self::init_dbs(client, params, wallet_dir, &seed, birthday).await
     }
 
     pub(crate) async fn init_dbs(
         mut client: CompactTxStreamerClient<Channel>,
         params: impl Parameters + 'static,
         wallet_dir: Option<String>,
-        seed: SecretVec<u8>,
+        seed: &SecretVec<u8>,
         birthday: u64,
     ) -> Result<(), anyhow::Error> {
         // Initialise the block and wallet DBs.
@@ -99,7 +105,7 @@ impl Command {
         };
 
         // Add one account.
-        let (account, _) = db_data.create_account(&seed, birthday)?;
+        let (account, _) = db_data.create_account(seed, birthday)?;
         assert_eq!(account, AccountId::from(0));
 
         Ok(())

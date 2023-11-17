@@ -23,7 +23,7 @@ use crate::{
     commands::propose::{parse_fee_rule, FeeRule},
     data::{get_db_paths, get_wallet_seed},
     error,
-    remote::connect_to_lightwalletd,
+    remote::{connect_to_lightwalletd, Lightwalletd},
     MIN_CONFIRMATIONS,
 };
 
@@ -47,7 +47,7 @@ pub(crate) struct Command {
 impl Command {
     pub(crate) async fn run(
         self,
-        params: impl Parameters + Copy + 'static,
+        params: impl Parameters + Lightwalletd + Copy + 'static,
         wallet_dir: Option<String>,
     ) -> Result<(), anyhow::Error> {
         let account = AccountId::from(0);
@@ -58,7 +58,7 @@ impl Command {
         let usk = UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account)
             .map_err(error::Error::from)?;
 
-        let mut client = connect_to_lightwalletd().await?;
+        let mut client = connect_to_lightwalletd(&params).await?;
 
         // Create the transaction.
         println!("Creating transaction...");

@@ -26,7 +26,7 @@ use zcash_primitives::{
 use crate::{
     data::{get_block_path, get_db_paths},
     error,
-    remote::connect_to_lightwalletd,
+    remote::{connect_to_lightwalletd, Lightwalletd},
 };
 
 const BATCH_SIZE: u32 = 10_000;
@@ -38,14 +38,14 @@ pub(crate) struct Command {}
 impl Command {
     pub(crate) async fn run(
         self,
-        params: impl Parameters + Copy + Send + 'static,
+        params: impl Parameters + Lightwalletd + Copy + Send + 'static,
         wallet_dir: Option<String>,
     ) -> Result<(), anyhow::Error> {
         let (fsblockdb_root, db_data) = get_db_paths(wallet_dir.as_ref());
         let fsblockdb_root = fsblockdb_root.as_path();
         let mut db_cache = FsBlockDb::for_path(fsblockdb_root).map_err(error::Error::from)?;
         let mut db_data = WalletDb::for_path(db_data, params)?;
-        let mut client = connect_to_lightwalletd().await?;
+        let mut client = connect_to_lightwalletd(&params).await?;
 
         // 1) Download note commitment tree data from lightwalletd
         // 2) Pass the commitment tree data to the database.
