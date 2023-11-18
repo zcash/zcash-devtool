@@ -3,20 +3,23 @@ use gumdrop::Options;
 
 use zcash_client_backend::data_api::WalletRead;
 use zcash_client_sqlite::WalletDb;
-use zcash_primitives::{consensus::Parameters, zip32::AccountId};
+use zcash_primitives::zip32::AccountId;
 
-use crate::{data::get_db_paths, error, ui::format_zec, MIN_CONFIRMATIONS};
+use crate::{
+    data::{get_db_paths, get_wallet_network},
+    error,
+    ui::format_zec,
+    MIN_CONFIRMATIONS,
+};
 
 // Options accepted for the `balance` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {}
 
 impl Command {
-    pub(crate) fn run(
-        self,
-        params: impl Parameters + Copy + 'static,
-        wallet_dir: Option<String>,
-    ) -> Result<(), anyhow::Error> {
+    pub(crate) fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+        let params = get_wallet_network(wallet_dir.as_ref())?;
+
         let account = AccountId::from(0);
         let (_, db_data) = get_db_paths(wallet_dir);
         let db_data = WalletDb::for_path(db_data, params)?;

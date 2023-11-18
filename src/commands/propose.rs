@@ -8,12 +8,14 @@ use zcash_client_backend::{
 };
 use zcash_client_sqlite::WalletDb;
 use zcash_primitives::{
-    consensus::Parameters,
     transaction::{components::amount::NonNegativeAmount, fees::StandardFeeRule},
     zip32::AccountId,
 };
 
-use crate::{data::get_db_paths, error, MIN_CONFIRMATIONS};
+use crate::{
+    data::{get_db_paths, get_wallet_network},
+    error, MIN_CONFIRMATIONS,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum FeeRule {
@@ -66,11 +68,9 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run(
-        self,
-        params: impl Parameters + Copy + 'static,
-        wallet_dir: Option<String>,
-    ) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+        let params = get_wallet_network(wallet_dir.as_ref())?;
+
         let account = AccountId::from(0);
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;

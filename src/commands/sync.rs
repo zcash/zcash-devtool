@@ -24,9 +24,9 @@ use zcash_primitives::{
 };
 
 use crate::{
-    data::{get_block_path, get_db_paths},
+    data::{get_block_path, get_db_paths, get_wallet_network},
     error,
-    remote::{connect_to_lightwalletd, Lightwalletd},
+    remote::connect_to_lightwalletd,
 };
 
 const BATCH_SIZE: u32 = 10_000;
@@ -36,11 +36,9 @@ const BATCH_SIZE: u32 = 10_000;
 pub(crate) struct Command {}
 
 impl Command {
-    pub(crate) async fn run(
-        self,
-        params: impl Parameters + Lightwalletd + Copy + Send + 'static,
-        wallet_dir: Option<String>,
-    ) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+        let params = get_wallet_network(wallet_dir.as_ref())?;
+
         let (fsblockdb_root, db_data) = get_db_paths(wallet_dir.as_ref());
         let fsblockdb_root = fsblockdb_root.as_path();
         let mut db_cache = FsBlockDb::for_path(fsblockdb_root).map_err(error::Error::from)?;

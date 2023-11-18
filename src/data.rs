@@ -105,6 +105,10 @@ pub(crate) struct WalletKeys {
 }
 
 impl WalletKeys {
+    pub(crate) fn network(&self) -> consensus::Network {
+        self.network
+    }
+
     pub(crate) fn seed(&self) -> &SecretVec<u8> {
         &self.seed
     }

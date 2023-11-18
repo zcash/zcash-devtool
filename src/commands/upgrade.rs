@@ -5,10 +5,9 @@ use zcash_client_sqlite::{
     wallet::init::{init_wallet_db, WalletMigrationError},
     FsBlockDb, WalletDb,
 };
-use zcash_primitives::consensus::Parameters;
 
 use crate::{
-    data::{get_db_paths, get_wallet_seed},
+    data::{get_db_paths, get_wallet_network, get_wallet_seed},
     error,
 };
 
@@ -17,11 +16,9 @@ use crate::{
 pub(crate) struct Command {}
 
 impl Command {
-    pub(crate) fn run(
-        self,
-        params: impl Parameters + 'static,
-        wallet_dir: Option<String>,
-    ) -> Result<(), anyhow::Error> {
+    pub(crate) fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+        let params = get_wallet_network(wallet_dir.as_ref())?;
+
         let (fsblockdb_root, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_cache = FsBlockDb::for_path(fsblockdb_root).map_err(error::Error::from)?;
         let mut db_data = WalletDb::for_path(db_data, params)?;

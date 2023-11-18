@@ -10,7 +10,7 @@ use zcash_client_sqlite::{
     chain::init::init_blockmeta_db, wallet::init::init_wallet_db, FsBlockDb, WalletDb,
 };
 use zcash_primitives::{
-    consensus::Parameters,
+    consensus::{self, Parameters},
     zip32::AccountId,
     zip339::{Count, Mnemonic},
 };
@@ -18,7 +18,7 @@ use zcash_primitives::{
 use crate::{
     data::{get_db_paths, init_wallet_keys, Network},
     error,
-    remote::{connect_to_lightwalletd, Lightwalletd},
+    remote::connect_to_lightwalletd,
 };
 
 // Options accepted for the `init` command
@@ -38,12 +38,9 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run(
-        self,
-        params: impl Parameters + Lightwalletd + 'static,
-        wallet_dir: Option<String>,
-    ) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
         let opts = self;
+        let params = consensus::Network::from(opts.network);
 
         // Get the current chain height (for the wallet's birthday).
         let mut client = connect_to_lightwalletd(&params).await?;
