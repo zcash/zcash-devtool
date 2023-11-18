@@ -14,16 +14,14 @@ use zcash_client_backend::{
     zip321::{Payment, TransactionRequest},
 };
 use zcash_client_sqlite::WalletDb;
-use zcash_primitives::{
-    consensus::Parameters, transaction::components::amount::NonNegativeAmount, zip32::AccountId,
-};
+use zcash_primitives::{transaction::components::amount::NonNegativeAmount, zip32::AccountId};
 use zcash_proofs::prover::LocalTxProver;
 
 use crate::{
     commands::propose::{parse_fee_rule, FeeRule},
-    data::{get_db_paths, get_wallet_seed},
+    data::{get_db_paths, read_keys},
     error,
-    remote::{connect_to_lightwalletd, Lightwalletd},
+    remote::connect_to_lightwalletd,
     MIN_CONFIRMATIONS,
 };
 
@@ -45,17 +43,15 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run(
-        self,
-        params: impl Parameters + Lightwalletd + Copy + 'static,
-        wallet_dir: Option<String>,
-    ) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+        let keys = read_keys(wallet_dir.as_ref())?;
+        let params = keys.network();
+
         let account = AccountId::from(0);
-        let (_, db_data) = get_db_paths(wallet_dir.as_ref());
+        let (_, db_data) = get_db_paths(wallet_dir);
         let mut db_data = WalletDb::for_path(db_data, params)?;
 
-        let seed = get_wallet_seed(wallet_dir)?;
-        let usk = UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account)
+        let usk = UnifiedSpendingKey::from_seed(&params, keys.seed().expose_secret(), account)
             .map_err(error::Error::from)?;
 
         let mut client = connect_to_lightwalletd(&params).await?;
