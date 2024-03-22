@@ -1,16 +1,18 @@
+use anyhow::anyhow;
 use gumdrop::Options;
 
 use zcash_client_backend::{
-    address::RecipientAddress,
-    data_api::wallet::{input_selection::GreedyInputSelector, propose_transfer},
+    data_api::{
+        wallet::{input_selection::GreedyInputSelector, propose_transfer},
+        WalletRead,
+    },
     fees::standard::SingleOutputChangeStrategy,
     zip321::{Payment, TransactionRequest},
+    ShieldedProtocol,
 };
 use zcash_client_sqlite::WalletDb;
-use zcash_primitives::{
-    transaction::{components::amount::NonNegativeAmount, fees::StandardFeeRule},
-    zip32::AccountId,
-};
+use zcash_keys::address::Address;
+use zcash_primitives::transaction::{components::amount::NonNegativeAmount, fees::StandardFeeRule};
 
 use crate::{
     data::{get_db_paths, get_wallet_network},
@@ -71,17 +73,20 @@ impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
-        let account = AccountId::from(0);
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
+        let account = *db_data
+            .get_account_ids()?
+            .first()
+            .ok_or_else(|| anyhow!("Wallet has no accounts."))?;
 
         let input_selector = GreedyInputSelector::new(
-            SingleOutputChangeStrategy::new(self.fee_rule.into(), None),
+            SingleOutputChangeStrategy::new(self.fee_rule.into(), None, ShieldedProtocol::Orchard),
             Default::default(),
         );
 
         let request = TransactionRequest::new(vec![Payment {
-            recipient_address: RecipientAddress::decode(&params, &self.address)
+            recipient_address: Address::decode(&params, &self.address)
                 .ok_or(error::Error::InvalidRecipient)?,
             amount: NonNegativeAmount::from_u64(self.value)
                 .map_err(|_| error::Error::InvalidAmount)?,

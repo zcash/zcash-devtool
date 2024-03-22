@@ -1,21 +1,24 @@
+#![allow(deprecated)]
+use anyhow::anyhow;
 use gumdrop::Options;
 use secrecy::ExposeSecret;
 
 use zcash_client_backend::{
-    address::RecipientAddress,
     data_api::{
         wallet::{input_selection::GreedyInputSelector, spend},
-        WalletRead,
+        Account, AccountSource, WalletRead,
     },
     fees::standard::SingleOutputChangeStrategy,
     keys::UnifiedSpendingKey,
     proto::service,
     wallet::OvkPolicy,
     zip321::{Payment, TransactionRequest},
+    ShieldedProtocol,
 };
 use zcash_client_sqlite::WalletDb;
-use zcash_primitives::{transaction::components::amount::NonNegativeAmount, zip32::AccountId};
+use zcash_keys::address::Address;
 use zcash_proofs::prover::LocalTxProver;
+use zcash_protocol::value::Zatoshis;
 
 use crate::{
     commands::propose::{parse_fee_rule, FeeRule},
@@ -28,7 +31,10 @@ use crate::{
 // Options accepted for the `send` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(required, help = "the recipient's Sapling or transparent address")]
+    #[options(
+        required,
+        help = "the recipient's Unified, Sapling or transparent address"
+    )]
     address: String,
 
     #[options(required, help = "the amount in zatoshis")]
@@ -47,12 +53,23 @@ impl Command {
         let keys = read_keys(wallet_dir.as_ref())?;
         let params = keys.network();
 
-        let account = AccountId::from(0);
         let (_, db_data) = get_db_paths(wallet_dir);
         let mut db_data = WalletDb::for_path(db_data, params)?;
+        let account_id = *db_data
+            .get_account_ids()?
+            .first()
+            .ok_or(anyhow!("Wallet has no accounts"))?;
+        let account = db_data
+            .get_account(account_id)?
+            .ok_or(anyhow!("Account missing: {:?}", account_id))?;
+        let account_index = match account.source() {
+            AccountSource::Derived { account_index, .. } => account_index,
+            AccountSource::Imported => unreachable!("Imported accounts are not yet supported."),
+        };
 
-        let usk = UnifiedSpendingKey::from_seed(&params, keys.seed().expose_secret(), account)
-            .map_err(error::Error::from)?;
+        let usk =
+            UnifiedSpendingKey::from_seed(&params, keys.seed().expose_secret(), account_index)
+                .map_err(error::Error::from)?;
 
         let mut client = connect_to_lightwalletd(&params).await?;
 
@@ -61,15 +78,14 @@ impl Command {
         let prover =
             LocalTxProver::with_default_location().ok_or(error::Error::MissingParameters)?;
         let input_selector = GreedyInputSelector::new(
-            SingleOutputChangeStrategy::new(self.fee_rule.into(), None),
+            SingleOutputChangeStrategy::new(self.fee_rule.into(), None, ShieldedProtocol::Orchard),
             Default::default(),
         );
 
         let request = TransactionRequest::new(vec![Payment {
-            recipient_address: RecipientAddress::decode(&params, &self.address)
+            recipient_address: Address::decode(&params, &self.address)
                 .ok_or(error::Error::InvalidRecipient)?,
-            amount: NonNegativeAmount::from_u64(self.value)
-                .map_err(|_| error::Error::InvalidAmount)?,
+            amount: Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
             memo: None,
             label: None,
             message: None,
@@ -77,7 +93,7 @@ impl Command {
         }])
         .map_err(error::Error::from)?;
 
-        let id_tx = spend(
+        let txids = spend(
             &mut db_data,
             &params,
             &prover,
@@ -90,13 +106,24 @@ impl Command {
         )
         .map_err(error::Error::from)?;
 
+        if txids.len() > 1 {
+            return Err(anyhow!(
+                "Multi-transaction proposals are not yet supported."
+            ));
+        }
+
+        let txid = *txids.first();
+
         // Send the transaction.
         println!("Sending transaction...");
-        let (txid, raw_tx) = db_data.get_transaction(id_tx).map(|tx| {
-            let mut raw_tx = service::RawTransaction::default();
-            tx.write(&mut raw_tx.data).unwrap();
-            (tx.txid(), raw_tx)
-        })?;
+        let (txid, raw_tx) = db_data
+            .get_transaction(txid)?
+            .map(|tx| {
+                let mut raw_tx = service::RawTransaction::default();
+                tx.write(&mut raw_tx.data).unwrap();
+                (tx.txid(), raw_tx)
+            })
+            .ok_or(anyhow!("Transaction not found for id {:?}", txid))?;
         let response = client.send_transaction(raw_tx).await?.into_inner();
 
         if response.error_code != 0 {

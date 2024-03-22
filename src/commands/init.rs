@@ -11,7 +11,6 @@ use zcash_client_sqlite::{
 };
 use zcash_primitives::{
     consensus::{self, Parameters},
-    zip32::AccountId,
     zip339::{Count, Mnemonic},
 };
 
@@ -102,8 +101,7 @@ impl Command {
         };
 
         // Add one account.
-        let (account, _) = db_data.create_account(seed, birthday)?;
-        assert_eq!(account, AccountId::from(0));
+        db_data.create_account(seed, &birthday)?;
 
         Ok(())
     }

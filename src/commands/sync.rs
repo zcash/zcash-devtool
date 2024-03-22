@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::anyhow;
 use futures_util::TryStreamExt;
 use gumdrop::Options;
+use orchard::tree::MerkleHashOrchard;
 use prost::Message;
 use tokio::{fs::File, io::AsyncWriteExt, task::JoinHandle};
 
@@ -10,18 +11,18 @@ use tonic::transport::Channel;
 use tracing::{debug, error, info};
 use zcash_client_backend::{
     data_api::{
-        chain::{error::Error as ChainError, scan_cached_blocks, BlockSource, CommitmentTreeRoot},
+        chain::{
+            error::Error as ChainError, scan_cached_blocks, BlockSource, ChainState,
+            CommitmentTreeRoot,
+        },
         scanning::{ScanPriority, ScanRange},
         WalletCommitmentTrees, WalletRead, WalletWrite,
     },
-    proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
+    proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient, BlockId},
 };
 use zcash_client_sqlite::{chain::BlockMeta, FsBlockDb, FsBlockDbError, WalletDb};
-use zcash_primitives::{
-    consensus::{BlockHeight, Parameters},
-    merkle_tree::HashSer,
-    sapling,
-};
+use zcash_primitives::merkle_tree::HashSer;
+use zcash_protocol::consensus::{BlockHeight, Parameters};
 
 use crate::{
     data::{get_block_path, get_db_paths, get_wallet_network},
@@ -79,11 +80,21 @@ impl Command {
                         let block_meta =
                             download_blocks(client, fsblockdb_root, db_cache, scan_range).await?;
 
+                        let chain_state =
+                            download_chain_state(client, scan_range.block_range().start - 1)
+                                .await?;
+
                         // Scan the downloaded blocks and check for scanning errors that
                         // indicate the wallet's chain tip is out of sync with blockchain
                         // history.
-                        let scan_ranges_updated =
-                            scan_blocks(params, fsblockdb_root, db_cache, db_data, scan_range)?;
+                        let scan_ranges_updated = scan_blocks(
+                            params,
+                            fsblockdb_root,
+                            db_cache,
+                            db_data,
+                            &chain_state,
+                            scan_range,
+                        )?;
 
                         // Delete the now-scanned blocks, because keeping the entire chain
                         // in CompactBlock files on disk is horrendous for the filesystem.
@@ -134,9 +145,18 @@ impl Command {
                 let block_meta =
                     download_blocks(client, fsblockdb_root, db_cache, &scan_range).await?;
 
+                let chain_state =
+                    download_chain_state(client, scan_range.block_range().start - 1).await?;
+
                 // Scan the downloaded blocks.
-                let scan_ranges_updated =
-                    scan_blocks(params, fsblockdb_root, db_cache, db_data, &scan_range)?;
+                let scan_ranges_updated = scan_blocks(
+                    params,
+                    fsblockdb_root,
+                    db_cache,
+                    db_data,
+                    &chain_state,
+                    &scan_range,
+                )?;
 
                 // Delete the now-scanned blocks.
                 block_deletions.push(delete_cached_blocks(fsblockdb_root, block_meta));
@@ -181,8 +201,7 @@ async fn update_subtree_roots<P: Parameters>(
     request.set_shielded_protocol(service::ShieldedProtocol::Sapling);
     // Hack to work around a bug in the initial lightwalletd implementation.
     request.max_entries = 65536;
-
-    let roots: Vec<CommitmentTreeRoot<sapling::Node>> = client
+    let sapling_roots: Vec<CommitmentTreeRoot<sapling::Node>> = client
         .get_subtree_roots(request)
         .await?
         .into_inner()
@@ -196,8 +215,29 @@ async fn update_subtree_roots<P: Parameters>(
         .try_collect()
         .await?;
 
-    info!("Sapling tree has {} subtrees", roots.len());
-    db_data.put_sapling_subtree_roots(0, &roots)?;
+    info!("Sapling tree has {} subtrees", sapling_roots.len());
+    db_data.put_sapling_subtree_roots(0, &sapling_roots)?;
+
+    let mut request = service::GetSubtreeRootsArg::default();
+    request.set_shielded_protocol(service::ShieldedProtocol::Orchard);
+    // Hack to work around a bug in the initial lightwalletd implementation.
+    request.max_entries = 65536;
+    let orchard_roots: Vec<CommitmentTreeRoot<MerkleHashOrchard>> = client
+        .get_subtree_roots(request)
+        .await?
+        .into_inner()
+        .and_then(|root| async move {
+            let root_hash = MerkleHashOrchard::read(&root.root_hash[..])?;
+            Ok(CommitmentTreeRoot::from_parts(
+                BlockHeight::from_u32(root.completing_block_height as u32),
+                root_hash,
+            ))
+        })
+        .try_collect()
+        .await?;
+
+    info!("Orchard tree has {} subtrees", orchard_roots.len());
+    db_data.put_orchard_subtree_roots(0, &orchard_roots)?;
 
     Ok(())
 }
@@ -274,6 +314,20 @@ async fn download_blocks(
     Ok(block_meta)
 }
 
+async fn download_chain_state(
+    client: &mut CompactTxStreamerClient<Channel>,
+    block_height: BlockHeight,
+) -> Result<ChainState, anyhow::Error> {
+    let tree_state = client
+        .get_tree_state(BlockId {
+            height: block_height.into(),
+            hash: vec![],
+        })
+        .await?;
+
+    Ok(tree_state.into_inner().to_chain_state()?)
+}
+
 fn delete_cached_blocks(fsblockdb_root: &Path, block_meta: Vec<BlockMeta>) -> JoinHandle<()> {
     let fsblockdb_root = fsblockdb_root.to_owned();
     tokio::spawn(async move {
@@ -294,6 +348,7 @@ fn scan_blocks<P: Parameters + Send + 'static>(
     fsblockdb_root: &Path,
     db_cache: &mut FsBlockDb,
     db_data: &mut WalletDb<rusqlite::Connection, P>,
+    initial_chain_state: &ChainState,
     scan_range: &ScanRange,
 ) -> Result<bool, anyhow::Error> {
     info!("Scanning {}", scan_range);
@@ -302,6 +357,7 @@ fn scan_blocks<P: Parameters + Send + 'static>(
         db_cache,
         db_data,
         scan_range.block_range().start,
+        initial_chain_state,
         scan_range.len(),
     );
 

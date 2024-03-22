@@ -1,15 +1,12 @@
 use anyhow::anyhow;
 use gumdrop::Options;
 
-use zcash_client_backend::data_api::{SaplingInputSource, WalletRead};
-use zcash_client_sqlite::WalletDb;
-use zcash_primitives::{
-    transaction::components::{
-        amount::{Amount, MAX_MONEY},
-        sapling::fees::InputView,
-    },
-    zip32::AccountId,
+use zcash_client_backend::{
+    data_api::{InputSource, WalletRead},
+    ShieldedProtocol,
 };
+use zcash_client_sqlite::WalletDb;
+use zcash_protocol::value::{Zatoshis, MAX_MONEY};
 
 use crate::{
     data::{get_db_paths, get_wallet_network},
@@ -25,9 +22,12 @@ impl Command {
     pub(crate) fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
-        let account = AccountId::from(0);
         let (_, db_data) = get_db_paths(wallet_dir);
         let db_data = WalletDb::for_path(db_data, params)?;
+        let account = *db_data
+            .get_account_ids()?
+            .first()
+            .ok_or(anyhow!("Wallet has no accounts"))?;
 
         // Use the height of the maximum scanned block as the anchor height, to emulate a
         // zero-conf transaction in order to select every note in the wallet.
@@ -37,15 +37,28 @@ impl Command {
             .map_err(|e| anyhow!("{:?}", e))?
             .block_height();
 
-        let notes = db_data.select_spendable_sapling_notes(
+        let notes = db_data.select_spendable_notes(
             account,
-            Amount::const_from_i64(MAX_MONEY),
+            Zatoshis::const_from_u64(MAX_MONEY),
+            &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard],
             anchor_height,
             &[],
         )?;
 
-        for note in notes {
-            println!("{}: {}", note.note_id(), format_zec(note.value()));
+        for note in notes.sapling() {
+            println!(
+                "Sapling {}: {}",
+                note.internal_note_id(),
+                format_zec(note.note_value()?)
+            );
+        }
+
+        for note in notes.orchard() {
+            println!(
+                "Orchard {}: {}",
+                note.internal_note_id(),
+                format_zec(note.note_value()?)
+            );
         }
 
         Ok(())

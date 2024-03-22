@@ -112,9 +112,9 @@ impl WalletTx {
             txid: TxId::from_bytes(txid.try_into().map_err(|_| anyhow!("Invalid TxId"))?),
             expiry_height: expiry_height.map(BlockHeight::from_u32),
             account_balance_delta: Amount::from_i64(account_balance_delta)
-                .map_err(|()| anyhow!("Amount out of range"))?,
+                .map_err(|_| anyhow!("Amount out of range"))?,
             fee_paid: fee_paid
-                .map(|v| NonNegativeAmount::from_u64(v).map_err(|()| anyhow!("Fee out of range")))
+                .map(|v| NonNegativeAmount::from_u64(v).map_err(|_| anyhow!("Fee out of range")))
                 .transpose()?,
             sent_note_count,
             received_note_count,
