@@ -3,7 +3,6 @@ use gumdrop::Options;
 
 use zcash_client_backend::data_api::WalletRead;
 use zcash_client_sqlite::WalletDb;
-use zcash_primitives::zip32::AccountId;
 
 use crate::{
     data::{get_db_paths, get_wallet_network},
@@ -20,18 +19,21 @@ impl Command {
     pub(crate) fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
-        let account = AccountId::from(0);
         let (_, db_data) = get_db_paths(wallet_dir);
         let db_data = WalletDb::for_path(db_data, params)?;
+        let account_id = *db_data
+            .get_account_ids()?
+            .first()
+            .ok_or(anyhow!("Wallet has no accounts"))?;
 
         let address = db_data
-            .get_current_address(account)?
+            .get_current_address(account_id)?
             .ok_or(error::Error::InvalidRecipient)?;
 
         if let Some(wallet_summary) = db_data.get_wallet_summary(MIN_CONFIRMATIONS.into())? {
             let balance = wallet_summary
                 .account_balances()
-                .get(&account)
+                .get(&account_id)
                 .ok_or_else(|| anyhow!("Missing account 0"))?;
 
             println!("{:#?}", wallet_summary);
@@ -45,8 +47,12 @@ impl Command {
             }
             println!("    Balance: {}", format_zec(balance.total()));
             println!(
-                "  Spendable: {}",
-                format_zec(balance.sapling_balance.spendable_value)
+                "  Sapling Spendable: {}",
+                format_zec(balance.sapling_balance().spendable_value())
+            );
+            println!(
+                "  Orchard Spendable: {}",
+                format_zec(balance.orchard_balance().spendable_value())
             );
         } else {
             println!("Insufficient information to build a wallet summary.");
