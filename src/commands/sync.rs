@@ -30,6 +30,9 @@ use crate::{
     remote::connect_to_lightwalletd,
 };
 
+#[cfg(feature = "tui")]
+mod defrag;
+
 const BATCH_SIZE: u32 = 10_000;
 
 // Options accepted for the `sync` command
