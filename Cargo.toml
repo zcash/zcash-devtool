@@ -28,3 +28,16 @@ zcash_keys = { version = "0.2", features = ["unstable", "orchard"] }
 zcash_primitives = "0.15"
 zcash_proofs = "0.15"
 zcash_protocol = "0.1"
+
+# TUI
+crossterm = { version = "0.27", optional = true, features = ["event-stream"] }
+ratatui = { version = "0.26", optional = true }
+tokio-util = { version = "0.7", optional = true }
+
+[features]
+default = []
+tui = [
+    "dep:crossterm",
+    "dep:ratatui",
+    "dep:tokio-util",
+]

@@ -15,6 +15,10 @@ mod error;
 mod remote;
 mod ui;
 
+#[cfg(feature = "tui")]
+#[allow(dead_code)]
+mod tui;
+
 const MIN_CONFIRMATIONS: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(3) };
 
 #[derive(Debug, Options)]
