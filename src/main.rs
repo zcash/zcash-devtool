@@ -66,8 +66,26 @@ enum Command {
 fn main() -> Result<(), anyhow::Error> {
     let opts = MyOptions::parse_args_default_or_exit();
 
-    let filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    #[cfg(not(feature = "tui"))]
+    let log_configured = false;
+    #[cfg(feature = "tui")]
+    let log_configured =
+        if let Some(Command::Sync(commands::sync::Command { defrag: true })) = opts.command {
+            use tracing_subscriber::layer::SubscriberExt;
+
+            tracing::subscriber::set_global_default(
+                tracing_subscriber::registry().with(tui_logger::tracing_subscriber_layer()),
+            )
+            .unwrap();
+            true
+        } else {
+            false
+        };
+
+    if !log_configured {
+        let filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());
+        tracing_subscriber::fmt().with_env_filter(filter).init();
+    }
 
     rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("zec-rayon-{}", i))
@@ -84,11 +102,22 @@ fn main() -> Result<(), anyhow::Error> {
         .build()?;
 
     runtime.block_on(async {
+        #[cfg(feature = "tui")]
+        let tui = tui::Tui::new()?.tick_rate(4.0).frame_rate(30.0);
+
         match opts.command {
             Some(Command::Init(command)) => command.run(opts.wallet_dir).await,
             Some(Command::Reset(command)) => command.run(opts.wallet_dir).await,
             Some(Command::Upgrade(command)) => command.run(opts.wallet_dir),
-            Some(Command::Sync(command)) => command.run(opts.wallet_dir).await,
+            Some(Command::Sync(command)) => {
+                command
+                    .run(
+                        opts.wallet_dir,
+                        #[cfg(feature = "tui")]
+                        tui,
+                    )
+                    .await
+            }
             Some(Command::Balance(command)) => command.run(opts.wallet_dir),
             Some(Command::ListTx(command)) => command.run(opts.wallet_dir),
             Some(Command::ListUnspent(command)) => command.run(opts.wallet_dir),
