@@ -1,5 +1,6 @@
 use tonic::transport::{Channel, ClientTlsConfig};
 
+use tracing::info;
 use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
 use zcash_primitives::consensus;
 
@@ -24,7 +25,7 @@ impl Lightwalletd for consensus::Network {
 pub(crate) async fn connect_to_lightwalletd(
     network: &impl Lightwalletd,
 ) -> Result<CompactTxStreamerClient<Channel>, anyhow::Error> {
-    println!("Connecting to {}:{}", network.host(), network.port());
+    info!("Connecting to {}:{}", network.host(), network.port());
 
     let tls = ClientTlsConfig::new().domain_name(network.host());
 
