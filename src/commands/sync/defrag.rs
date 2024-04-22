@@ -262,6 +262,8 @@ impl App {
 
         frame.render_widget(
             TuiLoggerSmartWidget::default()
+                .title_log("Log Entries")
+                .title_target("Log Target Selector")
                 .style_error(Style::default().fg(Color::Red))
                 .style_debug(Style::default().fg(Color::Green))
                 .style_warn(Style::default().fg(Color::Yellow))
