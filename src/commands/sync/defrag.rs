@@ -134,6 +134,7 @@ impl App {
 
     fn update_scan_ranges(&mut self, mut scan_ranges: Vec<ScanRange>, chain_tip: BlockHeight) {
         scan_ranges.sort_by_key(|range| range.block_range().start);
+        let mempool_height = chain_tip + 1;
 
         self.scan_ranges = scan_ranges
             .into_iter()
@@ -142,10 +143,10 @@ impl App {
                     (range.block_range().start, range.priority()),
                     // If this range is followed by an adjacent range, this will be
                     // overwritten. Otherwise, this is either a gap between unscanned
-                    // ranges (which by definition is scanned), or the "mempool height"
-                    // which we coerce down to the chain tip height.
+                    // ranges (which by definition is scanned), or heights at or above the
+                    // "mempool height" which we coerce down to that height.
                     (
-                        range.block_range().end.min(chain_tip),
+                        range.block_range().end.min(mempool_height),
                         ScanPriority::Scanned,
                     ),
                 ]
@@ -158,12 +159,12 @@ impl App {
             .entry(self.wallet_birthday)
             .or_insert(ScanPriority::Scanned);
 
-        // If we inserted the chain tip height above, mark it as such. If we didn't insert
-        // it above, do so here.
+        // If we inserted the mempool height above, mark it as ignored (because we can't
+        // scan blocks that don't yet exist). If we didn't insert it above, do so here.
         self.scan_ranges
-            .entry(chain_tip)
-            .and_modify(|e| *e = ScanPriority::ChainTip)
-            .or_insert(ScanPriority::ChainTip);
+            .entry(mempool_height)
+            .and_modify(|e| *e = ScanPriority::Ignored)
+            .or_insert(ScanPriority::Ignored);
     }
 
     fn ui(&mut self, frame: &mut Frame) {
@@ -182,8 +183,11 @@ impl App {
             .last_key_value()
             .map(|(&last, _)| u32::from(last - self.wallet_birthday))
         {
-            // Determine the density of blocks we will be rendering.
-            let blocks_per_cell = block_count / u32::from(defrag_area.area());
+            // Determine the density of blocks we will be rendering. Use ceiling division
+            // to ensure we don't require more cells than we have (which would cause the
+            // blocks around the chain tip to never be rendered).
+            let area = u32::from(defrag_area.area());
+            let blocks_per_cell = (block_count + area - 1) / area;
             let blocks_per_row = blocks_per_cell * u32::from(defrag_area.width);
 
             // Split the area into cells.
@@ -195,20 +199,20 @@ impl App {
                         + (blocks_per_cell * u32::from(i));
                     let cell_end = cell_start + blocks_per_cell;
 
-                    let (cell_text, cell_color) = if self
+                    let cell = if self
                         .fetching_range
                         .as_ref()
                         .map(|range| range.contains(&cell_start) || range.contains(&(cell_end - 1)))
                         .unwrap_or(false)
                     {
-                        ("↓", Color::Magenta)
+                        Some(("↓", Color::Magenta))
                     } else if self
                         .scanning_range
                         .as_ref()
                         .map(|range| range.contains(&cell_start) || range.contains(&(cell_end - 1)))
                         .unwrap_or(false)
                     {
-                        ("@", Color::Magenta)
+                        Some(("@", Color::Magenta))
                     } else {
                         let cell_priority = self
                             .scan_ranges
@@ -234,24 +238,24 @@ impl App {
                             })
                             .unwrap_or(ScanPriority::Ignored);
 
-                        (
-                            " ",
-                            match cell_priority {
-                                ScanPriority::Ignored => Color::Black,
-                                ScanPriority::Scanned => Color::Green,
-                                ScanPriority::Historic => Color::Black,
-                                ScanPriority::OpenAdjacent => Color::LightBlue,
-                                ScanPriority::FoundNote => Color::Yellow,
-                                ScanPriority::ChainTip => Color::Blue,
-                                ScanPriority::Verify => Color::Red,
-                            },
-                        )
+                        match cell_priority {
+                            ScanPriority::Ignored => None,
+                            ScanPriority::Scanned => Some(Color::Green),
+                            ScanPriority::Historic => Some(Color::Black),
+                            ScanPriority::OpenAdjacent => Some(Color::LightBlue),
+                            ScanPriority::FoundNote => Some(Color::Yellow),
+                            ScanPriority::ChainTip => Some(Color::Blue),
+                            ScanPriority::Verify => Some(Color::Red),
+                        }
+                        .map(|color| (" ", color))
                     };
 
-                    frame.render_widget(
-                        Paragraph::new(cell_text).bg(cell_color),
-                        Rect::new(defrag_area.x + i, defrag_area.y + j, 1, 1),
-                    );
+                    if let Some((cell_text, cell_color)) = cell {
+                        frame.render_widget(
+                            Paragraph::new(cell_text).bg(cell_color),
+                            Rect::new(defrag_area.x + i, defrag_area.y + j, 1, 1),
+                        );
+                    }
                 }
             }
         }
