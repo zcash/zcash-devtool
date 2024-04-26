@@ -70,7 +70,7 @@ fn main() -> Result<(), anyhow::Error> {
     let log_configured = false;
     #[cfg(feature = "tui")]
     let log_configured =
-        if let Some(Command::Sync(commands::sync::Command { defrag: true })) = opts.command {
+        if let Some(Command::Sync(commands::sync::Command { defrag: true, .. })) = opts.command {
             use tracing_subscriber::layer::SubscriberExt;
 
             tracing::subscriber::set_global_default(

@@ -24,7 +24,7 @@ use crate::{
     commands::propose::{parse_fee_rule, FeeRule},
     data::{get_db_paths, read_keys},
     error,
-    remote::connect_to_lightwalletd,
+    remote::{connect_to_lightwalletd, Servers},
     MIN_CONFIRMATIONS,
 };
 
@@ -46,6 +46,13 @@ pub(crate) struct Command {
         parse(try_from_str = "parse_fee_rule")
     )]
     fee_rule: FeeRule,
+
+    #[options(
+        help = "the server to send via (default is \"ecc\")",
+        default = "ecc",
+        parse(try_from_str = "Servers::parse")
+    )]
+    server: Servers,
 }
 
 impl Command {
@@ -71,7 +78,7 @@ impl Command {
             UnifiedSpendingKey::from_seed(&params, keys.seed().expose_secret(), account_index)
                 .map_err(error::Error::from)?;
 
-        let mut client = connect_to_lightwalletd(&params).await?;
+        let mut client = connect_to_lightwalletd(self.server.pick(params)?).await?;
 
         // Create the transaction.
         println!("Creating transaction...");
