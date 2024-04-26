@@ -27,7 +27,7 @@ use zcash_protocol::consensus::{BlockHeight, Parameters};
 use crate::{
     data::{get_block_path, get_db_paths, get_wallet_network},
     error,
-    remote::connect_to_lightwalletd,
+    remote::{connect_to_lightwalletd, Servers},
 };
 
 #[cfg(feature = "tui")]
@@ -41,6 +41,13 @@ const BATCH_SIZE: u32 = 10_000;
 // Options accepted for the `sync` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
+    #[options(
+        help = "the server to sync with (default is \"ecc\")",
+        default = "ecc",
+        parse(try_from_str = "Servers::parse")
+    )]
+    server: Servers,
+
     #[cfg(feature = "tui")]
     pub(crate) defrag: bool,
 }
@@ -57,7 +64,7 @@ impl Command {
         let fsblockdb_root = fsblockdb_root.as_path();
         let mut db_cache = FsBlockDb::for_path(fsblockdb_root).map_err(error::Error::from)?;
         let mut db_data = WalletDb::for_path(db_data, params)?;
-        let mut client = connect_to_lightwalletd(&params).await?;
+        let mut client = connect_to_lightwalletd(self.server.pick(params)?).await?;
 
         #[cfg(feature = "tui")]
         let tui_handle = if self.defrag {

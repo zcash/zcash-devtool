@@ -17,7 +17,7 @@ use zcash_primitives::{
 use crate::{
     data::{get_db_paths, init_wallet_keys, Network},
     error,
-    remote::connect_to_lightwalletd,
+    remote::{connect_to_lightwalletd, Servers},
 };
 
 // Options accepted for the `init` command
@@ -34,6 +34,13 @@ pub(crate) struct Command {
         parse(try_from_str = "Network::parse")
     )]
     network: Network,
+
+    #[options(
+        help = "the server to initialize with (default is \"ecc\")",
+        default = "ecc",
+        parse(try_from_str = "Servers::parse")
+    )]
+    server: Servers,
 }
 
 impl Command {
@@ -42,7 +49,7 @@ impl Command {
         let params = consensus::Network::from(opts.network);
 
         // Get the current chain height (for the wallet's birthday).
-        let mut client = connect_to_lightwalletd(&params).await?;
+        let mut client = connect_to_lightwalletd(opts.server.pick(params)?).await?;
         let birthday = if let Some(birthday) = opts.birthday {
             birthday
         } else {
