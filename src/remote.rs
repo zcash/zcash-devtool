@@ -73,7 +73,7 @@ impl Servers {
                 })
                 .collect::<Option<_>>()
                 .map(Self::Custom)
-                .ok_or(anyhow!("'{}' must be one of ['ecc', 'ywallet', 'zecrocks'], or a comma-separated host:port string", s)),
+                .ok_or(anyhow!("'{}' must be one of ['ecc', 'ywallet', 'zecrocks'], or a comma-separated list of host:port", s)),
         }
     }
 
