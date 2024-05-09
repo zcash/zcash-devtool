@@ -1,8 +1,11 @@
 #![allow(deprecated)]
+use std::str::FromStr;
+
 use anyhow::anyhow;
 use gumdrop::Options;
 use secrecy::ExposeSecret;
 
+use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
         wallet::{input_selection::GreedyInputSelector, spend},
@@ -12,13 +15,12 @@ use zcash_client_backend::{
     keys::UnifiedSpendingKey,
     proto::service,
     wallet::OvkPolicy,
-    zip321::{Payment, TransactionRequest},
     ShieldedProtocol,
 };
 use zcash_client_sqlite::WalletDb;
-use zcash_keys::address::Address;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::value::Zatoshis;
+use zip321::{Payment, TransactionRequest};
 
 use crate::{
     commands::propose::{parse_fee_rule, FeeRule},
@@ -89,15 +91,10 @@ impl Command {
             Default::default(),
         );
 
-        let request = TransactionRequest::new(vec![Payment {
-            recipient_address: Address::decode(&params, &self.address)
-                .ok_or(error::Error::InvalidRecipient)?,
-            amount: Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
-            memo: None,
-            label: None,
-            message: None,
-            other_params: vec![],
-        }])
+        let request = TransactionRequest::new(vec![Payment::without_memo(
+            ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
+            Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
+        )])
         .map_err(error::Error::from)?;
 
         let txids = spend(

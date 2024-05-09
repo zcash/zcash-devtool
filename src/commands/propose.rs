@@ -1,18 +1,20 @@
+use std::str::FromStr;
+
 use anyhow::anyhow;
 use gumdrop::Options;
 
+use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
         wallet::{input_selection::GreedyInputSelector, propose_transfer},
         WalletRead,
     },
     fees::standard::SingleOutputChangeStrategy,
-    zip321::{Payment, TransactionRequest},
     ShieldedProtocol,
 };
 use zcash_client_sqlite::WalletDb;
-use zcash_keys::address::Address;
 use zcash_primitives::transaction::{components::amount::NonNegativeAmount, fees::StandardFeeRule};
+use zip321::{Payment, TransactionRequest};
 
 use crate::{
     data::{get_db_paths, get_wallet_network},
@@ -85,16 +87,10 @@ impl Command {
             Default::default(),
         );
 
-        let request = TransactionRequest::new(vec![Payment {
-            recipient_address: Address::decode(&params, &self.address)
-                .ok_or(error::Error::InvalidRecipient)?,
-            amount: NonNegativeAmount::from_u64(self.value)
-                .map_err(|_| error::Error::InvalidAmount)?,
-            memo: None,
-            label: None,
-            message: None,
-            other_params: vec![],
-        }])
+        let request = TransactionRequest::new(vec![Payment::without_memo(
+            ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
+            NonNegativeAmount::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
+        )])
         .map_err(error::Error::from)?;
 
         let proposal = propose_transfer(
