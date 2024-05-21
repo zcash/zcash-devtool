@@ -23,6 +23,14 @@ impl Command {
         let conn = Connection::open(db_data)?;
         rusqlite::vtab::array::load_module(&conn)?;
 
+        let account_id = conn.query_row(
+            "SELECT id
+            FROM accounts
+            WHERE hd_account_index = :zip32_account",
+            named_params! {":zip32_account": 0},
+            |row| row.get::<_, u32>(0),
+        )?;
+
         let mut stmt_txs = conn.prepare(
             "SELECT mined_height,
                 txid,
@@ -55,7 +63,7 @@ impl Command {
 
         println!("Transactions:");
         for row in stmt_txs.query_and_then(
-            named_params! {":account_id": 0},
+            named_params! {":account_id": account_id},
             |row| -> anyhow::Result<_> {
                 WalletTx::from_parts(
                     row.get(0)?,
