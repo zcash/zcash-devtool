@@ -48,6 +48,9 @@ enum Command {
     #[options(help = "scan the chain and sync the wallet")]
     Sync(commands::sync::Command),
 
+    #[options(help = "ensure all transactions have full data available")]
+    Enhance(commands::enhance::Command),
+
     #[options(help = "get the balance in the wallet")]
     Balance(commands::balance::Command),
 
@@ -125,6 +128,7 @@ fn main() -> Result<(), anyhow::Error> {
                     )
                     .await
             }
+            Some(Command::Enhance(command)) => command.run(opts.wallet_dir).await,
             Some(Command::Balance(command)) => command.run(opts.wallet_dir),
             Some(Command::ListTx(command)) => command.run(opts.wallet_dir),
             Some(Command::ListUnspent(command)) => command.run(opts.wallet_dir),
