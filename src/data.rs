@@ -18,16 +18,11 @@ const KEYS_FILE: &str = "keys.txt";
 const BLOCKS_FOLDER: &str = "blocks";
 const DATA_DB: &str = "data.sqlite";
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(crate) enum Network {
+    #[default]
     Test,
     Main,
-}
-
-impl Default for Network {
-    fn default() -> Self {
-        Network::Test
-    }
 }
 
 impl Network {
