@@ -6,8 +6,9 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Paragraph},
 };
+use roaring::RoaringBitmap;
 use tokio::sync::mpsc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget};
 use zcash_client_backend::data_api::scanning::{ScanPriority, ScanRange};
 use zcash_protocol::consensus::BlockHeight;
@@ -49,6 +50,17 @@ impl AppHandle {
     }
 
     /// Returns `true` if the TUI exited.
+    pub(super) fn set_fetched(&self, fetched_height: BlockHeight) -> bool {
+        match self.action_tx.send(Action::SetFetched(fetched_height)) {
+            Ok(()) => false,
+            Err(e) => {
+                error!("Failed to send: {}", e);
+                true
+            }
+        }
+    }
+
+    /// Returns `true` if the TUI exited.
     pub(super) fn set_scanning_range(&self, scanning_range: Option<Range<BlockHeight>>) -> bool {
         match self.action_tx.send(Action::SetScanning(scanning_range)) {
             Ok(()) => false,
@@ -64,7 +76,8 @@ pub(super) struct App {
     should_quit: bool,
     wallet_birthday: BlockHeight,
     scan_ranges: BTreeMap<BlockHeight, ScanPriority>,
-    fetching_range: Option<Range<BlockHeight>>,
+    fetching_set: RoaringBitmap,
+    fetched_set: RoaringBitmap,
     scanning_range: Option<Range<BlockHeight>>,
     action_tx: mpsc::UnboundedSender<Action>,
     action_rx: mpsc::UnboundedReceiver<Action>,
@@ -78,7 +91,8 @@ impl App {
             should_quit: false,
             wallet_birthday,
             scan_ranges: BTreeMap::new(),
-            fetching_range: None,
+            fetching_set: RoaringBitmap::new(),
+            fetched_set: RoaringBitmap::new(),
             scanning_range: None,
             action_tx,
             action_rx,
@@ -96,6 +110,11 @@ impl App {
         tui.enter()?;
 
         loop {
+            let action_queue_len = self.action_rx.len();
+            if action_queue_len >= 50 {
+                warn!("Action queue lagging! Length: {}", action_queue_len);
+            }
+
             let next_event = tui.next().fuse();
             let next_action = self.action_rx.recv().fuse();
             tokio::select! {
@@ -113,7 +132,17 @@ impl App {
                     Action::UpdateScanRanges { scan_ranges, chain_tip } => {
                         self.update_scan_ranges(scan_ranges, chain_tip);
                     }
-                    Action::SetFetching(fetching_range) => self.fetching_range = fetching_range,
+                    Action::SetFetching(fetching_range) => {
+                        self.fetching_set.clear();
+                        self.fetched_set.clear();
+                        if let Some(range) = fetching_range {
+                            self.fetching_set.insert_range(u32::from(range.start)..u32::from(range.end));
+                        }
+                    }
+                    Action::SetFetched(fetched_height) => {
+                        self.fetching_set.remove(u32::from(fetched_height));
+                        self.fetched_set.insert(u32::from(fetched_height));
+                    },
                     Action::SetScanning(scanning_range) => self.scanning_range = scanning_range,
                     Action::Render => {
                         tui.draw(|f| self.ui(f))?;
@@ -194,29 +223,30 @@ impl App {
             for i in 0..defrag_area.width {
                 for j in 0..defrag_area.height {
                     // Determine the priority of the cell.
-                    let cell_start = self.wallet_birthday
+                    let cell_start = u32::from(self.wallet_birthday)
                         + (blocks_per_row * u32::from(j))
                         + (blocks_per_cell * u32::from(i));
                     let cell_end = cell_start + blocks_per_cell;
 
-                    let cell = if self
-                        .fetching_range
-                        .as_ref()
-                        .map(|range| range.contains(&cell_start) || range.contains(&(cell_end - 1)))
-                        .unwrap_or(false)
-                    {
+                    let cell = if self.fetching_set.range_cardinality(cell_start..cell_end) > 0 {
                         Some(("↓", Color::Magenta))
                     } else if self
                         .scanning_range
                         .as_ref()
-                        .map(|range| range.contains(&cell_start) || range.contains(&(cell_end - 1)))
+                        .map(|range| {
+                            u32::from(range.start) < cell_end && cell_start < u32::from(range.end)
+                        })
                         .unwrap_or(false)
                     {
                         Some(("@", Color::Magenta))
+                    } else if self.fetched_set.range_cardinality(cell_start..cell_end) > 0 {
+                        Some((" ", Color::Magenta))
                     } else {
                         let cell_priority = self
                             .scan_ranges
-                            .range(cell_start..cell_end)
+                            .range(
+                                BlockHeight::from_u32(cell_start)..BlockHeight::from_u32(cell_end),
+                            )
                             .fold(None, |acc: Option<ScanPriority>, (_, &priority)| {
                                 if let Some(acc) = acc {
                                     Some(acc.max(priority))
@@ -226,13 +256,13 @@ impl App {
                             })
                             .or_else(|| {
                                 self.scan_ranges
-                                    .range(..=cell_start)
+                                    .range(..=BlockHeight::from_u32(cell_start))
                                     .next_back()
                                     .map(|(_, &priority)| priority)
                             })
                             .or_else(|| {
                                 self.scan_ranges
-                                    .range((cell_end - 1)..)
+                                    .range(BlockHeight::from_u32(cell_end - 1)..)
                                     .next()
                                     .map(|(_, &priority)| priority)
                             })
@@ -291,6 +321,7 @@ pub(super) enum Action {
         chain_tip: BlockHeight,
     },
     SetFetching(Option<Range<BlockHeight>>),
+    SetFetched(BlockHeight),
     SetScanning(Option<Range<BlockHeight>>),
     Render,
 }

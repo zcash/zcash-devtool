@@ -389,6 +389,11 @@ async fn download_blocks(
             let mut block_file = File::create(get_block_path(fsblockdb_root, &meta)).await?;
             block_file.write_all(&encoded).await?;
 
+            #[cfg(feature = "tui")]
+            if let Some(handle) = tui_handle {
+                handle.set_fetched(block.height());
+            }
+
             Ok(meta)
         })
         .try_collect::<Vec<_>>()
