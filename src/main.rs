@@ -8,6 +8,7 @@ use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use gumdrop::Options;
+use tracing_subscriber::{layer::SubscriberExt, Layer};
 
 mod commands;
 mod data;
@@ -67,25 +68,28 @@ fn main() -> Result<(), anyhow::Error> {
     let opts = MyOptions::parse_args_default_or_exit();
 
     #[cfg(not(feature = "tui"))]
-    let log_configured = false;
+    let tui_logger: Option<()> = None;
     #[cfg(feature = "tui")]
-    let log_configured =
+    let tui_logger =
         if let Some(Command::Sync(commands::sync::Command { defrag: true, .. })) = opts.command {
-            use tracing_subscriber::layer::SubscriberExt;
-
-            tracing::subscriber::set_global_default(
-                tracing_subscriber::registry().with(tui_logger::tracing_subscriber_layer()),
-            )
-            .unwrap();
-            true
+            Some(tui_logger::tracing_subscriber_layer())
         } else {
-            false
+            None
         };
 
-    if !log_configured {
-        let filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());
-        tracing_subscriber::fmt().with_env_filter(filter).init();
-    }
+    let stdout_logger = if tui_logger.is_none() {
+        let filter = tracing_subscriber::EnvFilter::from(
+            env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned()),
+        );
+        Some(tracing_subscriber::fmt::layer().with_filter(filter))
+    } else {
+        None
+    };
+
+    let subscriber = tracing_subscriber::registry().with(stdout_logger);
+    #[cfg(feature = "tui")]
+    let subscriber = subscriber.with(tui_logger);
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 
     rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("zec-rayon-{}", i))
