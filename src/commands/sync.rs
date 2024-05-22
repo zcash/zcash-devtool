@@ -28,6 +28,7 @@ use crate::{
     data::{get_block_path, get_db_paths, get_wallet_network},
     error,
     remote::{connect_to_lightwalletd, Servers},
+    ShutdownListener,
 };
 
 #[cfg(feature = "tui")]
@@ -55,6 +56,7 @@ pub(crate) struct Command {
 impl Command {
     pub(crate) async fn run(
         self,
+        mut shutdown: ShutdownListener,
         wallet_dir: Option<String>,
         #[cfg(feature = "tui")] tui: Tui,
     ) -> Result<(), anyhow::Error> {
@@ -69,6 +71,7 @@ impl Command {
         #[cfg(feature = "tui")]
         let tui_handle = if self.defrag {
             let mut app = defrag::App::new(
+                shutdown.tui_quit_signal(),
                 db_data
                     .get_wallet_birthday()?
                     .unwrap_or_else(|| params.activation_height(NetworkUpgrade::Sapling).unwrap()),
@@ -89,6 +92,7 @@ impl Command {
         update_subtree_roots(&mut client, &mut db_data).await?;
 
         async fn running<P: Parameters + Send + 'static>(
+            shutdown: &mut ShutdownListener,
             client: &mut CompactTxStreamerClient<Channel>,
             params: &P,
             fsblockdb_root: &Path,
@@ -111,6 +115,9 @@ impl Command {
                     return Ok(false);
                 }
             }
+            if shutdown.requested() {
+                return Ok(false);
+            }
 
             // Store the handles to cached block deletions (which we spawn into separate
             // tasks to allow us to continue downloading and scanning other ranges).
@@ -130,10 +137,15 @@ impl Command {
                             fsblockdb_root,
                             db_cache,
                             scan_range,
+                            shutdown,
                             #[cfg(feature = "tui")]
                             tui_handle,
                         )
                         .await?;
+
+                        if shutdown.requested() {
+                            return Ok(false);
+                        }
 
                         let chain_state =
                             download_chain_state(client, scan_range.block_range().start - 1)
@@ -169,6 +181,9 @@ impl Command {
                                     return Ok(false);
                                 }
                             }
+                            if shutdown.requested() {
+                                return Ok(false);
+                            }
                         } else {
                             // At this point, the cache and scanned data are locally
                             // consistent (though not necessarily consistent with the
@@ -196,6 +211,9 @@ impl Command {
                     return Ok(false);
                 }
             }
+            if shutdown.requested() {
+                return Ok(false);
+            }
             for scan_range in scan_ranges.into_iter().flat_map(|r| {
                 // Limit the number of blocks we download and scan at any one time.
                 (0..).scan(r, |acc, _| {
@@ -220,10 +238,15 @@ impl Command {
                     fsblockdb_root,
                     db_cache,
                     &scan_range,
+                    shutdown,
                     #[cfg(feature = "tui")]
                     tui_handle,
                 )
                 .await?;
+
+                if shutdown.requested() {
+                    return Ok(false);
+                }
 
                 let chain_state =
                     download_chain_state(client, scan_range.block_range().start - 1).await?;
@@ -245,14 +268,14 @@ impl Command {
                 // Delete the now-scanned blocks.
                 block_deletions.push(delete_cached_blocks(fsblockdb_root, block_meta));
 
-                if scan_ranges_updated {
+                if scan_ranges_updated || shutdown.requested() {
                     // The suggested scan ranges have been updated (either due to a continuity
                     // error or because a higher priority range has been added).
                     info!("Waiting for cached blocks to be deleted...");
                     for deletion in block_deletions {
                         deletion.await?;
                     }
-                    return Ok(true);
+                    return Ok(!shutdown.requested());
                 }
             }
 
@@ -264,6 +287,7 @@ impl Command {
         }
 
         while running(
+            &mut shutdown,
             &mut client,
             &params,
             fsblockdb_root,
@@ -348,6 +372,7 @@ async fn download_blocks(
     fsblockdb_root: &Path,
     db_cache: &FsBlockDb,
     scan_range: &ScanRange,
+    shutdown: &mut ShutdownListener,
     #[cfg(feature = "tui")] tui_handle: Option<&defrag::AppHandle>,
 ) -> Result<Vec<BlockMeta>, anyhow::Error> {
     info!("Fetching {}", scan_range);
@@ -363,7 +388,7 @@ async fn download_blocks(
         start: Some(start),
         end: Some(end),
     };
-    let block_meta = client
+    let block_meta_stream = client
         .get_block_range(range)
         .await
         .map_err(anyhow::Error::from)?
@@ -395,9 +420,18 @@ async fn download_blocks(
             }
 
             Ok(meta)
-        })
-        .try_collect::<Vec<_>>()
-        .await?;
+        });
+    tokio::pin!(block_meta_stream);
+
+    let mut block_meta = vec![];
+    while let Some(block) = block_meta_stream.try_next().await? {
+        block_meta.push(block);
+
+        if shutdown.requested() {
+            // Stop fetching blocks; we will exit once we return.
+            break;
+        }
+    }
 
     db_cache
         .write_block_metadata(&block_meta)
