@@ -64,7 +64,7 @@ impl Servers {
             _ => s
                 .split(',')
                 .map(|sub| {
-                    sub.split_once(':').and_then(|(host, port_str)| {
+                    sub.rsplit_once(':').and_then(|(host, port_str)| {
                         port_str
                             .parse()
                             .ok()
