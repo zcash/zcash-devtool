@@ -64,7 +64,7 @@ impl Servers {
             _ => s
                 .split(',')
                 .map(|sub| {
-                    sub.split_once(':').and_then(|(host, port_str)| {
+                    sub.rsplit_once(':').and_then(|(host, port_str)| {
                         port_str
                             .parse()
                             .ok()
@@ -118,8 +118,18 @@ impl<'a> Server<'a> {
         }
     }
 
+    fn use_tls(&self) -> bool {
+        // Assume that localhost will never have a cert, and require remotes to have one.
+        !matches!(self.host.as_ref(), "localhost" | "127.0.0.1" | "::1")
+    }
+
     fn endpoint(&self) -> String {
-        format!("https://{}:{}", self.host, self.port)
+        format!(
+            "{}://{}:{}",
+            if self.use_tls() { "https" } else { "http" },
+            self.host,
+            self.port
+        )
     }
 }
 
@@ -128,12 +138,14 @@ pub(crate) async fn connect_to_lightwalletd(
 ) -> Result<CompactTxStreamerClient<Channel>, anyhow::Error> {
     info!("Connecting to {}", server);
 
-    let tls = ClientTlsConfig::new().domain_name(server.host.to_string());
+    let channel = Channel::from_shared(server.endpoint())?;
 
-    let channel = Channel::from_shared(server.endpoint())?
-        .tls_config(tls)?
-        .connect()
-        .await?;
+    let channel = if server.use_tls() {
+        let tls = ClientTlsConfig::new().domain_name(server.host.to_string());
+        channel.tls_config(tls)?
+    } else {
+        channel
+    };
 
-    Ok(CompactTxStreamerClient::new(channel))
+    Ok(CompactTxStreamerClient::new(channel.connect().await?))
 }
