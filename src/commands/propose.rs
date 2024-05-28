@@ -21,16 +21,11 @@ use crate::{
     error, MIN_CONFIRMATIONS,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub(crate) enum FeeRule {
     Fixed,
+    #[default]
     Zip317,
-}
-
-impl Default for FeeRule {
-    fn default() -> Self {
-        FeeRule::Zip317
-    }
 }
 
 #[allow(deprecated)]

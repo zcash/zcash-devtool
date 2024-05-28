@@ -8,6 +8,7 @@ use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use gumdrop::Options;
+use tracing_subscriber::{layer::SubscriberExt, Layer};
 
 mod commands;
 mod data;
@@ -67,25 +68,28 @@ fn main() -> Result<(), anyhow::Error> {
     let opts = MyOptions::parse_args_default_or_exit();
 
     #[cfg(not(feature = "tui"))]
-    let log_configured = false;
+    let tui_logger: Option<()> = None;
     #[cfg(feature = "tui")]
-    let log_configured =
+    let tui_logger =
         if let Some(Command::Sync(commands::sync::Command { defrag: true, .. })) = opts.command {
-            use tracing_subscriber::layer::SubscriberExt;
-
-            tracing::subscriber::set_global_default(
-                tracing_subscriber::registry().with(tui_logger::tracing_subscriber_layer()),
-            )
-            .unwrap();
-            true
+            Some(tui_logger::tracing_subscriber_layer())
         } else {
-            false
+            None
         };
 
-    if !log_configured {
-        let filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());
-        tracing_subscriber::fmt().with_env_filter(filter).init();
-    }
+    let stdout_logger = if tui_logger.is_none() {
+        let filter = tracing_subscriber::EnvFilter::from(
+            env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned()),
+        );
+        Some(tracing_subscriber::fmt::layer().with_filter(filter))
+    } else {
+        None
+    };
+
+    let subscriber = tracing_subscriber::registry().with(stdout_logger);
+    #[cfg(feature = "tui")]
+    let subscriber = subscriber.with(tui_logger);
+    tracing::subscriber::set_global_default(subscriber).unwrap();
 
     rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("zec-rayon-{}", i))
@@ -105,6 +109,8 @@ fn main() -> Result<(), anyhow::Error> {
         #[cfg(feature = "tui")]
         let tui = tui::Tui::new()?.tick_rate(4.0).frame_rate(30.0);
 
+        let shutdown = ShutdownListener::new();
+
         match opts.command {
             Some(Command::Init(command)) => command.run(opts.wallet_dir).await,
             Some(Command::Reset(command)) => command.run(opts.wallet_dir).await,
@@ -112,6 +118,7 @@ fn main() -> Result<(), anyhow::Error> {
             Some(Command::Sync(command)) => {
                 command
                     .run(
+                        shutdown,
                         opts.wallet_dir,
                         #[cfg(feature = "tui")]
                         tui,
@@ -126,4 +133,58 @@ fn main() -> Result<(), anyhow::Error> {
             _ => Ok(()),
         }
     })
+}
+
+struct ShutdownListener {
+    signal_rx: tokio::sync::oneshot::Receiver<()>,
+    #[cfg(feature = "tui")]
+    tui_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    #[cfg(feature = "tui")]
+    tui_rx: tokio::sync::oneshot::Receiver<()>,
+}
+
+impl ShutdownListener {
+    fn new() -> Self {
+        let (signal_tx, signal_rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            if let Err(e) = tokio::signal::ctrl_c().await {
+                tracing::error!("Failed to listen for Ctrl-C event: {}", e);
+            }
+            let _ = signal_tx.send(());
+        });
+
+        #[cfg(feature = "tui")]
+        let (tui_tx, tui_rx) = tokio::sync::oneshot::channel();
+
+        Self {
+            signal_rx,
+            #[cfg(feature = "tui")]
+            tui_tx: Some(tui_tx),
+            #[cfg(feature = "tui")]
+            tui_rx,
+        }
+    }
+
+    #[cfg(feature = "tui")]
+    fn tui_quit_signal(&mut self) -> tokio::sync::oneshot::Sender<()> {
+        self.tui_tx.take().expect("should only call this once")
+    }
+
+    fn requested(&mut self) -> bool {
+        const NOT_TRIGGERED: Result<(), tokio::sync::oneshot::error::TryRecvError> =
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty);
+
+        let signal = self.signal_rx.try_recv();
+
+        #[cfg(feature = "tui")]
+        let tui = self.tui_rx.try_recv();
+        #[cfg(not(feature = "tui"))]
+        let tui = NOT_TRIGGERED;
+
+        match (signal, tui) {
+            (NOT_TRIGGERED, NOT_TRIGGERED) => false,
+            // If either has been triggered, then a shutdown has been requested.
+            _ => true,
+        }
+    }
 }

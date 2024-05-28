@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 use roaring::RoaringBitmap;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget};
 use zcash_client_backend::data_api::scanning::{ScanPriority, ScanRange};
@@ -74,6 +74,7 @@ impl AppHandle {
 
 pub(super) struct App {
     should_quit: bool,
+    notify_shutdown: Option<oneshot::Sender<()>>,
     wallet_birthday: BlockHeight,
     scan_ranges: BTreeMap<BlockHeight, ScanPriority>,
     fetching_set: RoaringBitmap,
@@ -85,10 +86,11 @@ pub(super) struct App {
 }
 
 impl App {
-    pub(super) fn new(wallet_birthday: BlockHeight) -> Self {
+    pub(super) fn new(notify_shutdown: oneshot::Sender<()>, wallet_birthday: BlockHeight) -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         Self {
             should_quit: false,
+            notify_shutdown: Some(notify_shutdown),
             wallet_birthday,
             scan_ranges: BTreeMap::new(),
             fetching_set: RoaringBitmap::new(),
@@ -125,6 +127,7 @@ impl App {
                     Action::Quit => {
                         info!("Quit requested");
                         self.should_quit = true;
+                        let _ = self.notify_shutdown.take().expect("should only occur once").send(());
                         break;
                     }
                     Action::Tick => {}
