@@ -114,7 +114,7 @@ pub(crate) fn init_wallet_config<P: AsRef<Path>>(
     let config = WalletConfig {
         mnemonic: Some(mnemonic.phrase().to_string()),
         network: Some(network.name().to_string()),
-        birthday: Some(u32::from(birthday)),
+        birthday: Some(birthday),
     };
 
     let config_str = toml::to_string(&config)
