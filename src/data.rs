@@ -15,7 +15,7 @@ use zcash_protocol::consensus::Parameters;
 use crate::error;
 
 const DEFAULT_WALLET_DIR: &str = "./zec_sqlite_wallet";
-const KEYS_FILE: &str = "config.toml";
+const KEYS_FILE: &str = "keys.toml";
 const BLOCKS_FOLDER: &str = "blocks";
 const DATA_DB: &str = "data.sqlite";
 
