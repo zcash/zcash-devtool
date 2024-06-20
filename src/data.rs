@@ -15,7 +15,7 @@ use zcash_protocol::consensus::Parameters;
 use crate::error;
 
 const DEFAULT_WALLET_DIR: &str = "./zec_sqlite_wallet";
-const KEYS_FILE: &str = "config.toml";
+const KEYS_FILE: &str = "keys.toml";
 const BLOCKS_FOLDER: &str = "blocks";
 const DATA_DB: &str = "data.sqlite";
 
@@ -114,7 +114,7 @@ pub(crate) fn init_wallet_config<P: AsRef<Path>>(
     let config = WalletConfig {
         mnemonic: Some(mnemonic.phrase().to_string()),
         network: Some(network.name().to_string()),
-        birthday: Some(u32::from(birthday)),
+        birthday: Some(birthday),
     };
 
     let config_str = toml::to_string(&config)
