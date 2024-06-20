@@ -1,3 +1,4 @@
+use bip0039::{Count, English, Mnemonic};
 use gumdrop::Options;
 use secrecy::{SecretVec, Zeroize};
 use tonic::transport::Channel;
@@ -9,10 +10,7 @@ use zcash_client_backend::{
 use zcash_client_sqlite::{
     chain::init::init_blockmeta_db, wallet::init::init_wallet_db, FsBlockDb, WalletDb,
 };
-use zcash_primitives::{
-    consensus::{self, Parameters},
-    zip339::{Count, Mnemonic},
-};
+use zcash_primitives::consensus::{self, Parameters};
 
 use crate::{
     data::{get_db_paths, init_wallet_keys, Network},
@@ -63,7 +61,7 @@ impl Command {
 
         // Parse or create the wallet's mnemonic phrase.
         let mnemonic = if let Some(phrase) = opts.phrase {
-            Mnemonic::from_phrase(phrase)?
+            <Mnemonic<English>>::from_phrase(phrase)?
         } else {
             Mnemonic::generate(Count::Words24)
         };

@@ -1,3 +1,4 @@
+use bip0039::{English, Mnemonic};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -6,10 +7,7 @@ use secrecy::{SecretVec, Zeroize};
 use tracing::error;
 
 use zcash_client_sqlite::chain::BlockMeta;
-use zcash_primitives::{
-    consensus::{self, BlockHeight},
-    zip339::Mnemonic,
-};
+use zcash_primitives::consensus::{self, BlockHeight};
 
 use crate::error;
 
@@ -131,7 +129,7 @@ pub(crate) fn read_keys<P: AsRef<Path>>(
     let keys_file = get_keys_file(wallet_dir)?;
     let mut keys_file_lines = keys_file.lines();
 
-    let mnemonic = Mnemonic::from_phrase(
+    let mnemonic = <Mnemonic<English>>::from_phrase(
         keys_file_lines
             .next()
             .ok_or(error::Error::InvalidKeysFile)??
