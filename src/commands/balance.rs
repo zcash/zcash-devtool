@@ -54,6 +54,8 @@ impl Command {
                 "  Orchard Spendable: {}",
                 format_zec(balance.orchard_balance().spendable_value())
             );
+            #[cfg(feature = "transparent-inputs")]
+            println!("         Unshielded: {}", format_zec(balance.unshielded()));
         } else {
             println!("Insufficient information to build a wallet summary.");
         }

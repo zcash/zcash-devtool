@@ -31,8 +31,22 @@ use crate::{
     ShutdownListener,
 };
 
+#[cfg(feature = "transparent-inputs")]
+use {
+    zcash_client_backend::{encoding::AddressCodec, wallet::WalletTransparentOutput},
+    zcash_client_sqlite::AccountId,
+    zcash_primitives::{
+        legacy::Script,
+        transaction::components::transparent::{OutPoint, TxOut},
+    },
+    zcash_protocol::value::Zatoshis,
+};
+
+#[cfg(any(feature = "transparent-inputs", feature = "tui"))]
+use zcash_protocol::consensus::NetworkUpgrade;
+
 #[cfg(feature = "tui")]
-use {crate::tui::Tui, zcash_protocol::consensus::NetworkUpgrade};
+use crate::tui::Tui;
 
 #[cfg(feature = "tui")]
 mod defrag;
@@ -68,14 +82,14 @@ impl Command {
         let mut db_data = WalletDb::for_path(db_data, params)?;
         let mut client = connect_to_lightwalletd(self.server.pick(params)?).await?;
 
+        #[cfg(any(feature = "transparent-inputs", feature = "tui"))]
+        let wallet_birthday = db_data
+            .get_wallet_birthday()?
+            .unwrap_or_else(|| params.activation_height(NetworkUpgrade::Sapling).unwrap());
+
         #[cfg(feature = "tui")]
         let tui_handle = if self.defrag {
-            let mut app = defrag::App::new(
-                shutdown.tui_quit_signal(),
-                db_data
-                    .get_wallet_birthday()?
-                    .unwrap_or_else(|| params.activation_height(NetworkUpgrade::Sapling).unwrap()),
-            );
+            let mut app = defrag::App::new(shutdown.tui_quit_signal(), wallet_birthday);
             let handle = app.handle();
             tokio::spawn(async move {
                 if let Err(e) = app.run(tui).await {
@@ -98,11 +112,28 @@ impl Command {
             fsblockdb_root: &Path,
             db_cache: &mut FsBlockDb,
             db_data: &mut WalletDb<rusqlite::Connection, P>,
+            #[cfg(feature = "transparent-inputs")] wallet_birthday: BlockHeight,
             #[cfg(feature = "tui")] tui_handle: Option<&defrag::AppHandle>,
         ) -> Result<bool, anyhow::Error> {
             // 3) Download chain tip metadata from lightwalletd
             // 4) Notify the wallet of the updated chain tip.
             let _chain_tip = update_chain_tip(client, db_data).await?;
+
+            // Refresh UTXOs for the accounts in the wallet. We do this before we perform
+            // any shielded scanning, to ensure that we discover any UTXOs between the old
+            // fully-scanned height and the current chain tip.
+            #[cfg(feature = "transparent-inputs")]
+            for account_id in db_data.get_account_ids()? {
+                let start_height = db_data
+                    .block_fully_scanned()?
+                    .map(|meta| meta.block_height())
+                    .unwrap_or(wallet_birthday);
+                info!(
+                    "Refreshing UTXOs for {:?} from height {}",
+                    account_id, start_height,
+                );
+                refresh_utxos(params, client, db_data, account_id, start_height).await?;
+            }
 
             // 5) Get the suggested scan ranges from the wallet database
             info!("Fetching scan ranges");
@@ -293,6 +324,8 @@ impl Command {
             fsblockdb_root,
             &mut db_cache,
             &mut db_data,
+            #[cfg(feature = "transparent-inputs")]
+            wallet_birthday,
             #[cfg(feature = "tui")]
             tui_handle.as_ref(),
         )
@@ -564,4 +597,74 @@ fn scan_blocks<P: Parameters + Send + 'static>(
         }
         Err(e) => Err(anyhow!("{:?}", e)),
     }
+}
+
+/// Refreshes the given account's view of UTXOs that exist starting at the given height.
+///
+/// ## Note about UTXO tracking
+///
+/// (Extracted from [a comment in the Android SDK].)
+///
+/// We no longer clear UTXOs here, as `WalletDb::put_received_transparent_utxo` now uses
+/// an upsert instead of an insert. This means that now-spent UTXOs would previously have
+/// been deleted, but now are left in the database (like shielded notes).
+///
+/// Due to the fact that the `lightwalletd` query only returns _current_ UTXOs, we don't
+/// learn about recently-spent UTXOs here, so the transparent balance does not get updated
+/// here.
+///
+/// Instead, when a received shielded note is "enhanced" by downloading the full
+/// transaction, we mark any UTXOs spent in that transaction as spent in the database.
+/// This relies on two current properties:
+/// - UTXOs are only ever spent in shielding transactions.
+/// - At least one shielded note from each shielding transaction is always enhanced.
+///
+/// However, for greater reliability, we may want to alter the Data Access API to support
+/// "inferring spentness" from what is _not_ returned as a UTXO, or alternatively fetch
+/// TXOs from `lightwalletd` instead of just UTXOs.
+///
+/// [a comment in the Android SDK]: https://github.com/Electric-Coin-Company/zcash-android-wallet-sdk/blob/855204fc8ae4057fdac939f98df4aa38c8e662f1/sdk-lib/src/main/java/cash/z/ecc/android/sdk/block/processor/CompactBlockProcessor.kt#L979-L991
+#[cfg(feature = "transparent-inputs")]
+async fn refresh_utxos<P: Parameters>(
+    params: &P,
+    client: &mut CompactTxStreamerClient<Channel>,
+    db_data: &mut WalletDb<rusqlite::Connection, P>,
+    account_id: AccountId,
+    start_height: BlockHeight,
+) -> Result<(), anyhow::Error> {
+    let request = service::GetAddressUtxosArg {
+        addresses: db_data
+            .get_transparent_receivers(account_id)?
+            .into_keys()
+            .map(|addr| addr.encode(params))
+            .collect(),
+        start_height: start_height.into(),
+        max_entries: 0,
+    };
+
+    client
+        .get_address_utxos_stream(request)
+        .await?
+        .into_inner()
+        .map_err(anyhow::Error::from)
+        .and_then(|reply| async move {
+            WalletTransparentOutput::from_parts(
+                OutPoint::new(reply.txid[..].try_into()?, reply.index.try_into()?),
+                TxOut {
+                    value: Zatoshis::from_nonnegative_i64(reply.value_zat)?,
+                    script_pubkey: Script(reply.script),
+                },
+                BlockHeight::from(u32::try_from(reply.height)?),
+            )
+            .ok_or(anyhow!(
+                "Received UTXO that doesn't correspond to a valid P2PKH or P2SH address"
+            ))
+        })
+        .try_for_each(|output| {
+            let res = db_data.put_received_transparent_utxo(&output).map(|_| ());
+            async move { res.map_err(anyhow::Error::from) }
+        })
+        .await?;
+
+    Ok(())
 }
