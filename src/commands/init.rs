@@ -13,7 +13,7 @@ use zcash_client_sqlite::{
 use zcash_primitives::consensus::{self, Parameters};
 
 use crate::{
-    data::{get_db_paths, init_wallet_keys, Network},
+    data::{get_db_paths, init_wallet_config, Network},
     error,
     remote::{connect_to_lightwalletd, Servers},
 };
@@ -25,7 +25,7 @@ pub(crate) struct Command {
     phrase: Option<String>,
 
     #[options(help = "the wallet's birthday (default is current chain height)")]
-    birthday: Option<u64>,
+    birthday: Option<u32>,
 
     #[options(
         help = "the network the wallet will be used with: \"test\" or \"main\" (default is \"test\")",
@@ -51,12 +51,15 @@ impl Command {
         let birthday = if let Some(birthday) = opts.birthday {
             birthday
         } else {
-            client
+            let chain_tip: u32 = client
                 .get_latest_block(service::ChainSpec::default())
                 .await?
                 .into_inner()
                 .height
-                - 100
+                .try_into()
+                .expect("block heights must fit into u32");
+
+            chain_tip - 100
         };
 
         // Parse or create the wallet's mnemonic phrase.
@@ -67,7 +70,7 @@ impl Command {
         };
 
         // Save the wallet keys to disk.
-        init_wallet_keys(wallet_dir.as_ref(), &mnemonic, birthday, opts.network)?;
+        init_wallet_config(wallet_dir.as_ref(), &mnemonic, birthday, opts.network)?;
 
         let seed = {
             let mut seed = mnemonic.to_seed("");
@@ -84,7 +87,7 @@ impl Command {
         params: impl Parameters + 'static,
         wallet_dir: Option<String>,
         seed: &SecretVec<u8>,
-        birthday: u64,
+        birthday: u32,
     ) -> Result<(), anyhow::Error> {
         // Initialise the block and wallet DBs.
         let (db_cache, db_data) = get_db_paths(wallet_dir);
@@ -98,7 +101,7 @@ impl Command {
             // Fetch the tree state corresponding to the last block prior to the wallet's
             // birthday height. NOTE: THIS APPROACH LEAKS THE BIRTHDAY TO THE SERVER!
             let request = service::BlockId {
-                height: birthday - 1,
+                height: (birthday - 1).into(),
                 ..Default::default()
             };
             let treestate = client.get_tree_state(request).await?.into_inner();
