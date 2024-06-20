@@ -24,7 +24,7 @@ use zip321::{Payment, TransactionRequest};
 
 use crate::{
     commands::propose::{parse_fee_rule, FeeRule},
-    data::{get_db_paths, read_keys},
+    data::{get_db_paths, read_config},
     error,
     remote::{connect_to_lightwalletd, Servers},
     MIN_CONFIRMATIONS,
@@ -59,7 +59,7 @@ pub(crate) struct Command {
 
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
-        let keys = read_keys(wallet_dir.as_ref())?;
+        let keys = read_config(wallet_dir.as_ref())?;
         let params = keys.network();
 
         let (_, db_data) = get_db_paths(wallet_dir);
@@ -76,9 +76,14 @@ impl Command {
             AccountSource::Imported => unreachable!("Imported accounts are not yet supported."),
         };
 
-        let usk =
-            UnifiedSpendingKey::from_seed(&params, keys.seed().expose_secret(), account_index)
-                .map_err(error::Error::from)?;
+        let usk = UnifiedSpendingKey::from_seed(
+            &params,
+            keys.seed()
+                .ok_or(anyhow!("Seed must be present to enable sending"))?
+                .expose_secret(),
+            account_index,
+        )
+        .map_err(error::Error::from)?;
 
         let mut client = connect_to_lightwalletd(self.server.pick(params)?).await?;
 

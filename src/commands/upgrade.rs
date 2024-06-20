@@ -30,8 +30,7 @@ impl Command {
                 error, ..
             } if matches!(error, WalletMigrationError::SeedRequired))
             {
-                let seed = get_wallet_seed(wallet_dir)?;
-                init_wallet_db(&mut db_data, Some(seed))?;
+                init_wallet_db(&mut db_data, get_wallet_seed(wallet_dir)?)?;
             } else {
                 return Err(e.into());
             }
