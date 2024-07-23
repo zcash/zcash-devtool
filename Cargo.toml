@@ -26,13 +26,17 @@ tonic = { version = "0.12", features = ["gzip", "tls-webpki-roots"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 zcash_address = "0.3.2"
-zcash_client_backend = { version = "0.12.1", features = ["lightwalletd-tonic", "orchard"] }
+zcash_client_backend = { version = "0.12.1", features = ["lightwalletd-tonic", "orchard", "tor"] }
 zcash_client_sqlite = { version = "0.10.2", features = ["unstable", "orchard"] }
 zcash_keys = { version = "0.2", features = ["unstable", "orchard"] }
 zcash_primitives = "0.15"
 zcash_proofs = "0.15"
 zcash_protocol = "0.1"
 zip321 = "0.0.0"
+
+# Currency conversion
+iso_currency = { version = "0.4", features = ["with-serde"] }
+rust_decimal = "1"
 
 # TUI
 crossterm = { version = "0.27", optional = true, features = ["event-stream"] }
