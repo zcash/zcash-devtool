@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
 use std::io::{self, Read};
+use zcash_client_backend::proto::compact_formats::CompactBlock;
 
 use zcash_encoding::Vector;
 use zcash_primitives::{block::BlockHeader, transaction::Transaction};
@@ -277,6 +278,13 @@ fn inspect_header_inner(header: &BlockHeader, params: Option<Network>) {
     } else {
         eprintln!("🔎 To check contextual rules, add \"network\" to context (either \"main\" or \"test\")");
     }
+}
+
+/// Used when a block hash is resolved via lightwalletd.
+pub(crate) fn inspect_block_hash(block: &CompactBlock, network: &'static str) {
+    eprintln!("Zcash block hash");
+    eprintln!(" - Network: {}", network);
+    eprintln!(" - Height: {}", block.height());
 }
 
 pub(crate) fn inspect(block: &Block, context: Option<Context>) {
