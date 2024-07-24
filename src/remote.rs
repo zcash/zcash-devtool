@@ -141,7 +141,9 @@ pub(crate) async fn connect_to_lightwalletd(
     let channel = Channel::from_shared(server.endpoint())?;
 
     let channel = if server.use_tls() {
-        let tls = ClientTlsConfig::new().domain_name(server.host.to_string());
+        let tls = ClientTlsConfig::new()
+            .domain_name(server.host.to_string())
+            .with_webpki_roots();
         channel.tls_config(tls)?
     } else {
         channel
