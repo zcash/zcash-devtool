@@ -59,13 +59,13 @@ tui = [
 ]
 
 [patch.crates-io]
-zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "104c0c2aed8a5cb2eddf6241386d80f55b697c30" }
-zip321 = { git = "https://github.com/zcash/librustzcash", rev = "104c0c2aed8a5cb2eddf6241386d80f55b697c30" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "104c0c2aed8a5cb2eddf6241386d80f55b697c30" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "104c0c2aed8a5cb2eddf6241386d80f55b697c30" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "104c0c2aed8a5cb2eddf6241386d80f55b697c30" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "104c0c2aed8a5cb2eddf6241386d80f55b697c30" }
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "104c0c2aed8a5cb2eddf6241386d80f55b697c30" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "104c0c2aed8a5cb2eddf6241386d80f55b697c30" }
+zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "7f7b685b99132505a0fe4ba588f329e3516e9669" }
+zip321 = { git = "https://github.com/zcash/librustzcash", rev = "7f7b685b99132505a0fe4ba588f329e3516e9669" }
+zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "7f7b685b99132505a0fe4ba588f329e3516e9669" }
+zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "7f7b685b99132505a0fe4ba588f329e3516e9669" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "7f7b685b99132505a0fe4ba588f329e3516e9669" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "7f7b685b99132505a0fe4ba588f329e3516e9669" }
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "7f7b685b99132505a0fe4ba588f329e3516e9669" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "7f7b685b99132505a0fe4ba588f329e3516e9669" }
 incrementalmerkletree = { git = "https://github.com/zcash/incrementalmerkletree", rev = "337f59179eda51261e9ddfc6b18e8fb84ea277c9" }
 shardtree = { git = "https://github.com/zcash/incrementalmerkletree", rev = "337f59179eda51261e9ddfc6b18e8fb84ea277c9" }
