@@ -129,7 +129,7 @@ fn main() -> Result<(), anyhow::Error> {
                     .await
             }
             Some(Command::Enhance(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::Balance(command)) => command.run(opts.wallet_dir),
+            Some(Command::Balance(command)) => command.run(opts.wallet_dir).await,
             Some(Command::ListTx(command)) => command.run(opts.wallet_dir),
             Some(Command::ListUnspent(command)) => command.run(opts.wallet_dir),
             Some(Command::Propose(command)) => command.run(opts.wallet_dir).await,

@@ -18,6 +18,7 @@ const DEFAULT_WALLET_DIR: &str = "./zec_sqlite_wallet";
 const KEYS_FILE: &str = "keys.toml";
 const BLOCKS_FOLDER: &str = "blocks";
 const DATA_DB: &str = "data.sqlite";
+const TOR_DIR: &str = "tor";
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) enum Network {
@@ -193,6 +194,14 @@ pub(crate) fn get_db_paths<P: AsRef<Path>>(wallet_dir: Option<P>) -> (PathBuf, P
 
 pub(crate) fn get_block_path(fsblockdb_root: &Path, meta: &BlockMeta) -> PathBuf {
     meta.block_file_path(&fsblockdb_root.join(BLOCKS_FOLDER))
+}
+
+pub(crate) fn get_tor_dir<P: AsRef<Path>>(wallet_dir: Option<P>) -> PathBuf {
+    wallet_dir
+        .as_ref()
+        .map(|p| p.as_ref())
+        .unwrap_or(DEFAULT_WALLET_DIR.as_ref())
+        .join(TOR_DIR)
 }
 
 pub(crate) async fn erase_wallet_state<P: AsRef<Path>>(wallet_dir: Option<P>) {
