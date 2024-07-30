@@ -21,7 +21,7 @@ use zcash_protocol::consensus::{BlockHeight, BranchId, Network};
 
 use crate::{
     data::{get_db_paths, get_wallet_network},
-    remote::{connect_to_lightwalletd, Servers},
+    remote::Servers,
 };
 
 // Options accepted for the `enhance` command
@@ -89,7 +89,7 @@ impl Command {
             anyhow!("Chain height must be available to perform transaction enhancement.")
         })?;
 
-        let mut client = connect_to_lightwalletd(self.server.pick(params)?).await?;
+        let mut client = self.server.pick(params)?.connect_direct().await?;
 
         let mut satisfied_requests = BTreeSet::new();
         loop {

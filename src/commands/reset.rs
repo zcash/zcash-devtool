@@ -3,7 +3,7 @@ use gumdrop::Options;
 
 use crate::{
     data::{erase_wallet_state, read_config},
-    remote::{connect_to_lightwalletd, Servers},
+    remote::Servers,
 };
 
 // Options accepted for the `reset` command
@@ -27,7 +27,7 @@ impl Command {
         let params = keys.network();
 
         // Connect to the client (for re-initializing the wallet).
-        let client = connect_to_lightwalletd(self.server.pick(params)?).await?;
+        let client = self.server.pick(params)?.connect_direct().await?;
 
         // Erase the wallet state (excluding key material).
         erase_wallet_state(wallet_dir.as_ref()).await;

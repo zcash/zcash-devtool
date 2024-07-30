@@ -135,25 +135,23 @@ impl<'a> Server<'a> {
             self.port
         )
     }
-}
 
-pub(crate) async fn connect_to_lightwalletd(
-    server: &Server<'_>,
-) -> Result<CompactTxStreamerClient<Channel>, anyhow::Error> {
-    info!("Connecting to {}", server);
+    pub(crate) async fn connect_direct(&self) -> anyhow::Result<CompactTxStreamerClient<Channel>> {
+        info!("Connecting to {}", self);
 
-    let channel = Channel::from_shared(server.endpoint())?;
+        let channel = Channel::from_shared(self.endpoint())?;
 
-    let channel = if server.use_tls() {
-        let tls = ClientTlsConfig::new()
-            .domain_name(server.host.to_string())
-            .with_webpki_roots();
-        channel.tls_config(tls)?
-    } else {
-        channel
-    };
+        let channel = if self.use_tls() {
+            let tls = ClientTlsConfig::new()
+                .domain_name(self.host.to_string())
+                .with_webpki_roots();
+            channel.tls_config(tls)?
+        } else {
+            channel
+        };
 
-    Ok(CompactTxStreamerClient::new(channel.connect().await?))
+        Ok(CompactTxStreamerClient::new(channel.connect().await?))
+    }
 }
 
 pub(crate) async fn tor_client<P: AsRef<Path>>(

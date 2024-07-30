@@ -10,11 +10,7 @@ use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_primitives::consensus;
 
-use crate::{
-    data::get_db_paths,
-    error,
-    remote::{connect_to_lightwalletd, Servers},
-};
+use crate::{data::get_db_paths, error, remote::Servers};
 
 // Options accepted for the `import-ufvk` command
 #[derive(Debug, Options)]
@@ -56,7 +52,7 @@ impl Command {
         let birthday = {
             // Fetch the tree state corresponding to the last block prior to the wallet's
             // birthday height. NOTE: THIS APPROACH LEAKS THE BIRTHDAY TO THE SERVER!
-            let mut client = connect_to_lightwalletd(self.server.pick(params)?).await?;
+            let mut client = self.server.pick(params)?.connect_direct().await?;
             let request = service::BlockId {
                 height: (self.birthday - 1).into(),
                 ..Default::default()

@@ -26,7 +26,7 @@ use crate::{
     commands::propose::{parse_fee_rule, FeeRule},
     data::{get_db_paths, read_config},
     error,
-    remote::{connect_to_lightwalletd, Servers},
+    remote::Servers,
     MIN_CONFIRMATIONS,
 };
 
@@ -87,7 +87,7 @@ impl Command {
         )
         .map_err(error::Error::from)?;
 
-        let mut client = connect_to_lightwalletd(self.server.pick(params)?).await?;
+        let mut client = self.server.pick(params)?.connect_direct().await?;
 
         // Create the transaction.
         println!("Creating transaction...");
