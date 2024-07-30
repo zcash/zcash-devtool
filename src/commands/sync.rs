@@ -654,7 +654,7 @@ async fn refresh_utxos<P: Parameters>(
                     value: Zatoshis::from_nonnegative_i64(reply.value_zat)?,
                     script_pubkey: Script(reply.script),
                 },
-                BlockHeight::from(u32::try_from(reply.height)?),
+                Some(BlockHeight::from(u32::try_from(reply.height)?)),
             )
             .ok_or(anyhow!(
                 "Received UTXO that doesn't correspond to a valid P2PKH or P2SH address"
