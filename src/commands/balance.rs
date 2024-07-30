@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use anyhow::anyhow;
 use gumdrop::Options;
 
@@ -11,8 +9,9 @@ use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::{Zatoshis, COIN};
 
 use crate::{
-    data::{get_db_paths, get_tor_dir, get_wallet_network},
+    data::{get_db_paths, get_wallet_network},
     error,
+    remote::tor_client,
     ui::format_zec,
     MIN_CONFIRMATIONS,
 };
@@ -40,7 +39,8 @@ impl Command {
             .ok_or(error::Error::InvalidRecipient)?;
 
         let printer = if let Some(currency) = self.convert {
-            ValuePrinter::with_exchange_rate(&get_tor_dir(wallet_dir), currency).await?
+            let tor = tor_client(wallet_dir.as_ref()).await?;
+            ValuePrinter::with_exchange_rate(&tor, currency).await?
         } else {
             ValuePrinter::ZecOnly
         };
@@ -88,12 +88,7 @@ enum ValuePrinter {
 }
 
 impl ValuePrinter {
-    async fn with_exchange_rate(tor_dir: &Path, currency: Currency) -> anyhow::Result<Self> {
-        // Ensure Tor directory exists.
-        tokio::fs::create_dir_all(tor_dir).await?;
-
-        let tor = tor::Client::create(tor_dir).await?;
-
+    async fn with_exchange_rate(tor: &tor::Client, currency: Currency) -> anyhow::Result<Self> {
         info!("Fetching {:?}/ZEC exchange rate", currency);
         let exchanges = tor::http::cryptex::Exchanges::unauthenticated_known_with_gemini_trusted();
         let usd_zec = tor.get_latest_zec_to_usd_rate(&exchanges).await?;

@@ -1,11 +1,15 @@
-use std::{borrow::Cow, fmt};
+use std::{borrow::Cow, fmt, path::Path};
 
 use anyhow::anyhow;
 use tonic::transport::{Channel, ClientTlsConfig};
 
 use tracing::info;
-use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
+use zcash_client_backend::{
+    proto::service::compact_tx_streamer_client::CompactTxStreamerClient, tor,
+};
 use zcash_protocol::consensus::Network;
+
+use crate::data::get_tor_dir;
 
 const ECC_TESTNET: &[Server<'_>] = &[Server::fixed("lightwalletd.testnet.electriccoin.co", 9067)];
 
@@ -150,4 +154,15 @@ pub(crate) async fn connect_to_lightwalletd(
     };
 
     Ok(CompactTxStreamerClient::new(channel.connect().await?))
+}
+
+pub(crate) async fn tor_client<P: AsRef<Path>>(
+    wallet_dir: Option<P>,
+) -> anyhow::Result<tor::Client> {
+    let tor_dir = get_tor_dir(wallet_dir);
+
+    // Ensure Tor directory exists.
+    tokio::fs::create_dir_all(&tor_dir).await?;
+
+    Ok(tor::Client::create(&tor_dir).await?)
 }
