@@ -21,7 +21,7 @@ use zcash_protocol::consensus::{BlockHeight, BranchId, Network};
 
 use crate::{
     data::{get_db_paths, get_wallet_network},
-    remote::Servers,
+    remote::{tor_client, Servers},
 };
 
 // Options accepted for the `enhance` command
@@ -89,7 +89,16 @@ impl Command {
             anyhow!("Chain height must be available to perform transaction enhancement.")
         })?;
 
-        let mut client = self.server.pick(params)?.connect_direct().await?;
+        // TODO:
+        // - Create a shared Tor client.
+        // - Create an isolated `lightwalletd` connection for each transaction.
+        // - Spread transactions across all available servers.
+        // - Fetch transactions in parallel, with timing noise.
+        let mut client = self
+            .server
+            .pick(params)?
+            .connect(|| tor_client(wallet_dir.as_ref()))
+            .await?;
 
         let mut satisfied_requests = BTreeSet::new();
         loop {

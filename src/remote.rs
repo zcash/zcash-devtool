@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt, path::Path};
+use std::{borrow::Cow, fmt, future::Future, path::Path};
 
 use anyhow::anyhow;
 use tonic::transport::{Channel, ClientTlsConfig};
@@ -151,6 +151,36 @@ impl<'a> Server<'a> {
         };
 
         Ok(CompactTxStreamerClient::new(channel.connect().await?))
+    }
+
+    async fn connect_over_tor(
+        &self,
+        tor: &tor::Client,
+    ) -> Result<CompactTxStreamerClient<Channel>, anyhow::Error> {
+        if !self.use_tls() {
+            return Err(anyhow!(
+                "Cannot connect to local lightwalletd server over Tor"
+            ));
+        }
+
+        info!("Connecting to {} over Tor", self);
+        let endpoint = self.endpoint().try_into()?;
+        Ok(tor.connect_to_lightwalletd(endpoint).await?)
+    }
+
+    /// Connects to the server over Tor, unless it is running on localhost without HTTPS.
+    pub(crate) async fn connect<F>(
+        &self,
+        tor: impl FnOnce() -> F,
+    ) -> Result<CompactTxStreamerClient<Channel>, anyhow::Error>
+    where
+        F: Future<Output = anyhow::Result<tor::Client>>,
+    {
+        if self.use_tls() {
+            self.connect_over_tor(&tor().await?).await
+        } else {
+            self.connect_direct().await
+        }
     }
 }
 

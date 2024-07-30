@@ -26,7 +26,7 @@ use crate::{
     commands::propose::{parse_fee_rule, FeeRule},
     data::{get_db_paths, read_config},
     error,
-    remote::Servers,
+    remote::{tor_client, Servers},
     MIN_CONFIRMATIONS,
 };
 
@@ -62,7 +62,7 @@ impl Command {
         let keys = read_config(wallet_dir.as_ref())?;
         let params = keys.network();
 
-        let (_, db_data) = get_db_paths(wallet_dir);
+        let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
         let account_id = *db_data
             .get_account_ids()?
@@ -87,7 +87,11 @@ impl Command {
         )
         .map_err(error::Error::from)?;
 
-        let mut client = self.server.pick(params)?.connect_direct().await?;
+        let mut client = self
+            .server
+            .pick(params)?
+            .connect(|| tor_client(wallet_dir.as_ref()))
+            .await?;
 
         // Create the transaction.
         println!("Creating transaction...");
