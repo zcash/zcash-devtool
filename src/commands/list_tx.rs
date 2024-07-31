@@ -23,11 +23,13 @@ impl Command {
         let conn = Connection::open(db_data)?;
         rusqlite::vtab::array::load_module(&conn)?;
 
+        // Show the first account in the database.
         let account_id = conn.query_row(
             "SELECT id
             FROM accounts
-            WHERE hd_account_index = :zip32_account",
-            named_params! {":zip32_account": 0},
+            ORDER BY id
+            LIMIT 1",
+            named_params! {},
             |row| row.get::<_, u32>(0),
         )?;
 

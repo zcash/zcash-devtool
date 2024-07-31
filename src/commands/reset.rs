@@ -9,6 +9,9 @@ use crate::{
 // Options accepted for the `reset` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
+    #[options(help = "the number of accounts to re-initialise the wallet with (default is 1)")]
+    accounts: Option<usize>,
+
     #[options(
         help = "the server to re-initialize with (default is \"ecc\")",
         default = "ecc",
@@ -37,6 +40,7 @@ impl Command {
             keys.seed()
                 .ok_or(anyhow!("Seed is required for database reset"))?,
             keys.birthday().into(),
+            self.accounts.unwrap_or(1),
         )
         .await
     }
