@@ -27,6 +27,9 @@ pub(crate) struct Command {
     #[options(help = "the wallet's birthday (default is current chain height)")]
     birthday: Option<u32>,
 
+    #[options(help = "the number of accounts to initialise the wallet with (default is 1)")]
+    accounts: Option<usize>,
+
     #[options(
         help = "the network the wallet will be used with: \"test\" or \"main\" (default is \"test\")",
         parse(try_from_str = "Network::parse")
@@ -79,7 +82,15 @@ impl Command {
             SecretVec::new(secret)
         };
 
-        Self::init_dbs(client, params, wallet_dir, &seed, birthday).await
+        Self::init_dbs(
+            client,
+            params,
+            wallet_dir,
+            &seed,
+            birthday,
+            opts.accounts.unwrap_or(1),
+        )
+        .await
     }
 
     pub(crate) async fn init_dbs(
@@ -88,6 +99,7 @@ impl Command {
         wallet_dir: Option<String>,
         seed: &SecretVec<u8>,
         birthday: u32,
+        accounts: usize,
     ) -> Result<(), anyhow::Error> {
         // Initialise the block and wallet DBs.
         let (db_cache, db_data) = get_db_paths(wallet_dir);
@@ -108,8 +120,10 @@ impl Command {
             AccountBirthday::from_treestate(treestate, None).map_err(error::Error::from)?
         };
 
-        // Add one account.
-        db_data.create_account(seed, &birthday)?;
+        // Add accounts.
+        for _ in 0..accounts {
+            db_data.create_account(seed, &birthday)?;
+        }
 
         Ok(())
     }
