@@ -60,14 +60,19 @@ impl Command {
                 ..Default::default()
             };
 
-            let tx = client.get_transaction(request).await?.into_inner();
+            let raw_tx = client.get_transaction(request).await?.into_inner();
+            let mined_height = (raw_tx.height > 0 && raw_tx.height <= u64::from(u32::MAX))
+                .then(|| BlockHeight::from_u32(u32::try_from(raw_tx.height).unwrap()));
 
             let tx = Transaction::read(
-                &tx.data[..],
-                BranchId::for_height(&params, BlockHeight::from_u32(u32::try_from(tx.height)?)),
+                &raw_tx.data[..],
+                BranchId::for_height(
+                    &params,
+                    BlockHeight::from_u32(u32::try_from(raw_tx.height)?),
+                ),
             )?;
 
-            decrypt_and_store_transaction(&params, &mut db_data, &tx)?;
+            decrypt_and_store_transaction(&params, &mut db_data, &tx, mined_height)?;
         }
 
         Ok(())
