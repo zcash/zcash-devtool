@@ -3,7 +3,7 @@ use gumdrop::Options;
 
 use zcash_address::unified::{self, Encoding};
 use zcash_client_backend::{
-    data_api::{AccountBirthday, WalletWrite},
+    data_api::{AccountBirthday, AccountPurpose, WalletWrite},
     proto::service,
 };
 use zcash_client_sqlite::WalletDb;
@@ -66,7 +66,15 @@ impl Command {
         };
 
         // Import the UFVK.
-        db_data.import_account_ufvk(&ufvk, &birthday, !self.view_only)?;
+        db_data.import_account_ufvk(
+            &ufvk,
+            &birthday,
+            if self.view_only {
+                AccountPurpose::ViewOnly
+            } else {
+                AccountPurpose::Spending
+            },
+        )?;
 
         Ok(())
     }

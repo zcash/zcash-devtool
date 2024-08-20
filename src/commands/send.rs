@@ -73,7 +73,9 @@ impl Command {
             .ok_or(anyhow!("Account missing: {:?}", account_id))?;
         let account_index = match account.source() {
             AccountSource::Derived { account_index, .. } => account_index,
-            AccountSource::Imported => unreachable!("Imported accounts are not yet supported."),
+            AccountSource::Imported { .. } => {
+                unreachable!("Imported accounts are not yet supported.")
+            }
         };
 
         let usk = UnifiedSpendingKey::from_seed(
