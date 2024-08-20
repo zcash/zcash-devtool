@@ -13,7 +13,7 @@ use zcash_primitives::consensus;
 use crate::{
     data::get_db_paths,
     error,
-    remote::{connect_to_lightwalletd, Servers},
+    remote::{tor_client, Servers},
 };
 
 // Options accepted for the `import-ufvk` command
@@ -49,14 +49,18 @@ impl Command {
             }
         }?;
 
-        let (_, db_data) = get_db_paths(wallet_dir);
+        let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
 
         // Construct an `AccountBirthday` for the account's birthday.
         let birthday = {
             // Fetch the tree state corresponding to the last block prior to the wallet's
             // birthday height. NOTE: THIS APPROACH LEAKS THE BIRTHDAY TO THE SERVER!
-            let mut client = connect_to_lightwalletd(self.server.pick(params)?).await?;
+            let mut client = self
+                .server
+                .pick(params)?
+                .connect(|| tor_client(wallet_dir))
+                .await?;
             let request = service::BlockId {
                 height: (self.birthday - 1).into(),
                 ..Default::default()

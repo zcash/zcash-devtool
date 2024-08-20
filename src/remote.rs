@@ -1,11 +1,15 @@
-use std::{borrow::Cow, fmt};
+use std::{borrow::Cow, fmt, future::Future, path::Path};
 
 use anyhow::anyhow;
 use tonic::transport::{Channel, ClientTlsConfig};
 
 use tracing::info;
-use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
+use zcash_client_backend::{
+    proto::service::compact_tx_streamer_client::CompactTxStreamerClient, tor,
+};
 use zcash_protocol::consensus::Network;
+
+use crate::data::get_tor_dir;
 
 const ECC_TESTNET: &[Server<'_>] = &[Server::fixed("lightwalletd.testnet.electriccoin.co", 9067)];
 
@@ -131,23 +135,62 @@ impl<'a> Server<'a> {
             self.port
         )
     }
+
+    pub(crate) async fn connect_direct(&self) -> anyhow::Result<CompactTxStreamerClient<Channel>> {
+        info!("Connecting to {}", self);
+
+        let channel = Channel::from_shared(self.endpoint())?;
+
+        let channel = if self.use_tls() {
+            let tls = ClientTlsConfig::new()
+                .domain_name(self.host.to_string())
+                .with_webpki_roots();
+            channel.tls_config(tls)?
+        } else {
+            channel
+        };
+
+        Ok(CompactTxStreamerClient::new(channel.connect().await?))
+    }
+
+    async fn connect_over_tor(
+        &self,
+        tor: &tor::Client,
+    ) -> Result<CompactTxStreamerClient<Channel>, anyhow::Error> {
+        if !self.use_tls() {
+            return Err(anyhow!(
+                "Cannot connect to local lightwalletd server over Tor"
+            ));
+        }
+
+        info!("Connecting to {} over Tor", self);
+        let endpoint = self.endpoint().try_into()?;
+        Ok(tor.connect_to_lightwalletd(endpoint).await?)
+    }
+
+    /// Connects to the server over Tor, unless it is running on localhost without HTTPS.
+    pub(crate) async fn connect<F>(
+        &self,
+        tor: impl FnOnce() -> F,
+    ) -> Result<CompactTxStreamerClient<Channel>, anyhow::Error>
+    where
+        F: Future<Output = anyhow::Result<tor::Client>>,
+    {
+        if self.use_tls() {
+            self.connect_over_tor(&tor().await?).await
+        } else {
+            self.connect_direct().await
+        }
+    }
 }
 
-pub(crate) async fn connect_to_lightwalletd(
-    server: &Server<'_>,
-) -> Result<CompactTxStreamerClient<Channel>, anyhow::Error> {
-    info!("Connecting to {}", server);
+pub(crate) async fn tor_client<P: AsRef<Path>>(
+    wallet_dir: Option<P>,
+) -> anyhow::Result<tor::Client> {
+    let tor_dir = get_tor_dir(wallet_dir);
 
-    let channel = Channel::from_shared(server.endpoint())?;
+    // Ensure Tor directory exists.
+    tokio::fs::create_dir_all(&tor_dir).await?;
 
-    let channel = if server.use_tls() {
-        let tls = ClientTlsConfig::new()
-            .domain_name(server.host.to_string())
-            .with_webpki_roots();
-        channel.tls_config(tls)?
-    } else {
-        channel
-    };
-
-    Ok(CompactTxStreamerClient::new(channel.connect().await?))
+    Ok(tor::Client::create(&tor_dir).await?)
 }
