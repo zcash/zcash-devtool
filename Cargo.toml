@@ -25,15 +25,15 @@ toml = "0.8"
 tonic = { version = "0.12", features = ["gzip", "tls-webpki-roots"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-zcash_address = "0.4"
-zcash_client_backend = { version = "0.13", features = ["lightwalletd-tonic", "orchard", "tor"] }
-zcash_client_sqlite = { version = "0.11", features = ["unstable", "orchard"] }
-# zcash_client_memory = { git = "https://github.com/chainSafe/librustzcash", ref = "fda38e0a2ea7dc0cb81ab90c4abc20c6f9669624", features = ["unstable", "orchard"], optional = true }
-zcash_keys = { version = "0.3", features = ["unstable", "orchard"] }
-zcash_primitives = "0.16"
-zcash_proofs = "0.16"
-zcash_protocol = "0.2"
-zip321 = "0.1"
+zcash_address = {   git = "https://github.com/chainSafe/librustzcash", rev = "5ec0056e5c6e665326c657cf7aa0b8748f34add5"}
+zcash_client_backend = { git = "https://github.com/chainSafe/librustzcash", rev = "5ec0056e5c6e665326c657cf7aa0b8748f34add5", features = ["lightwalletd-tonic", "orchard", "tor"] }
+zcash_client_sqlite = { git = "https://github.com/chainSafe/librustzcash", rev = "5ec0056e5c6e665326c657cf7aa0b8748f34add5", features = ["unstable", "orchard"] }
+zcash_client_memory = { git = "https://github.com/chainSafe/librustzcash", rev = "5ec0056e5c6e665326c657cf7aa0b8748f34add5", features = ["unstable", "orchard"] }
+zcash_keys = {  git = "https://github.com/chainSafe/librustzcash", rev = "5ec0056e5c6e665326c657cf7aa0b8748f34add5", features = ["unstable", "orchard"] }
+zcash_primitives =  { git = "https://github.com/chainSafe/librustzcash", rev = "5ec0056e5c6e665326c657cf7aa0b8748f34add5"}
+zcash_proofs = {  git = "https://github.com/chainSafe/librustzcash", rev = "5ec0056e5c6e665326c657cf7aa0b8748f34add5"}
+zcash_protocol =  { git = "https://github.com/chainSafe/librustzcash", rev = "5ec0056e5c6e665326c657cf7aa0b8748f34add5"}
+zip321 =  { git = "https://github.com/chainSafe/librustzcash", rev = "5ec0056e5c6e665326c657cf7aa0b8748f34add5" }
 
 # Currency conversion
 iso_currency = { version = "0.4", features = ["with-serde"] }
@@ -61,3 +61,6 @@ tui = [
 ]
 sqlite = []
 memory = []
+
+[patch.crates-io]
+zip32 = { git = "https://github.com/zcash/zip32.git", branch = "diversifier_index_ord"}
