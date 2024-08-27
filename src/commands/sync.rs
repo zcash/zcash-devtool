@@ -5,6 +5,7 @@ use futures_util::TryStreamExt;
 use gumdrop::Options;
 use orchard::tree::MerkleHashOrchard;
 use prost::Message;
+use subtle::ConditionallySelectable;
 use tokio::{fs::File, io::AsyncWriteExt, task::JoinHandle};
 
 use tonic::transport::Channel;
@@ -20,9 +21,9 @@ use zcash_client_backend::{
     },
     proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient, BlockId},
 };
-use zcash_client_sqlite::{chain::BlockMeta, FsBlockDb, FsBlockDbError, WalletDb};
+use zcash_client_sqlite::{chain::BlockMeta, FsBlockDb, FsBlockDbError};
 use zcash_primitives::merkle_tree::HashSer;
-use zcash_protocol::consensus::{BlockHeight, Network, Parameters};
+use zcash_protocol::consensus::{BlockHeight, Parameters};
 
 use crate::{
     data::{get_block_path, get_db_paths, get_wallet_network},
@@ -34,7 +35,6 @@ use crate::{
 #[cfg(feature = "transparent-inputs")]
 use {
     zcash_client_backend::{encoding::AddressCodec, wallet::WalletTransparentOutput},
-    zcash_client_sqlite::AccountId,
     zcash_primitives::{
         legacy::Script,
         transaction::components::transparent::{OutPoint, TxOut},
@@ -68,13 +68,19 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run(
+    pub(crate) async fn run<W>(
         self,
         shutdown: &mut ShutdownListener,
         wallet_dir: Option<String>,
-        db_data: &mut WalletDb<rusqlite::Connection, Network>,
+        db_data: &mut W,
         #[cfg(feature = "tui")] tui: Tui,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), anyhow::Error>
+    where
+        W: WalletRead + WalletWrite + WalletCommitmentTrees,
+        <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+        <W as WalletCommitmentTrees>::Error: std::error::Error + Send + Sync + 'static,
+        <W as WalletRead>::AccountId: ConditionallySelectable + Default + Send + 'static,
+    {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
         let (fsblockdb_root, _) = get_db_paths(wallet_dir.as_ref());
@@ -106,16 +112,21 @@ impl Command {
         // 2) Pass the commitment tree data to the database.
         update_subtree_roots(&mut client, db_data).await?;
 
-        async fn running<P: Parameters + Send + 'static>(
+        async fn running<W, P: Parameters + Send + 'static>(
             shutdown: &mut ShutdownListener,
             client: &mut CompactTxStreamerClient<Channel>,
             params: &P,
             fsblockdb_root: &Path,
             db_cache: &mut FsBlockDb,
-            db_data: &mut WalletDb<rusqlite::Connection, P>,
+            db_data: &mut W,
             #[cfg(feature = "transparent-inputs")] wallet_birthday: BlockHeight,
             #[cfg(feature = "tui")] tui_handle: Option<&defrag::AppHandle>,
-        ) -> Result<bool, anyhow::Error> {
+        ) -> Result<bool, anyhow::Error>
+        where
+            W: WalletRead + WalletWrite,
+            <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+            <W as WalletRead>::AccountId: ConditionallySelectable + Default + Send + 'static,
+        {
             // 3) Download chain tip metadata from lightwalletd
             // 4) Notify the wallet of the updated chain tip.
             let _chain_tip = update_chain_tip(client, db_data).await?;
@@ -337,10 +348,14 @@ impl Command {
     }
 }
 
-async fn update_subtree_roots<P: Parameters>(
+async fn update_subtree_roots<W>(
     client: &mut CompactTxStreamerClient<Channel>,
-    db_data: &mut WalletDb<rusqlite::Connection, P>,
-) -> Result<(), anyhow::Error> {
+    db_data: &mut W,
+) -> Result<(), anyhow::Error>
+where
+    W: WalletRead + WalletWrite + WalletCommitmentTrees,
+    <W as WalletCommitmentTrees>::Error: std::error::Error + Send + Sync + 'static,
+{
     let mut request = service::GetSubtreeRootsArg::default();
     request.set_shielded_protocol(service::ShieldedProtocol::Sapling);
     let sapling_roots: Vec<CommitmentTreeRoot<sapling::Node>> = client
@@ -382,10 +397,14 @@ async fn update_subtree_roots<P: Parameters>(
     Ok(())
 }
 
-async fn update_chain_tip<P: Parameters>(
+async fn update_chain_tip<W>(
     client: &mut CompactTxStreamerClient<Channel>,
-    db_data: &mut WalletDb<rusqlite::Connection, P>,
-) -> Result<BlockHeight, anyhow::Error> {
+    db_data: &mut W,
+) -> Result<BlockHeight, anyhow::Error>
+where
+    W: WalletRead + WalletWrite,
+    <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+{
     let tip_height: BlockHeight = client
         .get_latest_block(service::ChainSpec::default())
         .await?
@@ -508,16 +527,21 @@ fn delete_cached_blocks(fsblockdb_root: &Path, block_meta: Vec<BlockMeta>) -> Jo
 ///
 /// Returns `true` if scanning these blocks materially changed the suggested scan ranges.
 #[allow(clippy::too_many_arguments)]
-fn scan_blocks<P: Parameters + Send + 'static>(
+fn scan_blocks<P: Parameters + Send + 'static, W>(
     params: &P,
     fsblockdb_root: &Path,
     db_cache: &mut FsBlockDb,
-    db_data: &mut WalletDb<rusqlite::Connection, P>,
+    db_data: &mut W,
     initial_chain_state: &ChainState,
     scan_range: &ScanRange,
     #[cfg(feature = "tui")] tui_handle: Option<&defrag::AppHandle>,
     #[cfg(feature = "tui")] chain_tip: BlockHeight,
-) -> Result<bool, anyhow::Error> {
+) -> Result<bool, anyhow::Error>
+where
+    W: WalletRead + WalletWrite,
+    <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+    <W as WalletRead>::AccountId: ConditionallySelectable + Default + Send + 'static,
+{
     info!("Scanning {}", scan_range);
     #[cfg(feature = "tui")]
     if let Some(handle) = tui_handle {
@@ -626,13 +650,17 @@ fn scan_blocks<P: Parameters + Send + 'static>(
 ///
 /// [a comment in the Android SDK]: https://github.com/Electric-Coin-Company/zcash-android-wallet-sdk/blob/855204fc8ae4057fdac939f98df4aa38c8e662f1/sdk-lib/src/main/java/cash/z/ecc/android/sdk/block/processor/CompactBlockProcessor.kt#L979-L991
 #[cfg(feature = "transparent-inputs")]
-async fn refresh_utxos<P: Parameters>(
+async fn refresh_utxos<W, P: Parameters>(
     params: &P,
     client: &mut CompactTxStreamerClient<Channel>,
-    db_data: &mut WalletDb<rusqlite::Connection, P>,
-    account_id: AccountId,
+    db_data: &mut W,
+    account_id: <W as WalletRead>::AccountId,
     start_height: BlockHeight,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), anyhow::Error>
+where
+    W: WalletRead + WalletWrite,
+    <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+{
     let request = service::GetAddressUtxosArg {
         addresses: db_data
             .get_transparent_receivers(account_id)?

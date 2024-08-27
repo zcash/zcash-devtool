@@ -1,17 +1,16 @@
 use bip0039::{Count, English, Mnemonic};
 use gumdrop::Options;
-use rusqlite::Connection;
 use secrecy::{SecretVec, Zeroize};
 use tonic::transport::Channel;
 
 use zcash_client_backend::{
-    data_api::{AccountBirthday, WalletWrite},
+    data_api::{AccountBirthday, WalletRead, WalletWrite},
     proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
 };
 use zcash_client_sqlite::{
-    chain::init::init_blockmeta_db, wallet::init::init_wallet_db, FsBlockDb, WalletDb,
+    chain::init::init_blockmeta_db, FsBlockDb,
 };
-use zcash_primitives::consensus::{self, Parameters};
+use zcash_primitives::consensus;
 
 use crate::{
     data::{get_db_paths, init_wallet_config, Network},
@@ -46,11 +45,15 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run<P: Parameters + 'static>(
+    pub(crate) async fn run<W>(
         self,
         wallet_dir: Option<String>,
-        db_data: &mut WalletDb<Connection, P>,
-    ) -> Result<(), anyhow::Error> {
+        db_data: &mut W,
+    ) -> Result<(), anyhow::Error>
+    where
+        W: WalletRead + WalletWrite,
+        <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+    {
         let opts = self;
         let params = consensus::Network::from(opts.network);
 
@@ -102,20 +105,23 @@ impl Command {
         .await
     }
 
-    pub(crate) async fn init_dbs<P: Parameters + 'static>(
+    pub(crate) async fn init_dbs<W>(
         mut client: CompactTxStreamerClient<Channel>,
         wallet_dir: Option<String>,
-        db_data: &mut WalletDb<Connection, P>,
+        db_data: &mut W,
         seed: &SecretVec<u8>,
         birthday: u32,
         accounts: usize,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), anyhow::Error>
+    where
+        W: WalletRead + WalletWrite,
+        <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+    {
         // Initialise the block and wallet DBs.
         let (db_cache, _) = get_db_paths(wallet_dir);
         let mut db_cache = FsBlockDb::for_path(db_cache).map_err(error::Error::from)?;
         // let mut db_data = WalletDb::for_path(db_data, params)?;
         init_blockmeta_db(&mut db_cache)?;
-        init_wallet_db(db_data, None)?;
 
         // Construct an `AccountBirthday` for the account's birthday.
         let birthday = {

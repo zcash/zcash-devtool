@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use data::{get_db_paths, get_wallet_network};
 use gumdrop::Options;
 use tracing_subscriber::{layer::SubscriberExt, Layer};
+use zcash_client_sqlite::wallet::init::init_wallet_db;
 use zcash_client_sqlite::WalletDb;
 
 mod commands;
@@ -122,6 +123,7 @@ fn main() -> Result<(), anyhow::Error> {
         let params = get_wallet_network(opts.wallet_dir.as_ref())?;
         let (_, db_data) = get_db_paths(opts.wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
+        init_wallet_db(&mut db_data, None)?;
 
         // repeat reading a command from the command line the execute
         let stdin = std::io::stdin();
