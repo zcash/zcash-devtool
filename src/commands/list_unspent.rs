@@ -19,7 +19,6 @@ impl Command {
         W: WalletRead + InputSource<AccountId = <W as WalletRead>::AccountId>,
         <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
         <W as InputSource>::Error: std::error::Error + Send + Sync + 'static,
-        <W as InputSource>::NoteRef: std::fmt::Display,
     {
         let account = *db_data
             .get_account_ids()?
@@ -44,7 +43,7 @@ impl Command {
 
         for note in notes.sapling() {
             println!(
-                "Sapling {}: {}",
+                "Sapling {:?}: {}",
                 note.internal_note_id(),
                 format_zec(note.note_value()?)
             );
@@ -52,7 +51,7 @@ impl Command {
 
         for note in notes.orchard() {
             println!(
-                "Orchard {}: {}",
+                "Orchard {:?}: {}",
                 note.internal_note_id(),
                 format_zec(note.note_value()?)
             );

@@ -15,10 +15,7 @@ use zcash_client_backend::{
 use zcash_primitives::transaction::{components::amount::NonNegativeAmount, fees::StandardFeeRule};
 use zip321::{Payment, TransactionRequest};
 
-use crate::{
-    data::get_wallet_network,
-    error, MIN_CONFIRMATIONS,
-};
+use crate::{data::get_wallet_network, error, MIN_CONFIRMATIONS};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) enum FeeRule {
@@ -72,7 +69,8 @@ impl Command {
         db_data: &mut W,
     ) -> Result<(), anyhow::Error>
     where
-        W: WalletRead + InputSource<Error = <W as WalletRead>::Error, AccountId = <W as WalletRead>::AccountId>,
+        W: WalletRead
+            + InputSource<Error = <W as WalletRead>::Error, AccountId = <W as WalletRead>::AccountId>,
         <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
         <W as InputSource>::NoteRef: Copy + Eq + Ord,
     {

@@ -118,15 +118,16 @@ fn main() -> Result<(), anyhow::Error> {
 
         let shutdown = &mut ShutdownListener::new();
 
-        let mut db_data = { // sql db
-            let params = get_wallet_network(opts.wallet_dir.as_ref())?;
-            let (_, db_data) = get_db_paths(opts.wallet_dir.as_ref());
-            let mut db_data = WalletDb::for_path(db_data, params)?;
-            init_wallet_db(&mut db_data, None)?;
-            db_data
-        };
+        // let mut db_data = { // sql db
+        //     let params = get_wallet_network(opts.wallet_dir.as_ref())?;
+        //     let (_, db_data) = get_db_paths(opts.wallet_dir.as_ref());
+        //     let mut db_data = WalletDb::for_path(db_data, params)?;
+        //     init_wallet_db(&mut db_data, None)?;
+        //     db_data
+        // };
 
-        let mut db_data = { // sql db
+        let mut db_data = {
+            // memory db
             let params = get_wallet_network(opts.wallet_dir.as_ref())?;
             zcash_client_memory::mem_wallet::MemoryWalletDb::new(params, 10)
         };
@@ -150,7 +151,7 @@ fn main() -> Result<(), anyhow::Error> {
 
             match command {
                 Command::Init(command) => command.run(opts.wallet_dir.clone(), &mut db_data).await,
-                Command::Reset(command) => command.run(opts.wallet_dir.clone(), &mut db_data).await,
+                // Command::Reset(command) => command.run(opts.wallet_dir.clone(), &mut db_data).await,
                 Command::ImportUfvk(command) => {
                     command.run(opts.wallet_dir.clone(), &mut db_data).await
                 }
@@ -176,6 +177,7 @@ fn main() -> Result<(), anyhow::Error> {
                     command.run(opts.wallet_dir.clone(), &mut db_data).await
                 }
                 Command::Send(command) => command.run(opts.wallet_dir.clone(), &mut db_data).await,
+                _ => panic!(),
             }
             .ok();
         }
