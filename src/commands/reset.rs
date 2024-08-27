@@ -1,5 +1,8 @@
 use anyhow::anyhow;
 use gumdrop::Options;
+use rusqlite::Connection;
+use zcash_client_sqlite::WalletDb;
+use zcash_protocol::consensus::Parameters;
 
 use crate::{
     data::{erase_wallet_state, read_config},
@@ -21,7 +24,7 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run<P: Parameters + 'static>(self, wallet_dir: Option<String>, db_data: &mut WalletDb<Connection, P>,) -> Result<(), anyhow::Error> {
         // Load the wallet network, seed, and birthday from disk.
         let keys = read_config(wallet_dir.as_ref())?;
         let params = keys.network();
@@ -39,8 +42,8 @@ impl Command {
         // Re-initialize the wallet state.
         super::init::Command::init_dbs(
             client,
-            params,
             wallet_dir,
+            db_data,
             keys.seed()
                 .ok_or(anyhow!("Seed is required for database reset"))?,
             keys.birthday().into(),

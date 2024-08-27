@@ -4,12 +4,14 @@
 //! It is only intended to show the overall light client workflow using this crate.
 
 use std::env;
-use std::io::BufRead;
+use std::io::{BufRead, Write};
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use data::{get_db_paths, get_wallet_network};
 use gumdrop::Options;
 use tracing_subscriber::{layer::SubscriberExt, Layer};
+use zcash_client_sqlite::WalletDb;
 
 mod commands;
 mod data;
@@ -116,6 +118,10 @@ fn main() -> Result<(), anyhow::Error> {
         let tui = tui::Tui::new()?.tick_rate(4.0).frame_rate(30.0);
 
         let shutdown = &mut ShutdownListener::new();
+        
+        let params = get_wallet_network(opts.wallet_dir.as_ref())?;
+        let (_, db_data) = get_db_paths(opts.wallet_dir.as_ref());
+        let mut db_data = WalletDb::for_path(db_data, params)?; 
 
         // repeat reading a command from the command line the execute
         let stdin = std::io::stdin();
@@ -125,7 +131,8 @@ fn main() -> Result<(), anyhow::Error> {
                 break;
             }
             let mut line = String::new();
-            print!("(cli-wallet) >>\n");
+            print!("(cli-wallet) >>");
+            std::io::stdout().flush().unwrap();
             stdin
                 .lock()
                 .read_line(&mut line)
@@ -134,8 +141,8 @@ fn main() -> Result<(), anyhow::Error> {
             let command: Command = gumdrop::parse_args_default(&args)?;
 
             match command {
-                Command::Init(command) => command.run(opts.wallet_dir.clone()).await,
-                Command::Reset(command) => command.run(opts.wallet_dir.clone()).await,
+                Command::Init(command) => command.run(opts.wallet_dir.clone(), &mut db_data).await,
+                Command::Reset(command) => command.run(opts.wallet_dir.clone(), &mut db_data).await,
                 Command::ImportUfvk(command) => command.run(opts.wallet_dir.clone()).await,
                 Command::Upgrade(command) => command.run(opts.wallet_dir.clone()),
                 Command::Sync(command) => {

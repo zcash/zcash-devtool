@@ -1,5 +1,6 @@
 use bip0039::{Count, English, Mnemonic};
 use gumdrop::Options;
+use rusqlite::Connection;
 use secrecy::{SecretVec, Zeroize};
 use tonic::transport::Channel;
 
@@ -45,7 +46,7 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run<P: Parameters + 'static>(self, wallet_dir: Option<String>, db_data: &mut WalletDb<Connection, P>,) -> Result<(), anyhow::Error> {
         let opts = self;
         let params = consensus::Network::from(opts.network);
 
@@ -88,8 +89,8 @@ impl Command {
 
         Self::init_dbs(
             client,
-            params,
             wallet_dir,
+            db_data,
             &seed,
             birthday,
             opts.accounts.unwrap_or(1),
@@ -97,20 +98,20 @@ impl Command {
         .await
     }
 
-    pub(crate) async fn init_dbs(
+    pub(crate) async fn init_dbs<P: Parameters + 'static>(
         mut client: CompactTxStreamerClient<Channel>,
-        params: impl Parameters + 'static,
         wallet_dir: Option<String>,
+        db_data: &mut WalletDb<Connection, P>,
         seed: &SecretVec<u8>,
         birthday: u32,
         accounts: usize,
     ) -> Result<(), anyhow::Error> {
         // Initialise the block and wallet DBs.
-        let (db_cache, db_data) = get_db_paths(wallet_dir);
+        let (db_cache, _) = get_db_paths(wallet_dir);
         let mut db_cache = FsBlockDb::for_path(db_cache).map_err(error::Error::from)?;
-        let mut db_data = WalletDb::for_path(db_data, params)?;
+        // let mut db_data = WalletDb::for_path(db_data, params)?;
         init_blockmeta_db(&mut db_cache)?;
-        init_wallet_db(&mut db_data, None)?;
+        init_wallet_db(db_data, None)?;
 
         // Construct an `AccountBirthday` for the account's birthday.
         let birthday = {
