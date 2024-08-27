@@ -33,8 +33,6 @@ struct MyOptions {
 
     #[options(help = "path to the wallet directory")]
     wallet_dir: Option<String>,
-    // #[options(command)]
-    // command: Option<Command>,
 }
 
 #[derive(Debug, Options)]

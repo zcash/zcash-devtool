@@ -28,6 +28,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 zcash_address = "0.4"
 zcash_client_backend = { version = "0.13", features = ["lightwalletd-tonic", "orchard", "tor"] }
 zcash_client_sqlite = { version = "0.11", features = ["unstable", "orchard"] }
+# zcash_client_memory = { git = "https://github.com/chainSafe/librustzcash", ref = "fda38e0a2ea7dc0cb81ab90c4abc20c6f9669624", features = ["unstable", "orchard"], optional = true }
 zcash_keys = { version = "0.3", features = ["unstable", "orchard"] }
 zcash_primitives = "0.16"
 zcash_proofs = "0.16"
@@ -58,3 +59,5 @@ tui = [
     "dep:tokio-util",
     "dep:tui-logger",
 ]
+sqlite = []
+memory = []
