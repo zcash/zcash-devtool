@@ -14,13 +14,12 @@ use zcash_client_backend::{
         self, compact_tx_streamer_client::CompactTxStreamerClient, BlockRange, RawTransaction,
     },
 };
-use zcash_client_sqlite::WalletDb;
 use zcash_keys::encoding::AddressCodec;
 use zcash_primitives::transaction::{Transaction, TxId};
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network};
 
 use crate::{
-    data::{get_db_paths, get_wallet_network},
+    data::get_wallet_network,
     remote::{tor_client, Servers},
 };
 
@@ -80,11 +79,9 @@ async fn fetch_transaction(
 }
 
 impl Command {
-    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run<W>(self, wallet_dir: Option<String>, db_data: &mut W) -> Result<(), anyhow::Error> where W: WalletRead + WalletWrite, <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static {
         let params = get_wallet_network(wallet_dir.as_ref())?;
-        let (_, db_data) = get_db_paths(wallet_dir.as_ref());
 
-        let mut db_data = WalletDb::for_path(db_data, params)?;
         let chain_tip = db_data.chain_height()?.ok_or_else(|| {
             anyhow!("Chain height must be available to perform transaction enhancement.")
         })?;
@@ -140,7 +137,7 @@ impl Command {
                                 );
                                 decrypt_and_store_transaction(
                                     &params,
-                                    &mut db_data,
+                                    db_data,
                                     &tx,
                                     mined_height,
                                 )?;
@@ -177,7 +174,7 @@ impl Command {
                                 address,
                                 mined_height
                             );
-                            decrypt_and_store_transaction(&params, &mut db_data, &tx, mined_height)?
+                            decrypt_and_store_transaction(&params, db_data, &tx, mined_height)?
                         }
                     }
                 }
