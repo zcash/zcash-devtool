@@ -8,6 +8,45 @@ This repository contains a CLI app for testing the `zcash_client_sqlite` crate.
 
 This app has not been written with security in mind.
 
+## Usage
+
+No binary artifacts are provided for this crate; it is generally used via
+`cargo run` as follows:
+
+To obtain the help docs:
+```
+cargo run --release -- --help
+```
+To obtain the help for a specific command (in this case, `init`)
+```
+cargo run --release -- --help init
+```
+
+To create a new empty testnet wallet:
+```
+cargo run --release -- -w <wallet_dir> init
+cargo run --release -- -w <wallet_dir> sync
+```
+
+See the help docs for `init` for additional information, including for how to
+initialize a mainnet wallet. Initializing a mainnet wallet will require
+specifying a mainnet lightwallet server, e.g.
+```
+cargo run --release -- -w <wallet_dir> init -n "main" -s "zecrocks"
+cargo run --release -- -w <wallet_dir> sync -s "zecrocks"
+```
+
+Whenever you update the `zcash_client_sqlite` dependency, in order to run
+necessary migrations:
+```
+cargo run --release -- -w <wallet_dir> upgrade
+```
+
+If you want to run with debug or trace logging:
+```
+RUST_LOG=debug cargo run --release -- -w <wallet_dir> <command>
+```
+
 ## License
 
 All code in this workspace is licensed under either of
