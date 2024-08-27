@@ -5,15 +5,10 @@ use iso_currency::Currency;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use tracing::{info, warn};
 use zcash_client_backend::{data_api::WalletRead, tor};
-use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::{Zatoshis, COIN};
 
 use crate::{
-    data::{get_db_paths, get_wallet_network},
-    error,
-    remote::tor_client,
-    ui::format_zec,
-    MIN_CONFIRMATIONS,
+    data::get_wallet_network, error, remote::tor_client, ui::format_zec, MIN_CONFIRMATIONS,
 };
 
 // Options accepted for the `balance` command

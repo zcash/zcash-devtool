@@ -5,25 +5,22 @@ use zcash_client_backend::{
     data_api::{InputSource, WalletRead},
     ShieldedProtocol,
 };
-use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::{Zatoshis, MAX_MONEY};
 
-use crate::{
-    data::{get_db_paths, get_wallet_network},
-    error,
-    ui::format_zec,
-};
+use crate::{error, ui::format_zec};
 
 // Options accepted for the `balance` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {}
 
 impl Command {
-    pub(crate) fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
-        let params = get_wallet_network(wallet_dir.as_ref())?;
-
-        let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let db_data = WalletDb::for_path(db_data, params)?;
+    pub(crate) fn run<W>(self, db_data: &W) -> Result<(), anyhow::Error>
+    where
+        W: WalletRead + InputSource<AccountId = <W as WalletRead>::AccountId>,
+        <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+        <W as InputSource>::Error: std::error::Error + Send + Sync + 'static,
+        <W as InputSource>::NoteRef: std::fmt::Display,
+    {
         let account = *db_data
             .get_account_ids()?
             .first()

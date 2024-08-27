@@ -7,17 +7,16 @@ use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
         wallet::{input_selection::GreedyInputSelector, propose_transfer},
-        WalletRead,
+        InputSource, WalletRead,
     },
     fees::standard::SingleOutputChangeStrategy,
     ShieldedProtocol,
 };
-use zcash_client_sqlite::WalletDb;
 use zcash_primitives::transaction::{components::amount::NonNegativeAmount, fees::StandardFeeRule};
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
-    data::{get_db_paths, get_wallet_network},
+    data::get_wallet_network,
     error, MIN_CONFIRMATIONS,
 };
 
@@ -67,11 +66,18 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run<W>(
+        self,
+        wallet_dir: Option<String>,
+        db_data: &mut W,
+    ) -> Result<(), anyhow::Error>
+    where
+        W: WalletRead + InputSource<Error = <W as WalletRead>::Error, AccountId = <W as WalletRead>::AccountId>,
+        <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+        <W as InputSource>::NoteRef: Copy + Eq + Ord,
+    {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
-        let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params)?;
         let account = *db_data
             .get_account_ids()?
             .first()
@@ -88,15 +94,15 @@ impl Command {
         )])
         .map_err(error::Error::from)?;
 
-        let proposal = propose_transfer(
-            &mut db_data,
+        let proposal = propose_transfer::<_, _, _, <W as InputSource>::Error>(
+            db_data,
             &params,
             account,
             &input_selector,
             request,
             MIN_CONFIRMATIONS,
         )
-        .map_err(error::Error::from)?;
+        .unwrap();
 
         // Display the proposal
         println!("Proposal: {:#?}", proposal);

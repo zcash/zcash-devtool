@@ -165,9 +165,11 @@ fn main() -> Result<(), anyhow::Error> {
                 }
                 Command::Balance(command) => command.run(opts.wallet_dir.clone(), &db_data).await,
                 Command::ListTx(command) => command.run(opts.wallet_dir.clone()),
-                Command::ListUnspent(command) => command.run(opts.wallet_dir.clone()),
-                Command::Propose(command) => command.run(opts.wallet_dir.clone()).await,
-                Command::Send(command) => command.run(opts.wallet_dir.clone()).await,
+                Command::ListUnspent(command) => command.run(&db_data),
+                Command::Propose(command) => {
+                    command.run(opts.wallet_dir.clone(), &mut db_data).await
+                }
+                Command::Send(command) => command.run(opts.wallet_dir.clone(), &mut db_data).await,
             }
             .ok();
         }

@@ -9,7 +9,7 @@ use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
         wallet::{input_selection::GreedyInputSelector, spend},
-        Account, AccountSource, WalletRead,
+        Account, AccountSource, InputSource, WalletCommitmentTrees, WalletRead, WalletWrite,
     },
     fees::standard::SingleOutputChangeStrategy,
     keys::UnifiedSpendingKey,
@@ -17,14 +17,13 @@ use zcash_client_backend::{
     wallet::OvkPolicy,
     ShieldedProtocol,
 };
-use zcash_client_sqlite::WalletDb;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::value::Zatoshis;
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
     commands::propose::{parse_fee_rule, FeeRule},
-    data::{get_db_paths, read_config},
+    data::read_config,
     error,
     remote::{tor_client, Servers},
     MIN_CONFIRMATIONS,
@@ -58,12 +57,21 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run<W>(
+        self,
+        wallet_dir: Option<String>,
+        db_data: &mut W,
+    ) -> Result<(), anyhow::Error>
+    where
+        W: WalletWrite
+            + InputSource
+            + WalletCommitmentTrees
+            + WalletRead<AccountId = <W as InputSource>::AccountId, Error = <W as InputSource>::Error>,
+        <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+    {
         let keys = read_config(wallet_dir.as_ref())?;
         let params = keys.network();
 
-        let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params)?;
         let account_id = *db_data
             .get_account_ids()?
             .first()
@@ -109,7 +117,7 @@ impl Command {
         .map_err(error::Error::from)?;
 
         let txids = spend(
-            &mut db_data,
+            db_data,
             &params,
             &prover,
             &prover,
@@ -119,7 +127,7 @@ impl Command {
             OvkPolicy::Sender,
             MIN_CONFIRMATIONS,
         )
-        .map_err(error::Error::from)?;
+        .unwrap();
 
         if txids.len() > 1 {
             return Err(anyhow!(
