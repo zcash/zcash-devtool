@@ -4,6 +4,7 @@
 //! It is only intended to show the overall light client workflow using this crate.
 
 use std::env;
+use std::io::BufRead;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -29,9 +30,8 @@ struct MyOptions {
 
     #[options(help = "path to the wallet directory")]
     wallet_dir: Option<String>,
-
-    #[options(command)]
-    command: Option<Command>,
+    // #[options(command)]
+    // command: Option<Command>,
 }
 
 #[derive(Debug, Options)]
@@ -115,31 +115,48 @@ fn main() -> Result<(), anyhow::Error> {
         #[cfg(feature = "tui")]
         let tui = tui::Tui::new()?.tick_rate(4.0).frame_rate(30.0);
 
-        let shutdown = ShutdownListener::new();
+        let shutdown = &mut ShutdownListener::new();
 
-        match opts.command {
-            Some(Command::Init(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::Reset(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::ImportUfvk(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::Upgrade(command)) => command.run(opts.wallet_dir),
-            Some(Command::Sync(command)) => {
-                command
-                    .run(
-                        shutdown,
-                        opts.wallet_dir,
-                        #[cfg(feature = "tui")]
-                        tui,
-                    )
-                    .await
+        // repeat reading a command from the command line the execute
+        let stdin = std::io::stdin();
+        loop {
+            if shutdown.requested() {
+                tracing::info!("Shutdown requested");
+                break;
             }
-            Some(Command::Enhance(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::Balance(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::ListTx(command)) => command.run(opts.wallet_dir),
-            Some(Command::ListUnspent(command)) => command.run(opts.wallet_dir),
-            Some(Command::Propose(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::Send(command)) => command.run(opts.wallet_dir).await,
-            _ => Ok(()),
+            let mut line = String::new();
+            print!("(cli-wallet) >>\n");
+            stdin
+                .lock()
+                .read_line(&mut line)
+                .expect("Could not read line");
+            let args: Vec<String> = line.trim().split(' ').map(|s| String::from(s)).collect();
+            let command: Command = gumdrop::parse_args_default(&args)?;
+
+            match command {
+                Command::Init(command) => command.run(opts.wallet_dir.clone()).await,
+                Command::Reset(command) => command.run(opts.wallet_dir.clone()).await,
+                Command::ImportUfvk(command) => command.run(opts.wallet_dir.clone()).await,
+                Command::Upgrade(command) => command.run(opts.wallet_dir.clone()),
+                Command::Sync(command) => {
+                    command
+                        .run(
+                            shutdown,
+                            opts.wallet_dir.clone(),
+                            #[cfg(feature = "tui")]
+                            tui,
+                        )
+                        .await
+                }
+                Command::Enhance(command) => command.run(opts.wallet_dir.clone()).await,
+                Command::Balance(command) => command.run(opts.wallet_dir.clone()).await,
+                Command::ListTx(command) => command.run(opts.wallet_dir.clone()),
+                Command::ListUnspent(command) => command.run(opts.wallet_dir.clone()),
+                Command::Propose(command) => command.run(opts.wallet_dir.clone()).await,
+                Command::Send(command) => command.run(opts.wallet_dir.clone()).await,
+            }.ok();
         }
+        Ok(())
     })
 }
 

@@ -70,7 +70,7 @@ pub(crate) struct Command {
 impl Command {
     pub(crate) async fn run(
         self,
-        mut shutdown: ShutdownListener,
+        shutdown: &mut ShutdownListener,
         wallet_dir: Option<String>,
         #[cfg(feature = "tui")] tui: Tui,
     ) -> Result<(), anyhow::Error> {
@@ -318,7 +318,7 @@ impl Command {
         }
 
         while running(
-            &mut shutdown,
+            shutdown,
             &mut client,
             &params,
             fsblockdb_root,
