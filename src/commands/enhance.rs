@@ -79,7 +79,15 @@ async fn fetch_transaction(
 }
 
 impl Command {
-    pub(crate) async fn run<W>(self, wallet_dir: Option<String>, db_data: &mut W) -> Result<(), anyhow::Error> where W: WalletRead + WalletWrite, <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static {
+    pub(crate) async fn run<W>(
+        self,
+        wallet_dir: Option<String>,
+        db_data: &mut W,
+    ) -> Result<(), anyhow::Error>
+    where
+        W: WalletRead + WalletWrite,
+        <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+    {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
         let chain_tip = db_data.chain_height()?.ok_or_else(|| {
@@ -135,12 +143,7 @@ impl Command {
                                     "Enhancing tx {:?} with mined height {:?}",
                                     txid, mined_height
                                 );
-                                decrypt_and_store_transaction(
-                                    &params,
-                                    db_data,
-                                    &tx,
-                                    mined_height,
-                                )?;
+                                decrypt_and_store_transaction(&params, db_data, &tx, mined_height)?;
                             }
                         }
                     }

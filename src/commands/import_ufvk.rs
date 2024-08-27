@@ -3,15 +3,13 @@ use gumdrop::Options;
 
 use zcash_address::unified::{self, Encoding};
 use zcash_client_backend::{
-    data_api::{AccountBirthday, AccountPurpose, WalletWrite},
+    data_api::{AccountBirthday, AccountPurpose, WalletRead, WalletWrite},
     proto::service,
 };
-use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_primitives::consensus;
 
 use crate::{
-    data::get_db_paths,
     error,
     remote::{tor_client, Servers},
 };
@@ -37,7 +35,15 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run<W>(
+        self,
+        wallet_dir: Option<String>,
+        db_data: &mut W,
+    ) -> Result<(), anyhow::Error>
+    where
+        W: WalletWrite + WalletRead,
+        <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+    {
         let (network, ufvk) = unified::Ufvk::decode(&self.ufvk)?;
         let ufvk = UnifiedFullViewingKey::parse(&ufvk).map_err(|e| anyhow!("{e}"))?;
 
@@ -48,9 +54,6 @@ impl Command {
                 Err(anyhow!("UFVK is for regtest, which is unsupported"))
             }
         }?;
-
-        let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params)?;
 
         // Construct an `AccountBirthday` for the account's birthday.
         let birthday = {

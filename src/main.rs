@@ -145,7 +145,9 @@ fn main() -> Result<(), anyhow::Error> {
             match command {
                 Command::Init(command) => command.run(opts.wallet_dir.clone(), &mut db_data).await,
                 Command::Reset(command) => command.run(opts.wallet_dir.clone(), &mut db_data).await,
-                Command::ImportUfvk(command) => command.run(opts.wallet_dir.clone()).await,
+                Command::ImportUfvk(command) => {
+                    command.run(opts.wallet_dir.clone(), &mut db_data).await
+                }
                 Command::Upgrade(command) => command.run(opts.wallet_dir.clone()),
                 Command::Sync(command) => {
                     command
@@ -158,7 +160,9 @@ fn main() -> Result<(), anyhow::Error> {
                         )
                         .await
                 }
-                Command::Enhance(command) => command.run(opts.wallet_dir.clone(),  &mut db_data).await,
+                Command::Enhance(command) => {
+                    command.run(opts.wallet_dir.clone(), &mut db_data).await
+                }
                 Command::Balance(command) => command.run(opts.wallet_dir.clone(), &db_data).await,
                 Command::ListTx(command) => command.run(opts.wallet_dir.clone()),
                 Command::ListUnspent(command) => command.run(opts.wallet_dir.clone()),
