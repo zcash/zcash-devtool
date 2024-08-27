@@ -46,7 +46,11 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run<P: Parameters + 'static>(self, wallet_dir: Option<String>, db_data: &mut WalletDb<Connection, P>,) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run<P: Parameters + 'static>(
+        self,
+        wallet_dir: Option<String>,
+        db_data: &mut WalletDb<Connection, P>,
+    ) -> Result<(), anyhow::Error> {
         let opts = self;
         let params = consensus::Network::from(opts.network);
 

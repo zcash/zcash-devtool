@@ -22,7 +22,7 @@ use zcash_client_backend::{
 };
 use zcash_client_sqlite::{chain::BlockMeta, FsBlockDb, FsBlockDbError, WalletDb};
 use zcash_primitives::merkle_tree::HashSer;
-use zcash_protocol::consensus::{BlockHeight, Parameters};
+use zcash_protocol::consensus::{BlockHeight, Network, Parameters};
 
 use crate::{
     data::{get_block_path, get_db_paths, get_wallet_network},
@@ -72,14 +72,15 @@ impl Command {
         self,
         shutdown: &mut ShutdownListener,
         wallet_dir: Option<String>,
+        db_data: &mut WalletDb<rusqlite::Connection, Network>,
         #[cfg(feature = "tui")] tui: Tui,
     ) -> Result<(), anyhow::Error> {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
-        let (fsblockdb_root, db_data) = get_db_paths(wallet_dir.as_ref());
+        let (fsblockdb_root, _) = get_db_paths(wallet_dir.as_ref());
         let fsblockdb_root = fsblockdb_root.as_path();
         let mut db_cache = FsBlockDb::for_path(fsblockdb_root).map_err(error::Error::from)?;
-        let mut db_data = WalletDb::for_path(db_data, params)?;
+        // let mut db_data = WalletDb::for_path(db_data, params)?;
         let mut client = self.server.pick(params)?.connect_direct().await?;
 
         #[cfg(any(feature = "transparent-inputs", feature = "tui"))]
@@ -103,7 +104,7 @@ impl Command {
 
         // 1) Download note commitment tree data from lightwalletd
         // 2) Pass the commitment tree data to the database.
-        update_subtree_roots(&mut client, &mut db_data).await?;
+        update_subtree_roots(&mut client, db_data).await?;
 
         async fn running<P: Parameters + Send + 'static>(
             shutdown: &mut ShutdownListener,
@@ -323,7 +324,7 @@ impl Command {
             &params,
             fsblockdb_root,
             &mut db_cache,
-            &mut db_data,
+            db_data,
             #[cfg(feature = "transparent-inputs")]
             wallet_birthday,
             #[cfg(feature = "tui")]

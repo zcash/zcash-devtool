@@ -118,10 +118,10 @@ fn main() -> Result<(), anyhow::Error> {
         let tui = tui::Tui::new()?.tick_rate(4.0).frame_rate(30.0);
 
         let shutdown = &mut ShutdownListener::new();
-        
+
         let params = get_wallet_network(opts.wallet_dir.as_ref())?;
         let (_, db_data) = get_db_paths(opts.wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params)?; 
+        let mut db_data = WalletDb::for_path(db_data, params)?;
 
         // repeat reading a command from the command line the execute
         let stdin = std::io::stdin();
@@ -150,6 +150,7 @@ fn main() -> Result<(), anyhow::Error> {
                         .run(
                             shutdown,
                             opts.wallet_dir.clone(),
+                            &mut db_data,
                             #[cfg(feature = "tui")]
                             tui,
                         )
@@ -161,7 +162,8 @@ fn main() -> Result<(), anyhow::Error> {
                 Command::ListUnspent(command) => command.run(opts.wallet_dir.clone()),
                 Command::Propose(command) => command.run(opts.wallet_dir.clone()).await,
                 Command::Send(command) => command.run(opts.wallet_dir.clone()).await,
-            }.ok();
+            }
+            .ok();
         }
         Ok(())
     })

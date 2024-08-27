@@ -24,7 +24,11 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run<P: Parameters + 'static>(self, wallet_dir: Option<String>, db_data: &mut WalletDb<Connection, P>,) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run<P: Parameters + 'static>(
+        self,
+        wallet_dir: Option<String>,
+        db_data: &mut WalletDb<Connection, P>,
+    ) -> Result<(), anyhow::Error> {
         // Load the wallet network, seed, and birthday from disk.
         let keys = read_config(wallet_dir.as_ref())?;
         let params = keys.network();
