@@ -7,9 +7,7 @@ use zcash_client_backend::{
     data_api::{AccountBirthday, WalletRead, WalletWrite},
     proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
 };
-use zcash_client_sqlite::{
-    chain::init::init_blockmeta_db, FsBlockDb,
-};
+use zcash_client_sqlite::{chain::init::init_blockmeta_db, FsBlockDb};
 use zcash_primitives::consensus;
 
 use crate::{

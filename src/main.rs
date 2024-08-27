@@ -159,7 +159,7 @@ fn main() -> Result<(), anyhow::Error> {
                         .await
                 }
                 Command::Enhance(command) => command.run(opts.wallet_dir.clone()).await,
-                Command::Balance(command) => command.run(opts.wallet_dir.clone()).await,
+                Command::Balance(command) => command.run(opts.wallet_dir.clone(), &db_data).await,
                 Command::ListTx(command) => command.run(opts.wallet_dir.clone()),
                 Command::ListUnspent(command) => command.run(opts.wallet_dir.clone()),
                 Command::Propose(command) => command.run(opts.wallet_dir.clone()).await,

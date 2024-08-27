@@ -24,11 +24,17 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run<W>(
+        self,
+        wallet_dir: Option<String>,
+        db_data: &W,
+    ) -> Result<(), anyhow::Error>
+    where
+        W: WalletRead,
+        <W as WalletRead>::Error: std::error::Error + Send + Sync + 'static,
+    {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
-        let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let db_data = WalletDb::for_path(db_data, params)?;
         let account_id = *db_data
             .get_account_ids()?
             .first()
