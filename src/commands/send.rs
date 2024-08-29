@@ -55,6 +55,9 @@ pub(crate) struct Command {
         parse(try_from_str = "Servers::parse")
     )]
     server: Servers,
+
+    #[options(help = "disable connections via TOR")]
+    disable_tor: bool,
 }
 
 impl Command {
@@ -87,11 +90,12 @@ impl Command {
         )
         .map_err(error::Error::from)?;
 
-        let mut client = self
-            .server
-            .pick(params)?
-            .connect(|| tor_client(wallet_dir.as_ref()))
-            .await?;
+        let server = self.server.pick(params)?;
+        let mut client = if self.disable_tor {
+            server.connect_direct().await?
+        } else {
+            server.connect(|| tor_client(wallet_dir.as_ref())).await?
+        };
 
         // Create the transaction.
         println!("Creating transaction...");

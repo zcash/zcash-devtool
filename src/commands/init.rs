@@ -42,6 +42,9 @@ pub(crate) struct Command {
         parse(try_from_str = "Servers::parse")
     )]
     server: Servers,
+
+    #[options(help = "disable connections via TOR")]
+    disable_tor: bool,
 }
 
 impl Command {
@@ -49,12 +52,14 @@ impl Command {
         let opts = self;
         let params = consensus::Network::from(opts.network);
 
+        let server = opts.server.pick(params)?;
+        let mut client = if opts.disable_tor {
+            server.connect_direct().await?
+        } else {
+            server.connect(|| tor_client(wallet_dir.as_ref())).await?
+        };
+
         // Get the current chain height (for the wallet's birthday).
-        let mut client = opts
-            .server
-            .pick(params)?
-            .connect(|| tor_client(wallet_dir.as_ref()))
-            .await?;
         let birthday = if let Some(birthday) = opts.birthday {
             birthday
         } else {
