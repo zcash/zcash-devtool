@@ -57,6 +57,9 @@ enum Command {
     #[options(help = "get the balance in the wallet")]
     Balance(commands::balance::Command),
 
+    #[options(help = "list the accounts in the wallet")]
+    ListAccounts(commands::list_accounts::Command),
+
     #[options(help = "list the transactions in the wallet")]
     ListTx(commands::list_tx::Command),
 
@@ -134,6 +137,7 @@ fn main() -> Result<(), anyhow::Error> {
             }
             Some(Command::Enhance(command)) => command.run(opts.wallet_dir).await,
             Some(Command::Balance(command)) => command.run(opts.wallet_dir).await,
+            Some(Command::ListAccounts(command)) => command.run(opts.wallet_dir),
             Some(Command::ListTx(command)) => command.run(opts.wallet_dir),
             Some(Command::ListUnspent(command)) => command.run(opts.wallet_dir),
             Some(Command::Propose(command)) => command.run(opts.wallet_dir).await,
