@@ -35,7 +35,7 @@ zcash_protocol = "0.2"
 zip321 = "0.1"
 
 # Currency conversion
-iso_currency = { version = "0.4", features = ["with-serde"] }
+iso_currency = { version = "0.5", features = ["with-serde"] }
 rust_decimal = "1"
 
 # TUI
