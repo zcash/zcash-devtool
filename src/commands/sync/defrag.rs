@@ -201,7 +201,7 @@ impl App {
 
     fn ui(&mut self, frame: &mut Frame) {
         let [upper_area, log_area] =
-            Layout::vertical([Constraint::Min(0), Constraint::Length(15)]).areas(frame.size());
+            Layout::vertical([Constraint::Min(0), Constraint::Length(15)]).areas(frame.area());
 
         let defrag_area = {
             let block = Block::bordered().title("Wallet Defragmentor");
