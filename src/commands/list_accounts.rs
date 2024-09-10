@@ -5,7 +5,7 @@ use zcash_client_sqlite::WalletDb;
 
 use crate::data::{get_db_paths, get_wallet_network};
 
-// Options accepted for the `import-ufvk` command
+// Options accepted for the `list-accounts` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {}
 
@@ -19,9 +19,9 @@ impl Command {
             let account = db_data.get_account(*account_id)?.unwrap();
 
             println!("Account {}", i);
-            println!("     Uivk: {}", account.uivk().encode(&params));
+            println!("     UIVK: {}", account.uivk().encode(&params));
             println!(
-                "     Ufvk: {}",
+                "     UFVK: {}",
                 account
                     .ufvk()
                     .map_or("None".to_owned(), |k| k.encode(&params))
