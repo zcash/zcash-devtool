@@ -18,6 +18,9 @@ pub(crate) struct Command {
         parse(try_from_str = "Servers::parse")
     )]
     server: Servers,
+
+    #[options(help = "disable connections via TOR")]
+    disable_tor: bool,
 }
 
 impl Command {
@@ -27,11 +30,12 @@ impl Command {
         let params = keys.network();
 
         // Connect to the client (for re-initializing the wallet).
-        let client = self
-            .server
-            .pick(params)?
-            .connect(|| tor_client(wallet_dir.as_ref()))
-            .await?;
+        let server = self.server.pick(params)?;
+        let client = if self.disable_tor {
+            server.connect_direct().await?
+        } else {
+            server.connect(|| tor_client(wallet_dir.as_ref())).await?
+        };
 
         // Erase the wallet state (excluding key material).
         erase_wallet_state(wallet_dir.as_ref()).await;
