@@ -261,11 +261,10 @@ impl WalletTx {
 
         println!("{}", self.txid);
         if let Some((height, block_time)) = self.mined_height.zip(self.block_time) {
-            println!(
-                "     Mined: {} ({})",
-                height,
-                time::OffsetDateTime::from_unix_timestamp(block_time),
-            );
+            match time::OffsetDateTime::from_unix_timestamp(block_time) {
+                Ok(block_time) => println!("     Mined: {} ({})", height, block_time),
+                Err(e) => println!("     Mined: {} (invalid block time: {e})", height),
+            }
         } else {
             println!(
                 "  {} (expiry height: {})",
