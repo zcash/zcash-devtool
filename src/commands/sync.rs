@@ -105,6 +105,7 @@ impl Command {
         // 2) Pass the commitment tree data to the database.
         update_subtree_roots(&mut client, &mut db_data).await?;
 
+        #[allow(clippy::too_many_arguments)]
         async fn running<P: Parameters + Send + 'static>(
             shutdown: &mut ShutdownListener,
             client: &mut CompactTxStreamerClient<Channel>,
