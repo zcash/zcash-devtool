@@ -188,7 +188,7 @@ impl WalletTxOutput {
             }
         );
 
-        if !(self.from_account.is_some() && self.to_account.is_some()) {
+        if self.from_account != self.to_account {
             if let Some(account_id) = self.to_account {
                 println!("    Received by account: {}", account_id);
             }
