@@ -643,29 +643,33 @@ async fn refresh_utxos<P: Parameters>(
         max_entries: 0,
     };
 
-    client
-        .get_address_utxos_stream(request)
-        .await?
-        .into_inner()
-        .map_err(anyhow::Error::from)
-        .and_then(|reply| async move {
-            WalletTransparentOutput::from_parts(
-                OutPoint::new(reply.txid[..].try_into()?, reply.index.try_into()?),
-                TxOut {
-                    value: Zatoshis::from_nonnegative_i64(reply.value_zat)?,
-                    script_pubkey: Script(reply.script),
-                },
-                Some(BlockHeight::from(u32::try_from(reply.height)?)),
-            )
-            .ok_or(anyhow!(
-                "Received UTXO that doesn't correspond to a valid P2PKH or P2SH address"
-            ))
-        })
-        .try_for_each(|output| {
-            let res = db_data.put_received_transparent_utxo(&output).map(|_| ());
-            async move { res.map_err(anyhow::Error::from) }
-        })
-        .await?;
+    if request.addresses.is_empty() {
+        info!("{:?} has no transparent receivers", account_id);
+    } else {
+        client
+            .get_address_utxos_stream(request)
+            .await?
+            .into_inner()
+            .map_err(anyhow::Error::from)
+            .and_then(|reply| async move {
+                WalletTransparentOutput::from_parts(
+                    OutPoint::new(reply.txid[..].try_into()?, reply.index.try_into()?),
+                    TxOut {
+                        value: Zatoshis::from_nonnegative_i64(reply.value_zat)?,
+                        script_pubkey: Script(reply.script),
+                    },
+                    Some(BlockHeight::from(u32::try_from(reply.height)?)),
+                )
+                .ok_or(anyhow!(
+                    "Received UTXO that doesn't correspond to a valid P2PKH or P2SH address"
+                ))
+            })
+            .try_for_each(|output| {
+                let res = db_data.put_received_transparent_utxo(&output).map(|_| ());
+                async move { res.map_err(anyhow::Error::from) }
+            })
+            .await?;
+    }
 
     Ok(())
 }

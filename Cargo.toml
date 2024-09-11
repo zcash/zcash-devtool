@@ -19,7 +19,7 @@ sapling = { package = "sapling-crypto", version = "0.2" }
 schemer = "0.2"
 secrecy = "0.8"
 serde = "1.0"
-time = "0.2"
+time = "0.3"
 tokio = { version = "1.21.0", features = ["fs", "macros", "rt-multi-thread", "signal"] }
 toml = "0.8"
 tonic = { version = "0.12", features = ["gzip", "tls-webpki-roots"] }
@@ -35,15 +35,15 @@ zcash_protocol = "0.2"
 zip321 = "0.1"
 
 # Currency conversion
-iso_currency = { version = "0.4", features = ["with-serde"] }
+iso_currency = { version = "0.5", features = ["with-serde"] }
 rust_decimal = "1"
 
 # TUI
-crossterm = { version = "0.27", optional = true, features = ["event-stream"] }
-ratatui = { version = "0.27", optional = true }
+crossterm = { version = "0.28", optional = true, features = ["event-stream"] }
+ratatui = { version = "0.28", optional = true }
 roaring = { version = "0.10", optional = true }
 tokio-util = { version = "0.7", optional = true }
-tui-logger = { version = "0.11", optional = true, features = ["tracing-support"] }
+tui-logger = { version = "0.12", optional = true, features = ["tracing-support"] }
 
 [features]
 default = ["transparent-inputs"]

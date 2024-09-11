@@ -34,6 +34,9 @@ pub(crate) struct Command {
         parse(try_from_str = "Servers::parse")
     )]
     server: Servers,
+
+    #[options(help = "disable connections via TOR")]
+    disable_tor: bool,
 }
 
 impl Command {
@@ -56,11 +59,12 @@ impl Command {
         let birthday = {
             // Fetch the tree state corresponding to the last block prior to the wallet's
             // birthday height. NOTE: THIS APPROACH LEAKS THE BIRTHDAY TO THE SERVER!
-            let mut client = self
-                .server
-                .pick(params)?
-                .connect(|| tor_client(wallet_dir))
-                .await?;
+            let server = self.server.pick(params)?;
+            let mut client = if self.disable_tor {
+                server.connect_direct().await?
+            } else {
+                server.connect(|| tor_client(wallet_dir)).await?
+            };
             let request = service::BlockId {
                 height: (self.birthday - 1).into(),
                 ..Default::default()
