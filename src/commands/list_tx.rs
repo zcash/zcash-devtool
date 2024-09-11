@@ -147,6 +147,7 @@ impl WalletTxOutput {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new(
         pool_code: i64,
         output_index: u32,
