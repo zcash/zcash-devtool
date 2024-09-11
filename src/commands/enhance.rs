@@ -104,7 +104,6 @@ impl Command {
             server.connect(|| tor_client(wallet_dir.as_ref())).await?
         };
 
-
         let mut satisfied_requests = BTreeSet::new();
         loop {
             let mut new_request_encountered = false;
