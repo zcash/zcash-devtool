@@ -10,7 +10,11 @@ use roaring::RoaringBitmap;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget};
-use zcash_client_backend::data_api::scanning::{ScanPriority, ScanRange};
+use zcash_client_backend::data_api::{
+    scanning::{ScanPriority, ScanRange},
+    WalletSummary,
+};
+use zcash_client_sqlite::AccountId;
 use zcash_protocol::consensus::BlockHeight;
 
 use crate::tui;
@@ -70,12 +74,30 @@ impl AppHandle {
             }
         }
     }
+
+    /// Returns `true` if the TUI exited.
+    pub(super) fn set_wallet_summary(
+        &self,
+        wallet_summary: Option<WalletSummary<AccountId>>,
+    ) -> bool {
+        match self
+            .action_tx
+            .send(Action::SetWalletSummary(wallet_summary))
+        {
+            Ok(()) => false,
+            Err(e) => {
+                error!("Failed to send: {}", e);
+                true
+            }
+        }
+    }
 }
 
 pub(super) struct App {
     should_quit: bool,
     notify_shutdown: Option<oneshot::Sender<()>>,
     wallet_birthday: BlockHeight,
+    wallet_summary: Option<WalletSummary<AccountId>>,
     scan_ranges: BTreeMap<BlockHeight, ScanPriority>,
     fetching_set: RoaringBitmap,
     fetched_set: RoaringBitmap,
@@ -86,12 +108,17 @@ pub(super) struct App {
 }
 
 impl App {
-    pub(super) fn new(notify_shutdown: oneshot::Sender<()>, wallet_birthday: BlockHeight) -> Self {
+    pub(super) fn new(
+        notify_shutdown: oneshot::Sender<()>,
+        wallet_birthday: BlockHeight,
+        wallet_summary: Option<WalletSummary<AccountId>>,
+    ) -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         Self {
             should_quit: false,
             notify_shutdown: Some(notify_shutdown),
             wallet_birthday,
+            wallet_summary,
             scan_ranges: BTreeMap::new(),
             fetching_set: RoaringBitmap::new(),
             fetched_set: RoaringBitmap::new(),
@@ -147,6 +174,7 @@ impl App {
                         self.fetched_set.insert(u32::from(fetched_height));
                     },
                     Action::SetScanning(scanning_range) => self.scanning_range = scanning_range,
+                    Action::SetWalletSummary(wallet_summary) => self.wallet_summary = wallet_summary,
                     Action::Render => {
                         tui.draw(|f| self.ui(f))?;
                     }
@@ -200,8 +228,12 @@ impl App {
     }
 
     fn ui(&mut self, frame: &mut Frame) {
-        let [upper_area, log_area] =
-            Layout::vertical([Constraint::Min(0), Constraint::Length(15)]).areas(frame.area());
+        let [upper_area, mid_area, log_area] = Layout::vertical([
+            Constraint::Min(0),
+            Constraint::Length(3),
+            Constraint::Length(15),
+        ])
+        .areas(frame.area());
 
         let defrag_area = {
             let block = Block::bordered().title("Wallet Defragmentor");
@@ -293,6 +325,27 @@ impl App {
             }
         }
 
+        let stats = Line::from_iter(
+            self.wallet_summary
+                .as_ref()
+                .iter()
+                .flat_map(|wallet_summary| {
+                    let synced = wallet_summary.scan_progress().map(|progress| {
+                        Span::raw(format!(
+                            "Synced: {:0.3}%",
+                            (*progress.numerator() as f64) * 100f64
+                                / (*progress.denominator() as f64)
+                        ))
+                    });
+                    [synced]
+                })
+                .flatten(),
+        );
+        frame.render_widget(
+            Paragraph::new(stats).block(Block::bordered().title("Stats")),
+            mid_area,
+        );
+
         frame.render_widget(
             TuiLoggerSmartWidget::default()
                 .title_log("Log Entries")
@@ -326,6 +379,7 @@ pub(super) enum Action {
     SetFetching(Option<Range<BlockHeight>>),
     SetFetched(BlockHeight),
     SetScanning(Option<Range<BlockHeight>>),
+    SetWalletSummary(Option<WalletSummary<AccountId>>),
     Render,
 }
 
