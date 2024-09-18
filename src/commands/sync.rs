@@ -88,8 +88,12 @@ impl Command {
             .unwrap_or_else(|| params.activation_height(NetworkUpgrade::Sapling).unwrap());
 
         #[cfg(feature = "tui")]
+        let wallet_summary = db_data.get_wallet_summary(10)?;
+
+        #[cfg(feature = "tui")]
         let tui_handle = if self.defrag {
-            let mut app = defrag::App::new(shutdown.tui_quit_signal(), wallet_birthday);
+            let mut app =
+                defrag::App::new(shutdown.tui_quit_signal(), wallet_birthday, wallet_summary);
             let handle = app.handle();
             tokio::spawn(async move {
                 if let Err(e) = app.run(tui).await {
@@ -534,6 +538,7 @@ fn scan_blocks<P: Parameters + Send + 'static>(
     #[cfg(feature = "tui")]
     if let Some(handle) = tui_handle {
         handle.set_scanning_range(None);
+        handle.set_wallet_summary(db_data.get_wallet_summary(10)?);
     }
 
     match scan_result {
