@@ -108,17 +108,13 @@ pub(super) struct App {
 }
 
 impl App {
-    pub(super) fn new(
-        notify_shutdown: oneshot::Sender<()>,
-        wallet_birthday: BlockHeight,
-        wallet_summary: Option<WalletSummary<AccountId>>,
-    ) -> Self {
+    pub(super) fn new(notify_shutdown: oneshot::Sender<()>, wallet_birthday: BlockHeight) -> Self {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         Self {
             should_quit: false,
             notify_shutdown: Some(notify_shutdown),
             wallet_birthday,
-            wallet_summary,
+            wallet_summary: None,
             scan_ranges: BTreeMap::new(),
             fetching_set: RoaringBitmap::new(),
             fetched_set: RoaringBitmap::new(),

@@ -88,12 +88,8 @@ impl Command {
             .unwrap_or_else(|| params.activation_height(NetworkUpgrade::Sapling).unwrap());
 
         #[cfg(feature = "tui")]
-        let wallet_summary = db_data.get_wallet_summary(10)?;
-
-        #[cfg(feature = "tui")]
         let tui_handle = if self.defrag {
-            let mut app =
-                defrag::App::new(shutdown.tui_quit_signal(), wallet_birthday, wallet_summary);
+            let mut app = defrag::App::new(shutdown.tui_quit_signal(), wallet_birthday);
             let handle = app.handle();
             tokio::spawn(async move {
                 if let Err(e) = app.run(tui).await {
@@ -123,6 +119,10 @@ impl Command {
             // 3) Download chain tip metadata from lightwalletd
             // 4) Notify the wallet of the updated chain tip.
             let _chain_tip = update_chain_tip(client, db_data).await?;
+            #[cfg(feature = "tui")]
+            if let Some(handle) = tui_handle {
+                handle.set_wallet_summary(db_data.get_wallet_summary(10)?);
+            }
 
             // Refresh UTXOs for the accounts in the wallet. We do this before we perform
             // any shielded scanning, to ensure that we discover any UTXOs between the old
