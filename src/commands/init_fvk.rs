@@ -6,7 +6,7 @@ use zcash_client_backend::{
     data_api::{AccountPurpose, WalletWrite},
     proto::service,
 };
-use zcash_keys::keys::UnifiedFullViewingKey;
+use zcash_keys::{encoding::decode_extfvk_with_network, keys::UnifiedFullViewingKey};
 use zcash_primitives::consensus::NetworkType;
 use zcash_protocol::consensus;
 
@@ -45,9 +45,9 @@ impl From<Purpose> for AccountPurpose {
 #[derive(Debug, Options)]
 pub(crate) struct Command {
     #[options(
-        help = "serialized ufvk to initialize the wallet with (ignored if --phrase is provided)"
+        help = "serialized full viewing key (Unified or Sapling) to initialize the wallet with"
     )]
-    ufvk: Option<String>,
+    fvk: String,
 
     #[options(help = "the wallet's birthday (default is current chain height)")]
     birthday: Option<u32>,
@@ -73,12 +73,22 @@ impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
         let opts = self;
 
-        let (network_type, ufvk) = Ufvk::decode(
-            &opts
-                .ufvk
-                .expect("wallet init uses a new seed if no ufvk is provided"),
-        )?;
-        let ufvk = UnifiedFullViewingKey::parse(&ufvk).map_err(|e| anyhow!("{e}"))?;
+        let (network_type, ufvk) = Ufvk::decode(&opts.fvk)
+            .map_err(anyhow::Error::new)
+            .and_then(
+                |(network, ufvk)| -> Result<(NetworkType, UnifiedFullViewingKey), anyhow::Error> {
+                    let ufvk = UnifiedFullViewingKey::parse(&ufvk)?;
+                    Ok((network, ufvk))
+                },
+            )
+            .or_else(
+                |_| -> Result<(NetworkType, UnifiedFullViewingKey), anyhow::Error> {
+                    let (network, sfvk) = decode_extfvk_with_network(&opts.fvk)?;
+                    let ufvk = UnifiedFullViewingKey::from_sapling_extended_full_viewing_key(sfvk)?;
+                    Ok((network, ufvk))
+                },
+            )?;
+
         let network = match network_type {
             NetworkType::Main => consensus::Network::MainNetwork,
             NetworkType::Test => consensus::Network::TestNetwork,
