@@ -60,6 +60,12 @@ impl Command {
                     (*progress.numerator() as f64) * 100f64 / (*progress.denominator() as f64)
                 );
             }
+            if let Some(progress) = wallet_summary.recovery_progress() {
+                println!(
+                    "     Recovered: {:0.3}%",
+                    (*progress.numerator() as f64) * 100f64 / (*progress.denominator() as f64)
+                );
+            }
             println!("    Balance: {}", printer.format(balance.total()));
             println!(
                 "  Sapling Spendable: {}",
