@@ -25,13 +25,14 @@ toml = "0.8"
 tonic = { version = "0.12", features = ["gzip", "tls-webpki-roots"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-zcash_address = "0.4"
-zcash_client_backend = { version = "0.13", features = ["lightwalletd-tonic", "orchard", "tor"] }
+
+zcash_address = "0.5"
+zcash_client_backend = { version = "0.13", features = ["lightwalletd-tonic", "orchard", "tor", "lightwalletd-tonic-tls-webpki-roots"] }
 zcash_client_sqlite = { version = "0.11", features = ["unstable", "orchard"] }
 zcash_keys = { version = "0.3", features = ["unstable", "orchard"] }
-zcash_primitives = "0.16"
-zcash_proofs = "0.16"
-zcash_protocol = "0.2"
+zcash_primitives = "0.17"
+zcash_proofs = "0.17"
+zcash_protocol = "0.3"
 zip321 = "0.1"
 
 # Currency conversion
@@ -57,3 +58,13 @@ tui = [
     "dep:tokio-util",
     "dep:tui-logger",
 ]
+
+[patch.crates-io]
+zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
+zip321 = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
+zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
+zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
