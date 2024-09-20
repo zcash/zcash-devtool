@@ -65,12 +65,23 @@ impl Command {
             } else {
                 server.connect(|| tor_client(wallet_dir)).await?
             };
+
+            let tip_height = client
+                .get_latest_block(service::ChainSpec::default())
+                .await?
+                .get_ref()
+                .height
+                .try_into()
+                .expect("block heights must fit into u32");
+
             let request = service::BlockId {
                 height: (self.birthday - 1).into(),
                 ..Default::default()
             };
             let treestate = client.get_tree_state(request).await?.into_inner();
-            AccountBirthday::from_treestate(treestate, None).map_err(error::Error::from)?
+
+            AccountBirthday::from_treestate(treestate, Some(tip_height))
+                .map_err(error::Error::from)?
         };
 
         // Import the UFVK.
