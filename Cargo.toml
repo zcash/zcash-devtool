@@ -27,7 +27,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 zcash_address = "0.5"
-zcash_client_backend = { version = "0.13", features = ["lightwalletd-tonic", "orchard", "tor", "lightwalletd-tonic-tls-webpki-roots"] }
+zcash_client_backend = { version = "0.13", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "tor"] }
 zcash_client_sqlite = { version = "0.11", features = ["unstable", "orchard"] }
 zcash_keys = { version = "0.3", features = ["unstable", "orchard"] }
 zcash_primitives = "0.17"
