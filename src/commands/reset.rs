@@ -1,6 +1,8 @@
 use anyhow::anyhow;
 use gumdrop::Options;
 
+use zcash_client_backend::proto::service;
+
 use crate::{
     data::{erase_wallet_state, read_config},
     remote::{tor_client, Servers},
@@ -31,11 +33,20 @@ impl Command {
 
         // Connect to the client (for re-initializing the wallet).
         let server = self.server.pick(params)?;
-        let client = if self.disable_tor {
+        let mut client = if self.disable_tor {
             server.connect_direct().await?
         } else {
             server.connect(|| tor_client(wallet_dir.as_ref())).await?
         };
+
+        // Get the current chain height (for the wallet's recover-until height).
+        let chain_tip = client
+            .get_latest_block(service::ChainSpec::default())
+            .await?
+            .into_inner()
+            .height
+            .try_into()
+            .expect("block heights must fit into u32");
 
         // Erase the wallet state (excluding key material).
         erase_wallet_state(wallet_dir.as_ref()).await;
@@ -49,6 +60,7 @@ impl Command {
                 .ok_or(anyhow!("Seed is required for database reset"))?,
             keys.birthday().into(),
             self.accounts.unwrap_or(1),
+            Some(chain_tip),
         )
         .await
     }

@@ -333,7 +333,19 @@ impl App {
                                 / (*progress.denominator() as f64)
                         ))
                     });
-                    [synced]
+
+                    let recovered = wallet_summary.recovery_progress().map(|progress| {
+                        Span::raw(format!(
+                            "Recovered: {:0.3}%",
+                            (*progress.numerator() as f64) * 100f64
+                                / (*progress.denominator() as f64)
+                        ))
+                    });
+
+                    let separator =
+                        (synced.is_some() && recovered.is_some()).then(|| Span::raw(" | "));
+
+                    [synced, separator, recovered]
                 })
                 .flatten(),
         );

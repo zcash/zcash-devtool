@@ -11,6 +11,7 @@ use zcash_client_sqlite::{
     chain::init::init_blockmeta_db, wallet::init::init_wallet_db, FsBlockDb, WalletDb,
 };
 use zcash_primitives::consensus::{self, Parameters};
+use zcash_protocol::consensus::BlockHeight;
 
 use crate::{
     data::{get_db_paths, init_wallet_config, Network},
@@ -59,26 +60,29 @@ impl Command {
             server.connect(|| tor_client(wallet_dir.as_ref())).await?
         };
 
-        // Get the current chain height (for the wallet's birthday).
+        // Get the current chain height (for the wallet's birthday and/or recover-until height).
+        let chain_tip: u32 = client
+            .get_latest_block(service::ChainSpec::default())
+            .await?
+            .into_inner()
+            .height
+            .try_into()
+            .expect("block heights must fit into u32");
+
         let birthday = if let Some(birthday) = opts.birthday {
             birthday
         } else {
-            let chain_tip: u32 = client
-                .get_latest_block(service::ChainSpec::default())
-                .await?
-                .into_inner()
-                .height
-                .try_into()
-                .expect("block heights must fit into u32");
-
             chain_tip - 100
         };
 
         // Parse or create the wallet's mnemonic phrase.
-        let mnemonic = if let Some(phrase) = opts.phrase {
-            <Mnemonic<English>>::from_phrase(phrase)?
+        let (mnemonic, recover_until) = if let Some(phrase) = opts.phrase {
+            (
+                <Mnemonic<English>>::from_phrase(phrase)?,
+                Some(chain_tip.into()),
+            )
         } else {
-            Mnemonic::generate(Count::Words24)
+            (Mnemonic::generate(Count::Words24), None)
         };
 
         // Save the wallet keys to disk.
@@ -98,6 +102,7 @@ impl Command {
             &seed,
             birthday,
             opts.accounts.unwrap_or(1),
+            recover_until,
         )
         .await
     }
@@ -109,6 +114,7 @@ impl Command {
         seed: &SecretVec<u8>,
         birthday: u32,
         accounts: usize,
+        recover_until: Option<BlockHeight>,
     ) -> Result<(), anyhow::Error> {
         // Initialise the block and wallet DBs.
         let (db_cache, db_data) = get_db_paths(wallet_dir);
@@ -126,7 +132,7 @@ impl Command {
                 ..Default::default()
             };
             let treestate = client.get_tree_state(request).await?.into_inner();
-            AccountBirthday::from_treestate(treestate, None).map_err(error::Error::from)?
+            AccountBirthday::from_treestate(treestate, recover_until).map_err(error::Error::from)?
         };
 
         // Add accounts.
