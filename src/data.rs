@@ -3,6 +3,9 @@ use bip0039::{English, Mnemonic};
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use zcash_client_sqlite::chain::init::init_blockmeta_db;
+use zcash_client_sqlite::wallet::init::init_wallet_db;
+use zcash_client_sqlite::{FsBlockDb, WalletDb};
 
 use secrecy::{SecretVec, Zeroize};
 use serde::{Deserialize, Serialize};
@@ -53,6 +56,15 @@ impl From<Network> for consensus::Network {
     }
 }
 
+impl From<consensus::Network> for Network {
+    fn from(value: consensus::Network) -> Self {
+        match value {
+            consensus::Network::TestNetwork => Network::Test,
+            consensus::Network::MainNetwork => Network::Main,
+        }
+    }
+}
+
 pub(crate) fn get_keys_file<P: AsRef<Path>>(
     wallet_dir: Option<P>,
 ) -> Result<BufReader<File>, anyhow::Error> {
@@ -94,9 +106,9 @@ struct WalletConfig {
 
 pub(crate) fn init_wallet_config<P: AsRef<Path>>(
     wallet_dir: Option<P>,
-    mnemonic: &Mnemonic,
-    birthday: u32,
-    network: Network,
+    mnemonic: Option<&Mnemonic>,
+    birthday: BlockHeight,
+    network: consensus::Network,
 ) -> Result<(), anyhow::Error> {
     // Create the wallet directory.
     let wallet_dir = wallet_dir
@@ -113,9 +125,9 @@ pub(crate) fn init_wallet_config<P: AsRef<Path>>(
     }?;
 
     let config = WalletConfig {
-        mnemonic: Some(mnemonic.phrase().to_string()),
-        network: Some(network.name().to_string()),
-        birthday: Some(birthday),
+        mnemonic: mnemonic.map(|m| m.phrase().to_string()),
+        network: Some(Network::from(network).name().to_string()),
+        birthday: Some(u32::from(birthday)),
     };
 
     let config_str = toml::to_string(&config)
@@ -220,4 +232,18 @@ pub(crate) async fn erase_wallet_state<P: AsRef<Path>>(wallet_dir: Option<P>) {
     if let Err(e) = tokio::fs::remove_file(&db_data).await {
         error!("Failed to remove {:?}: {}", db_data, e);
     }
+}
+
+pub(crate) fn init_dbs<P: Parameters + 'static>(
+    params: P,
+    wallet_dir: Option<&String>,
+) -> Result<WalletDb<rusqlite::Connection, P>, anyhow::Error> {
+    // Initialise the block and wallet DBs.
+    let (db_cache, db_data) = get_db_paths(wallet_dir);
+    let mut db_cache = FsBlockDb::for_path(db_cache).map_err(error::Error::from)?;
+    let mut db_data = WalletDb::for_path(db_data, params)?;
+    init_blockmeta_db(&mut db_cache)?;
+    init_wallet_db(&mut db_data, None)?;
+
+    Ok(db_data)
 }
