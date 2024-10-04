@@ -14,8 +14,6 @@ gumdrop = "0.8"
 prost = "0.13"
 rayon = "1.7"
 rusqlite = { version = "0.29", features = ["time"] }
-orchard = { version = "0.9", default-features = false }
-sapling = { package = "sapling-crypto", version = "0.2" }
 schemer = "0.2"
 secrecy = "0.8"
 serde = "1.0"
@@ -26,14 +24,16 @@ tonic = { version = "0.12", features = ["gzip", "tls-webpki-roots"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
-zcash_address = "0.5"
-zcash_client_backend = { version = "0.13", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "tor"] }
-zcash_client_sqlite = { version = "0.11", features = ["unstable", "orchard"] }
-zcash_keys = { version = "0.3", features = ["unstable", "orchard"] }
-zcash_primitives = "0.17"
-zcash_proofs = "0.17"
-zcash_protocol = "0.3"
-zip321 = "0.1"
+orchard = { version = "0.10", default-features = false }
+sapling = { package = "sapling-crypto", version = "0.3" }
+zcash_address = "0.6"
+zcash_client_backend = { version = "0.14", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "tor"] }
+zcash_client_sqlite = { version = "0.12", features = ["unstable", "orchard"] }
+zcash_keys = { version = "0.4", features = ["unstable", "orchard"] }
+zcash_primitives = "0.19"
+zcash_proofs = "0.19"
+zcash_protocol = "0.4"
+zip321 = "0.2"
 
 # Currency conversion
 iso_currency = { version = "0.5", features = ["with-serde"] }
@@ -58,13 +58,3 @@ tui = [
     "dep:tokio-util",
     "dep:tui-logger",
 ]
-
-[patch.crates-io]
-zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
-zip321 = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "176c0cb805c44ed85216ea6ce8f05b93bb3f3d42" }
