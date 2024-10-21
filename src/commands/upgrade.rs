@@ -26,7 +26,7 @@ impl Command {
         init_blockmeta_db(&mut db_cache)?;
 
         if let Err(e) = init_wallet_db(&mut db_data, None) {
-            if matches!(&e, schemer::MigratorError::Migration {
+            if matches!(&e, schemerz::MigratorError::Migration {
                 error, ..
             } if matches!(error, WalletMigrationError::SeedRequired))
             {

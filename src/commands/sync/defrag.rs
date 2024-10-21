@@ -326,15 +326,14 @@ impl App {
                 .as_ref()
                 .iter()
                 .flat_map(|wallet_summary| {
-                    let synced = wallet_summary.scan_progress().map(|progress| {
-                        Span::raw(format!(
-                            "Synced: {:0.3}%",
-                            (*progress.numerator() as f64) * 100f64
-                                / (*progress.denominator() as f64)
-                        ))
-                    });
+                    let scan_progress = wallet_summary.progress().scan();
+                    let synced = Span::raw(format!(
+                        "Synced: {:0.3}%",
+                        (*scan_progress.numerator() as f64) * 100f64
+                            / (*scan_progress.denominator() as f64)
+                    ));
 
-                    let recovered = wallet_summary.recovery_progress().map(|progress| {
+                    let recovered = wallet_summary.progress().recovery().map(|progress| {
                         Span::raw(format!(
                             "Recovered: {:0.3}%",
                             (*progress.numerator() as f64) * 100f64
@@ -342,10 +341,9 @@ impl App {
                         ))
                     });
 
-                    let separator =
-                        (synced.is_some() && recovered.is_some()).then(|| Span::raw(" | "));
+                    let separator = (recovered.is_some()).then(|| Span::raw(" | "));
 
-                    [synced, separator, recovered]
+                    [Some(synced), separator, recovered]
                 })
                 .flatten(),
         );

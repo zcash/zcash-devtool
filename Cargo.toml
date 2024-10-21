@@ -13,8 +13,8 @@ futures-util = "0.3"
 gumdrop = "0.8"
 prost = "0.13"
 rayon = "1.7"
-rusqlite = { version = "0.29", features = ["time"] }
-schemer = "0.2"
+rusqlite = { version = "0.31", features = ["time"] }
+schemerz = "0.2"
 secrecy = "0.8"
 serde = "1.0"
 time = "0.3"
@@ -58,3 +58,13 @@ tui = [
     "dep:tokio-util",
     "dep:tui-logger",
 ]
+
+[patch.crates-io]
+zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
+zip321 = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
+zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
+zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
