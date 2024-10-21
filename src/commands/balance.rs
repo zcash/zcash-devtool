@@ -54,13 +54,13 @@ impl Command {
             println!("{:#?}", wallet_summary);
             println!("{}", address.encode(&params));
             println!("     Height: {}", wallet_summary.chain_tip_height());
-            if let Some(progress) = wallet_summary.scan_progress() {
-                println!(
-                    "     Synced: {:0.3}%",
-                    (*progress.numerator() as f64) * 100f64 / (*progress.denominator() as f64)
-                );
-            }
-            if let Some(progress) = wallet_summary.recovery_progress() {
+            let scan_progress = wallet_summary.progress().scan();
+            println!(
+                "     Synced: {:0.3}%",
+                (*scan_progress.numerator() as f64) * 100f64
+                    / (*scan_progress.denominator() as f64)
+            );
+            if let Some(progress) = wallet_summary.progress().recovery() {
                 println!(
                     "     Recovered: {:0.3}%",
                     (*progress.numerator() as f64) * 100f64 / (*progress.denominator() as f64)
