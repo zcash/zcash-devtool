@@ -3,6 +3,7 @@ pub(crate) mod enhance;
 pub(crate) mod import_ufvk;
 pub(crate) mod init;
 pub(crate) mod list_accounts;
+pub(crate) mod list_addresses;
 pub(crate) mod list_tx;
 pub(crate) mod list_unspent;
 pub(crate) mod propose;
