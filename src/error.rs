@@ -6,18 +6,20 @@ use zcash_client_backend::{
         BirthdayError,
     },
     keys::DerivationError,
-    zip321::Zip321Error,
 };
 use zcash_client_sqlite::{
     error::SqliteClientError, wallet::commitment_tree, FsBlockDbError, ReceivedNoteId,
 };
-use zcash_primitives::transaction::fees::zip317::FeeError;
+use zcash_primitives::transaction::fees::zip317;
+use zip321::Zip321Error;
 
 pub(crate) type WalletErrorT = WalletError<
     SqliteClientError,
     commitment_tree::Error,
-    GreedyInputSelectorError<FeeError, ReceivedNoteId>,
-    FeeError,
+    GreedyInputSelectorError,
+    zip317::FeeError,
+    zip317::FeeError,
+    ReceivedNoteId,
 >;
 
 #[derive(Debug)]
