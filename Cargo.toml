@@ -13,7 +13,7 @@ futures-util = "0.3"
 gumdrop = "0.8"
 prost = "0.13"
 rayon = "1.7"
-rusqlite = { version = "0.31", features = ["time"] }
+rusqlite = { version = "0.32", features = ["time"] }
 schemerz = "0.2"
 secrecy = "0.8"
 serde = "1.0"
@@ -27,11 +27,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 orchard = { version = "0.10", default-features = false }
 sapling = { package = "sapling-crypto", version = "0.3" }
 zcash_address = "0.6"
-zcash_client_backend = { version = "0.14", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "tor"] }
-zcash_client_sqlite = { version = "0.12", features = ["unstable", "orchard"] }
-zcash_keys = { version = "0.4", features = ["unstable", "orchard"] }
-zcash_primitives = "0.19"
-zcash_proofs = "0.19"
+zcash_client_backend = { version = "0.15", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "tor"] }
+zcash_client_sqlite = { version = "0.13", features = ["unstable", "orchard"] }
+zcash_keys = { version = "0.5", features = ["unstable", "orchard"] }
+zcash_primitives = "0.20"
+zcash_proofs = "0.20"
 zcash_protocol = "0.4"
 zip321 = "0.2"
 
@@ -58,13 +58,3 @@ tui = [
     "dep:tokio-util",
     "dep:tui-logger",
 ]
-
-[patch.crates-io]
-zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
-zip321 = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "bf8b39ad43b54c2d333587c9870eac703b3ee84a" }

@@ -1,5 +1,5 @@
 #![allow(deprecated)]
-use std::str::FromStr;
+use std::{num::NonZeroUsize, str::FromStr};
 
 use anyhow::anyhow;
 use gumdrop::Options;
@@ -8,10 +8,12 @@ use secrecy::ExposeSecret;
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
-        wallet::{input_selection::GreedyInputSelector, spend},
+        wallet::{
+            create_proposed_transactions, input_selection::GreedyInputSelector, propose_transfer,
+        },
         Account, AccountSource, WalletRead,
     },
-    fees::standard::SingleOutputChangeStrategy,
+    fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
     keys::UnifiedSpendingKey,
     proto::service,
     wallet::OvkPolicy,
@@ -23,7 +25,6 @@ use zcash_protocol::value::Zatoshis;
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
-    commands::propose::{parse_fee_rule, FeeRule},
     data::{get_db_paths, read_config},
     error,
     remote::{tor_client, Servers},
@@ -43,13 +44,6 @@ pub(crate) struct Command {
     value: u64,
 
     #[options(
-        required,
-        help = "fee strategy: \"fixed\" or \"zip317\"",
-        parse(try_from_str = "parse_fee_rule")
-    )]
-    fee_rule: FeeRule,
-
-    #[options(
         help = "the server to send via (default is \"ecc\")",
         default = "ecc",
         parse(try_from_str = "Servers::parse")
@@ -58,6 +52,18 @@ pub(crate) struct Command {
 
     #[options(help = "disable connections via TOR")]
     disable_tor: bool,
+
+    #[options(
+        help = "note management: the number of notes to maintain in the wallet",
+        default = "4"
+    )]
+    target_note_count: usize,
+
+    #[options(
+        help = "note management: the minimum allowed value for split change amounts",
+        default = "10000000"
+    )]
+    min_split_output_value: u64,
 }
 
 impl Command {
@@ -101,10 +107,18 @@ impl Command {
         println!("Creating transaction...");
         let prover =
             LocalTxProver::with_default_location().ok_or(error::Error::MissingParameters)?;
-        let input_selector = GreedyInputSelector::new(
-            SingleOutputChangeStrategy::new(self.fee_rule.into(), None, ShieldedProtocol::Orchard),
-            Default::default(),
+        let change_strategy = MultiOutputChangeStrategy::new(
+            StandardFeeRule::Zip317,
+            None,
+            ShieldedProtocol::Orchard,
+            DustOutputPolicy::default(),
+            SplitPolicy::with_min_output_value(
+                NonZeroUsize::new(self.target_note_count)
+                    .ok_or(anyhow!("target note count must be nonzero"))?,
+                Zatoshis::from_u64(self.min_split_output_value)?,
+            ),
         );
+        let input_selector = GreedyInputSelector::new();
 
         let request = TransactionRequest::new(vec![Payment::without_memo(
             ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
@@ -112,16 +126,25 @@ impl Command {
         )])
         .map_err(error::Error::from)?;
 
-        let txids = spend(
+        let proposal = propose_transfer(
+            &mut db_data,
+            &params,
+            account.id(),
+            &input_selector,
+            &change_strategy,
+            request,
+            MIN_CONFIRMATIONS,
+        )
+        .map_err(error::Error::from)?;
+
+        let txids = create_proposed_transactions(
             &mut db_data,
             &params,
             &prover,
             &prover,
-            &input_selector,
             &usk,
-            request,
             OvkPolicy::Sender,
-            MIN_CONFIRMATIONS,
+            &proposal,
         )
         .map_err(error::Error::from)?;
 

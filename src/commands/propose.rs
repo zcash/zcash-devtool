@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{num::NonZeroUsize, str::FromStr};
 
 use anyhow::anyhow;
 use gumdrop::Options;
@@ -9,43 +9,17 @@ use zcash_client_backend::{
         wallet::{input_selection::GreedyInputSelector, propose_transfer},
         WalletRead,
     },
-    fees::standard::SingleOutputChangeStrategy,
+    fees::{zip317::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
     ShieldedProtocol,
 };
 use zcash_client_sqlite::WalletDb;
-use zcash_primitives::transaction::{components::amount::NonNegativeAmount, fees::StandardFeeRule};
+use zcash_protocol::value::Zatoshis;
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
     data::{get_db_paths, get_wallet_network},
     error, MIN_CONFIRMATIONS,
 };
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) enum FeeRule {
-    Fixed,
-    #[default]
-    Zip317,
-}
-
-#[allow(deprecated)]
-impl From<FeeRule> for StandardFeeRule {
-    fn from(rule: FeeRule) -> Self {
-        match rule {
-            FeeRule::Fixed => StandardFeeRule::PreZip313,
-            FeeRule::Zip317 => StandardFeeRule::Zip317,
-        }
-    }
-}
-
-pub(crate) fn parse_fee_rule(name: &str) -> Result<FeeRule, String> {
-    match name {
-        "fixed" => Ok(FeeRule::Fixed),
-        "zip317" => Ok(FeeRule::Zip317),
-        other => Err(format!("Fee rule {} not recognized.", other)),
-    }
-}
-
 // Options accepted for the `propose` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
@@ -59,11 +33,16 @@ pub(crate) struct Command {
     value: u64,
 
     #[options(
-        required,
-        help = "fee strategy: \"fixed\" or \"zip317\"",
-        parse(try_from_str = "parse_fee_rule")
+        help = "note management: the number of notes to maintain in the wallet",
+        default = "4"
     )]
-    fee_rule: FeeRule,
+    target_note_count: usize,
+
+    #[options(
+        help = "note management: the minimum allowed value for split change amounts",
+        default = "10000000"
+    )]
+    min_split_output_value: u64,
 }
 
 impl Command {
@@ -77,14 +56,22 @@ impl Command {
             .first()
             .ok_or_else(|| anyhow!("Wallet has no accounts."))?;
 
-        let input_selector = GreedyInputSelector::new(
-            SingleOutputChangeStrategy::new(self.fee_rule.into(), None, ShieldedProtocol::Orchard),
-            Default::default(),
+        let change_strategy = MultiOutputChangeStrategy::new(
+            StandardFeeRule::Zip317,
+            None,
+            ShieldedProtocol::Orchard,
+            DustOutputPolicy::default(),
+            SplitPolicy::with_min_output_value(
+                NonZeroUsize::new(self.target_note_count)
+                    .ok_or(anyhow!("target note count must be nonzero"))?,
+                Zatoshis::from_u64(self.min_split_output_value)?,
+            ),
         );
+        let input_selector = GreedyInputSelector::new();
 
         let request = TransactionRequest::new(vec![Payment::without_memo(
             ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
-            NonNegativeAmount::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
+            Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
         )])
         .map_err(error::Error::from)?;
 
@@ -93,6 +80,7 @@ impl Command {
             &params,
             account,
             &input_selector,
+            &change_strategy,
             request,
             MIN_CONFIRMATIONS,
         )
