@@ -25,7 +25,8 @@ use zcash_protocol::value::Zatoshis;
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
-    data::{get_db_paths, read_config},
+    config::read_config,
+    data::get_db_paths,
     error,
     remote::{tor_client, Servers},
     MIN_CONFIRMATIONS,

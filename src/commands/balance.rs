@@ -9,10 +9,7 @@ use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::{Zatoshis, COIN};
 
 use crate::{
-    data::{get_db_paths, get_wallet_network},
-    error,
-    remote::tor_client,
-    ui::format_zec,
+    config::get_wallet_network, data::get_db_paths, error, remote::tor_client, ui::format_zec,
     MIN_CONFIRMATIONS,
 };
 

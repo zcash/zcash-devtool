@@ -7,7 +7,8 @@ use zcash_client_sqlite::{
 };
 
 use crate::{
-    data::{get_db_paths, get_wallet_network, get_wallet_seed},
+    config::{get_wallet_network, get_wallet_seed},
+    data::get_db_paths,
     error,
 };
 

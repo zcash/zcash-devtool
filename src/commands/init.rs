@@ -11,7 +11,8 @@ use zcash_primitives::consensus::{self, Parameters};
 use zcash_protocol::consensus::BlockHeight;
 
 use crate::{
-    data::{init_dbs, init_wallet_config, Network},
+    config::init_wallet_config,
+    data::{init_dbs, Network},
     error,
     remote::{tor_client, Servers},
 };

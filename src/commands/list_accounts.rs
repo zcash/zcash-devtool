@@ -3,7 +3,7 @@ use gumdrop::Options;
 use zcash_client_backend::data_api::{Account, WalletRead};
 use zcash_client_sqlite::WalletDb;
 
-use crate::data::{get_db_paths, get_wallet_network};
+use crate::{config::get_wallet_network, data::get_db_paths};
 
 // Options accepted for the `list-accounts` command
 #[derive(Debug, Options)]

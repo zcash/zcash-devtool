@@ -11,7 +11,8 @@ use zcash_primitives::consensus::NetworkType;
 use zcash_protocol::consensus;
 
 use crate::{
-    data::{init_dbs, init_wallet_config},
+    config::init_wallet_config,
+    data::init_dbs,
     remote::{tor_client, Servers},
 };
 

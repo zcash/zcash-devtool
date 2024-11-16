@@ -4,7 +4,8 @@ use gumdrop::Options;
 use zcash_client_backend::proto::service;
 
 use crate::{
-    data::{erase_wallet_state, read_config},
+    config::read_config,
+    data::erase_wallet_state,
     remote::{tor_client, Servers},
 };
 

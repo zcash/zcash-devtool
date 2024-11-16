@@ -8,11 +8,7 @@ use zcash_client_backend::{
 use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::{Zatoshis, MAX_MONEY};
 
-use crate::{
-    data::{get_db_paths, get_wallet_network},
-    error,
-    ui::format_zec,
-};
+use crate::{config::get_wallet_network, data::get_db_paths, error, ui::format_zec};
 
 // Options accepted for the `balance` command
 #[derive(Debug, Options)]

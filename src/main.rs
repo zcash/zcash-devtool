@@ -11,6 +11,7 @@ use gumdrop::Options;
 use tracing_subscriber::{layer::SubscriberExt, Layer};
 
 mod commands;
+mod config;
 mod data;
 mod error;
 mod remote;
