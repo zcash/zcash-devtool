@@ -48,20 +48,21 @@ impl Command {
             .try_into()
             .expect("block heights must fit into u32");
 
+        let birthday =
+            super::init::Command::get_wallet_birthday(client, keys.birthday(), Some(chain_tip))
+                .await?;
+
         // Erase the wallet state (excluding key material).
         erase_wallet_state(wallet_dir.as_ref()).await;
 
         // Re-initialize the wallet state.
         super::init::Command::init_dbs(
-            client,
             params,
-            wallet_dir,
+            wallet_dir.as_ref(),
             keys.seed()
                 .ok_or(anyhow!("Seed is required for database reset"))?,
-            keys.birthday().into(),
+            birthday,
             self.accounts.unwrap_or(1),
-            Some(chain_tip),
         )
-        .await
     }
 }

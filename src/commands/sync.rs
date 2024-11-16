@@ -638,12 +638,18 @@ async fn refresh_utxos<P: Parameters>(
     account_id: AccountId,
     start_height: BlockHeight,
 ) -> Result<(), anyhow::Error> {
+    let addresses = db_data
+        .get_transparent_receivers(account_id)?
+        .into_keys()
+        .map(|addr| addr.encode(params))
+        .collect::<Vec<_>>();
+
+    if addresses.is_empty() {
+        return Ok(());
+    }
+
     let request = service::GetAddressUtxosArg {
-        addresses: db_data
-            .get_transparent_receivers(account_id)?
-            .into_keys()
-            .map(|addr| addr.encode(params))
-            .collect(),
+        addresses,
         start_height: start_height.into(),
         max_entries: 0,
     };

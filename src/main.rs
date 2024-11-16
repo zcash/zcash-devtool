@@ -39,6 +39,9 @@ enum Command {
     #[options(help = "initialise a new light wallet")]
     Init(commands::init::Command),
 
+    #[options(help = "initialise a new view-only light wallet")]
+    InitFvk(commands::init_fvk::Command),
+
     #[options(help = "reset an existing light wallet (does not preserve imported UFVKs)")]
     Reset(commands::reset::Command),
 
@@ -125,6 +128,7 @@ fn main() -> Result<(), anyhow::Error> {
 
         match opts.command {
             Some(Command::Init(command)) => command.run(opts.wallet_dir).await,
+            Some(Command::InitFvk(command)) => command.run(opts.wallet_dir).await,
             Some(Command::Reset(command)) => command.run(opts.wallet_dir).await,
             Some(Command::ImportUfvk(command)) => command.run(opts.wallet_dir).await,
             Some(Command::Upgrade(command)) => command.run(opts.wallet_dir),

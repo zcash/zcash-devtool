@@ -7,14 +7,11 @@ use zcash_client_backend::{
     data_api::{AccountBirthday, WalletWrite},
     proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
 };
-use zcash_client_sqlite::{
-    chain::init::init_blockmeta_db, wallet::init::init_wallet_db, FsBlockDb, WalletDb,
-};
 use zcash_primitives::consensus::{self, Parameters};
 use zcash_protocol::consensus::BlockHeight;
 
 use crate::{
-    data::{get_db_paths, init_wallet_config, Network},
+    data::{init_dbs, init_wallet_config, Network},
     error,
     remote::{tor_client, Servers},
 };
@@ -69,12 +66,6 @@ impl Command {
             .try_into()
             .expect("block heights must fit into u32");
 
-        let birthday = if let Some(birthday) = opts.birthday {
-            birthday
-        } else {
-            chain_tip - 100
-        };
-
         // Parse or create the wallet's mnemonic phrase.
         let (mnemonic, recover_until) = if let Some(phrase) = opts.phrase {
             (
@@ -85,8 +76,22 @@ impl Command {
             (Mnemonic::generate(Count::Words24), None)
         };
 
+        let birthday = Self::get_wallet_birthday(
+            client,
+            opts.birthday
+                .unwrap_or(chain_tip.saturating_sub(100))
+                .into(),
+            recover_until,
+        )
+        .await?;
+
         // Save the wallet keys to disk.
-        init_wallet_config(wallet_dir.as_ref(), &mnemonic, birthday, opts.network)?;
+        init_wallet_config(
+            wallet_dir.as_ref(),
+            Some(&mnemonic),
+            birthday.height(),
+            opts.network.into(),
+        )?;
 
         let seed = {
             let mut seed = mnemonic.to_seed("");
@@ -96,44 +101,41 @@ impl Command {
         };
 
         Self::init_dbs(
-            client,
             params,
-            wallet_dir,
+            wallet_dir.as_ref(),
             &seed,
             birthday,
             opts.accounts.unwrap_or(1),
-            recover_until,
         )
-        .await
     }
 
-    pub(crate) async fn init_dbs(
+    pub(crate) async fn get_wallet_birthday(
         mut client: CompactTxStreamerClient<Channel>,
-        params: impl Parameters + 'static,
-        wallet_dir: Option<String>,
-        seed: &SecretVec<u8>,
-        birthday: u32,
-        accounts: usize,
+        birthday_height: BlockHeight,
         recover_until: Option<BlockHeight>,
+    ) -> Result<AccountBirthday, anyhow::Error> {
+        // Fetch the tree state corresponding to the last block prior to the wallet's
+        // birthday height. NOTE: THIS APPROACH LEAKS THE BIRTHDAY TO THE SERVER!
+        let request = service::BlockId {
+            height: u64::from(birthday_height).saturating_sub(1),
+            ..Default::default()
+        };
+        let treestate = client.get_tree_state(request).await?.into_inner();
+        let birthday = AccountBirthday::from_treestate(treestate, recover_until)
+            .map_err(error::Error::from)?;
+
+        Ok(birthday)
+    }
+
+    pub(crate) fn init_dbs(
+        params: impl Parameters + 'static,
+        wallet_dir: Option<&String>,
+        seed: &SecretVec<u8>,
+        birthday: AccountBirthday,
+        accounts: usize,
     ) -> Result<(), anyhow::Error> {
         // Initialise the block and wallet DBs.
-        let (db_cache, db_data) = get_db_paths(wallet_dir);
-        let mut db_cache = FsBlockDb::for_path(db_cache).map_err(error::Error::from)?;
-        let mut db_data = WalletDb::for_path(db_data, params)?;
-        init_blockmeta_db(&mut db_cache)?;
-        init_wallet_db(&mut db_data, None)?;
-
-        // Construct an `AccountBirthday` for the account's birthday.
-        let birthday = {
-            // Fetch the tree state corresponding to the last block prior to the wallet's
-            // birthday height. NOTE: THIS APPROACH LEAKS THE BIRTHDAY TO THE SERVER!
-            let request = service::BlockId {
-                height: (birthday - 1).into(),
-                ..Default::default()
-            };
-            let treestate = client.get_tree_state(request).await?.into_inner();
-            AccountBirthday::from_treestate(treestate, recover_until).map_err(error::Error::from)?
-        };
+        let mut db_data = init_dbs(params, wallet_dir)?;
 
         // Add accounts.
         for _ in 0..accounts {
