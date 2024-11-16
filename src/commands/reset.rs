@@ -4,7 +4,7 @@ use gumdrop::Options;
 use zcash_client_backend::proto::service;
 
 use crate::{
-    config::read_config,
+    config::WalletConfig,
     data::erase_wallet_state,
     remote::{tor_client, Servers},
 };
@@ -29,8 +29,8 @@ pub(crate) struct Command {
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
         // Load the wallet network, seed, and birthday from disk.
-        let keys = read_config(wallet_dir.as_ref())?;
-        let params = keys.network();
+        let config = WalletConfig::read(wallet_dir.as_ref())?;
+        let params = config.network();
 
         // Connect to the client (for re-initializing the wallet).
         let server = self.server.pick(params)?;
@@ -50,7 +50,7 @@ impl Command {
             .expect("block heights must fit into u32");
 
         let birthday =
-            super::init::Command::get_wallet_birthday(client, keys.birthday(), Some(chain_tip))
+            super::init::Command::get_wallet_birthday(client, config.birthday(), Some(chain_tip))
                 .await?;
 
         // Erase the wallet state (excluding key material).
@@ -60,7 +60,8 @@ impl Command {
         super::init::Command::init_dbs(
             params,
             wallet_dir.as_ref(),
-            keys.seed()
+            config
+                .seed()
                 .ok_or(anyhow!("Seed is required for database reset"))?,
             birthday,
             self.accounts.unwrap_or(1),

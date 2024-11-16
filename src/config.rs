@@ -17,13 +17,13 @@ use crate::{
 
 const KEYS_FILE: &str = "keys.toml";
 
-pub(crate) struct WalletKeys {
+pub(crate) struct WalletConfig {
     network: consensus::Network,
     seed: Option<SecretVec<u8>>,
     birthday: BlockHeight,
 }
 
-impl WalletKeys {
+impl WalletConfig {
     pub(crate) fn network(&self) -> consensus::Network {
         self.network
     }
@@ -57,7 +57,7 @@ pub(crate) fn init_wallet_config<P: AsRef<Path>>(
         fs::OpenOptions::new().create_new(true).write(true).open(p)
     }?;
 
-    let config = WalletConfig {
+    let config = ConfigEncoding {
         mnemonic: mnemonic.map(|m| m.phrase().to_string()),
         network: Some(Network::from(network).name().to_string()),
         birthday: Some(u32::from(birthday)),
@@ -81,51 +81,51 @@ fn get_keys_file<P: AsRef<Path>>(wallet_dir: Option<P>) -> Result<BufReader<File
     Ok(BufReader::new(File::open(p)?))
 }
 
-pub(crate) fn read_config<P: AsRef<Path>>(
-    wallet_dir: Option<P>,
-) -> Result<WalletKeys, anyhow::Error> {
-    let mut keys_file = get_keys_file(wallet_dir)?;
-    let mut conf_str = "".to_string();
-    keys_file.read_to_string(&mut conf_str)?;
-    let mut config: WalletConfig = toml::from_str(&conf_str)?;
+impl WalletConfig {
+    pub(crate) fn read<P: AsRef<Path>>(wallet_dir: Option<P>) -> Result<Self, anyhow::Error> {
+        let mut keys_file = get_keys_file(wallet_dir)?;
+        let mut conf_str = "".to_string();
+        keys_file.read_to_string(&mut conf_str)?;
+        let mut config: ConfigEncoding = toml::from_str(&conf_str)?;
 
-    let seed = config
-        .mnemonic
-        .as_ref()
-        .map(|m| {
-            let mut seed_bytes = <Mnemonic<English>>::from_phrase(m)?.to_seed("");
-            let seed = SecretVec::new(seed_bytes.to_vec());
-            seed_bytes.zeroize();
-            Ok(seed)
+        let seed = config
+            .mnemonic
+            .as_ref()
+            .map(|m| {
+                let mut seed_bytes = <Mnemonic<English>>::from_phrase(m)?.to_seed("");
+                let seed = SecretVec::new(seed_bytes.to_vec());
+                seed_bytes.zeroize();
+                Ok(seed)
+            })
+            .transpose()
+            .map_err(|_: bip0039::Error| anyhow!("mnemonic did not parse as a valid HD seed"))?;
+        config.mnemonic.zeroize();
+
+        let network = config.network.map_or_else(
+            || Ok(consensus::Network::TestNetwork),
+            |network_name| {
+                Network::parse(network_name.trim())
+                    .map(consensus::Network::from)
+                    .map_err(|_| error::Error::InvalidKeysFile)
+            },
+        )?;
+
+        let birthday = config.birthday.map(BlockHeight::from).unwrap_or(
+            network
+                .activation_height(consensus::NetworkUpgrade::Sapling)
+                .expect("Sapling activation height is known."),
+        );
+
+        Ok(Self {
+            network,
+            seed,
+            birthday,
         })
-        .transpose()
-        .map_err(|_: bip0039::Error| anyhow!("mnemonic did not parse as a valid HD seed"))?;
-    config.mnemonic.zeroize();
-
-    let network = config.network.map_or_else(
-        || Ok(consensus::Network::TestNetwork),
-        |network_name| {
-            Network::parse(network_name.trim())
-                .map(consensus::Network::from)
-                .map_err(|_| error::Error::InvalidKeysFile)
-        },
-    )?;
-
-    let birthday = config.birthday.map(BlockHeight::from).unwrap_or(
-        network
-            .activation_height(consensus::NetworkUpgrade::Sapling)
-            .expect("Sapling activation height is known."),
-    );
-
-    Ok(WalletKeys {
-        network,
-        seed,
-        birthday,
-    })
+    }
 }
 
 #[derive(Deserialize, Serialize)]
-struct WalletConfig {
+struct ConfigEncoding {
     mnemonic: Option<String>,
     network: Option<String>,
     birthday: Option<u32>,
@@ -134,11 +134,11 @@ struct WalletConfig {
 pub(crate) fn get_wallet_network<P: AsRef<Path>>(
     wallet_dir: Option<P>,
 ) -> Result<consensus::Network, anyhow::Error> {
-    Ok(read_config(wallet_dir)?.network)
+    Ok(WalletConfig::read(wallet_dir)?.network)
 }
 
 pub(crate) fn get_wallet_seed<P: AsRef<Path>>(
     wallet_dir: Option<P>,
 ) -> Result<Option<SecretVec<u8>>, anyhow::Error> {
-    Ok(read_config(wallet_dir)?.seed)
+    Ok(WalletConfig::read(wallet_dir)?.seed)
 }

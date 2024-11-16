@@ -25,7 +25,7 @@ use zcash_protocol::value::Zatoshis;
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
-    config::read_config,
+    config::WalletConfig,
     data::get_db_paths,
     error,
     remote::{tor_client, Servers},
@@ -69,8 +69,8 @@ pub(crate) struct Command {
 
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
-        let keys = read_config(wallet_dir.as_ref())?;
-        let params = keys.network();
+        let config = WalletConfig::read(wallet_dir.as_ref())?;
+        let params = config.network();
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
@@ -90,7 +90,8 @@ impl Command {
 
         let usk = UnifiedSpendingKey::from_seed(
             &params,
-            keys.seed()
+            config
+                .seed()
                 .ok_or(anyhow!("Seed must be present to enable sending"))?
                 .expose_secret(),
             account_index,
