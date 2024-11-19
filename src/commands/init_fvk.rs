@@ -11,7 +11,7 @@ use zcash_primitives::consensus::NetworkType;
 use zcash_protocol::consensus;
 
 use crate::{
-    config::init_wallet_config,
+    config::WalletConfig,
     data::init_dbs,
     remote::{tor_client, Servers},
 };
@@ -123,8 +123,8 @@ impl Command {
         )
         .await?;
 
-        // Save the wallet keys to disk.
-        init_wallet_config(wallet_dir.as_ref(), None, birthday.height().into(), network)?;
+        // Save the wallet config to disk.
+        WalletConfig::init_without_mnemonic(wallet_dir.as_ref(), birthday.height(), network)?;
 
         let mut wallet_db = init_dbs(network, wallet_dir.as_ref())?;
         wallet_db.import_account_ufvk(&ufvk, &birthday, opts.purpose.into())?;
