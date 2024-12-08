@@ -1,0 +1,230 @@
+use anyhow::anyhow;
+use bip0039::{English, Mnemonic};
+use std::fs::{self, File};
+use std::io::{BufReader, Read, Write};
+use std::path::Path;
+
+use secrecy::{ExposeSecret, SecretVec, Zeroize};
+use serde::{Deserialize, Serialize};
+
+use zcash_primitives::consensus::{self, BlockHeight};
+use zcash_protocol::consensus::Parameters;
+
+use crate::{
+    data::{Network, DEFAULT_WALLET_DIR},
+    error,
+};
+
+const KEYS_FILE: &str = "keys.toml";
+
+enum WalletSecret<T> {
+    Encrypted(String),
+    Decrypted(T),
+}
+
+pub(crate) struct WalletConfig {
+    network: consensus::Network,
+    seed: Option<WalletSecret<SecretVec<u8>>>,
+    birthday: BlockHeight,
+}
+
+impl WalletConfig {
+    pub(crate) fn init_with_mnemonic<'a, P: AsRef<Path>>(
+        wallet_dir: Option<P>,
+        recipients: impl Iterator<Item = &'a dyn age::Recipient>,
+        mnemonic: &Mnemonic,
+        birthday: BlockHeight,
+        network: consensus::Network,
+    ) -> Result<(), anyhow::Error> {
+        init_wallet_config(
+            wallet_dir,
+            Some(encrypt_mnemonic(recipients, mnemonic)?),
+            birthday,
+            network,
+        )
+    }
+
+    pub(crate) fn init_without_mnemonic<P: AsRef<Path>>(
+        wallet_dir: Option<P>,
+        birthday: BlockHeight,
+        network: consensus::Network,
+    ) -> Result<(), anyhow::Error> {
+        init_wallet_config(wallet_dir, None, birthday, network)
+    }
+
+    pub(crate) fn decrypt<'a>(
+        &mut self,
+        identities: impl Iterator<Item = &'a dyn age::Identity>,
+    ) -> Result<(), anyhow::Error> {
+        if let Some(current_seed) = self.seed.take() {
+            match &current_seed {
+                WalletSecret::Encrypted(ciphertext) => match decrypt_seed(identities, ciphertext) {
+                    Ok(seed) => self.seed = Some(WalletSecret::Decrypted(seed)),
+                    Err(e) => {
+                        self.seed = Some(current_seed);
+                        return Err(e);
+                    }
+                },
+                WalletSecret::Decrypted(_) => self.seed = Some(current_seed),
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn network(&self) -> consensus::Network {
+        self.network
+    }
+
+    pub(crate) fn seed(&self) -> Option<&SecretVec<u8>> {
+        self.seed.as_ref().and_then(|seed| match seed {
+            WalletSecret::Encrypted(_) => {
+                tracing::error!("Wallet is encrypted");
+                None
+            }
+            WalletSecret::Decrypted(seed) => Some(seed),
+        })
+    }
+
+    pub(crate) fn birthday(&self) -> BlockHeight {
+        self.birthday
+    }
+}
+
+fn init_wallet_config<P: AsRef<Path>>(
+    wallet_dir: Option<P>,
+    mnemonic: Option<String>,
+    birthday: BlockHeight,
+    network: consensus::Network,
+) -> Result<(), anyhow::Error> {
+    // Create the wallet directory.
+    let wallet_dir = wallet_dir
+        .as_ref()
+        .map(|p| p.as_ref())
+        .unwrap_or(DEFAULT_WALLET_DIR.as_ref());
+    fs::create_dir_all(wallet_dir)?;
+
+    // Write the mnemonic phrase to disk along with its birthday.
+    let mut keys_file = {
+        let mut p = wallet_dir.to_owned();
+        p.push(KEYS_FILE);
+        fs::OpenOptions::new().create_new(true).write(true).open(p)
+    }?;
+
+    let config = ConfigEncoding {
+        mnemonic,
+        network: Some(Network::from(network).name().to_string()),
+        birthday: Some(u32::from(birthday)),
+    };
+
+    let config_str = toml::to_string(&config)
+        .map_err::<anyhow::Error, _>(|_| anyhow!("error writing wallet config"))?;
+
+    write!(&mut keys_file, "{}", config_str)?;
+
+    Ok(())
+}
+
+impl WalletConfig {
+    pub(crate) fn read<P: AsRef<Path>>(wallet_dir: Option<P>) -> Result<Self, anyhow::Error> {
+        let mut keys_file = {
+            let mut p = wallet_dir
+                .as_ref()
+                .map(|p| p.as_ref())
+                .unwrap_or(DEFAULT_WALLET_DIR.as_ref())
+                .to_owned();
+            p.push(KEYS_FILE);
+            BufReader::new(File::open(p)?)
+        };
+
+        let mut conf_str = "".to_string();
+        keys_file.read_to_string(&mut conf_str)?;
+        let config: ConfigEncoding = toml::from_str(&conf_str)?;
+
+        let seed = config.mnemonic.map(WalletSecret::Encrypted);
+
+        let network = config.network.map_or_else(
+            || Ok(consensus::Network::TestNetwork),
+            |network_name| {
+                Network::parse(network_name.trim())
+                    .map(consensus::Network::from)
+                    .map_err(|_| error::Error::InvalidKeysFile)
+            },
+        )?;
+
+        let birthday = config.birthday.map(BlockHeight::from).unwrap_or(
+            network
+                .activation_height(consensus::NetworkUpgrade::Sapling)
+                .expect("Sapling activation height is known."),
+        );
+
+        Ok(Self {
+            network,
+            seed,
+            birthday,
+        })
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+struct ConfigEncoding {
+    mnemonic: Option<String>,
+    network: Option<String>,
+    birthday: Option<u32>,
+}
+
+fn encrypt_mnemonic<'a>(
+    recipients: impl Iterator<Item = &'a dyn age::Recipient>,
+    mnemonic: &Mnemonic,
+) -> Result<String, anyhow::Error> {
+    let encryptor = age::Encryptor::with_recipients(recipients)?;
+    let mut ciphertext = vec![];
+    let mut writer = encryptor.wrap_output(age::armor::ArmoredWriter::wrap_output(
+        &mut ciphertext,
+        age::armor::Format::AsciiArmor,
+    )?)?;
+    writer.write_all(mnemonic.phrase().as_bytes())?;
+    writer.finish().and_then(|armor| armor.finish())?;
+    Ok(String::from_utf8(ciphertext).expect("armor is valid UTF-8"))
+}
+
+fn decrypt_seed<'a>(
+    identities: impl Iterator<Item = &'a dyn age::Identity>,
+    ciphertext: &str,
+) -> Result<SecretVec<u8>, anyhow::Error> {
+    let mnemonic_bytes = {
+        let decryptor = age::Decryptor::new(age::armor::ArmoredReader::new(ciphertext.as_bytes()))?;
+        let mut buf = vec![];
+        let res = decryptor.decrypt(identities)?.read_to_end(&mut buf);
+        // Ensure anything we read gets zeroized even on error.
+        let ret = SecretVec::new(buf);
+        res?;
+        ret
+    };
+
+    let mnemonic = std::str::from_utf8(mnemonic_bytes.expose_secret())?;
+
+    let mut seed_bytes = <Mnemonic<English>>::from_phrase(mnemonic)?.to_seed("");
+    let seed = SecretVec::new(seed_bytes.to_vec());
+    seed_bytes.zeroize();
+
+    Ok(seed)
+}
+
+pub(crate) fn get_wallet_network<P: AsRef<Path>>(
+    wallet_dir: Option<P>,
+) -> Result<consensus::Network, anyhow::Error> {
+    Ok(WalletConfig::read(wallet_dir)?.network)
+}
+
+pub(crate) fn get_wallet_seed<'a, P: AsRef<Path>>(
+    wallet_dir: Option<P>,
+    identities: impl Iterator<Item = &'a dyn age::Identity>,
+) -> Result<Option<SecretVec<u8>>, anyhow::Error> {
+    let mut config = WalletConfig::read(wallet_dir)?;
+    config.decrypt(identities)?;
+    Ok(config.seed.map(|seed| match seed {
+        WalletSecret::Decrypted(seed) => seed,
+        WalletSecret::Encrypted(_) => unreachable!(),
+    }))
+}

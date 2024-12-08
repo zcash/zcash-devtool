@@ -11,7 +11,8 @@ use zcash_primitives::consensus::{self, Parameters};
 use zcash_protocol::consensus::BlockHeight;
 
 use crate::{
-    data::{init_dbs, init_wallet_config, Network},
+    config::WalletConfig,
+    data::{init_dbs, Network},
     error,
     remote::{tor_client, Servers},
 };
@@ -19,6 +20,9 @@ use crate::{
 // Options accepted for the `init` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
+    #[options(help = "age identity file to encrypt the mnemonic phrase to")]
+    identity: String,
+
     #[options(help = "mnemonic phrase to initialise the wallet with (default is new phrase)")]
     phrase: Option<String>,
 
@@ -66,6 +70,8 @@ impl Command {
             .try_into()
             .expect("block heights must fit into u32");
 
+        let recipients = age::IdentityFile::from_file(opts.identity)?.to_recipients()?;
+
         // Parse or create the wallet's mnemonic phrase.
         let (mnemonic, recover_until) = if let Some(phrase) = opts.phrase {
             (
@@ -86,9 +92,10 @@ impl Command {
         .await?;
 
         // Save the wallet keys to disk.
-        init_wallet_config(
+        WalletConfig::init_with_mnemonic(
             wallet_dir.as_ref(),
-            Some(&mnemonic),
+            recipients.iter().map(|r| r.as_ref() as _),
+            &mnemonic,
             birthday.height(),
             opts.network.into(),
         )?;

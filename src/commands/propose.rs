@@ -16,10 +16,7 @@ use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::Zatoshis;
 use zip321::{Payment, TransactionRequest};
 
-use crate::{
-    data::{get_db_paths, get_wallet_network},
-    error, MIN_CONFIRMATIONS,
-};
+use crate::{config::get_wallet_network, data::get_db_paths, error, MIN_CONFIRMATIONS};
 // Options accepted for the `propose` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {

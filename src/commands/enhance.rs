@@ -20,7 +20,8 @@ use zcash_primitives::transaction::{Transaction, TxId};
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network};
 
 use crate::{
-    data::{get_db_paths, get_wallet_network},
+    config::get_wallet_network,
+    data::get_db_paths,
     remote::{tor_client, Servers},
 };
 

@@ -25,7 +25,8 @@ use zcash_protocol::value::Zatoshis;
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
-    data::{get_db_paths, read_config},
+    config::WalletConfig,
+    data::get_db_paths,
     error,
     remote::{tor_client, Servers},
     MIN_CONFIRMATIONS,
@@ -34,6 +35,9 @@ use crate::{
 // Options accepted for the `send` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
+    #[options(help = "age identity file to decrypt the mnemonic phrase with")]
+    identity: String,
+
     #[options(
         required,
         help = "the recipient's Unified, Sapling or transparent address"
@@ -68,8 +72,8 @@ pub(crate) struct Command {
 
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
-        let keys = read_config(wallet_dir.as_ref())?;
-        let params = keys.network();
+        let mut config = WalletConfig::read(wallet_dir.as_ref())?;
+        let params = config.network();
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
@@ -87,9 +91,14 @@ impl Command {
             }
         };
 
+        // Decrypt the mnemonic to access the seed.
+        let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
+        config.decrypt(identities.iter().map(|i| i.as_ref() as _))?;
+
         let usk = UnifiedSpendingKey::from_seed(
             &params,
-            keys.seed()
+            config
+                .seed()
                 .ok_or(anyhow!("Seed must be present to enable sending"))?
                 .expose_secret(),
             account_index,

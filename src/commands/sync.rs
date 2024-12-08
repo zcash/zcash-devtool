@@ -25,7 +25,8 @@ use zcash_primitives::merkle_tree::HashSer;
 use zcash_protocol::consensus::{BlockHeight, Parameters};
 
 use crate::{
-    data::{get_block_path, get_db_paths, get_wallet_network},
+    config::get_wallet_network,
+    data::{get_block_path, get_db_paths},
     error,
     remote::Servers,
     ShutdownListener,

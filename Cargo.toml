@@ -35,6 +35,9 @@ zcash_proofs = "0.20"
 zcash_protocol = "0.4"
 zip321 = "0.2"
 
+# Seed encryption
+age = { version = "0.11", features = ["armor", "plugin"] }
+
 # Currency conversion
 iso_currency = { version = "0.5", features = ["with-serde"] }
 rust_decimal = "1"

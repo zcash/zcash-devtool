@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use gumdrop::Options;
 
 use zcash_client_sqlite::{
@@ -7,13 +8,17 @@ use zcash_client_sqlite::{
 };
 
 use crate::{
-    data::{get_db_paths, get_wallet_network, get_wallet_seed},
+    config::{get_wallet_network, get_wallet_seed},
+    data::get_db_paths,
     error,
 };
 
 // Options accepted for the `upgrade` command
 #[derive(Debug, Options)]
-pub(crate) struct Command {}
+pub(crate) struct Command {
+    #[options(help = "age identity file to decrypt the mnemonic phrase with")]
+    identity: Option<String>,
+}
 
 impl Command {
     pub(crate) fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
@@ -30,7 +35,16 @@ impl Command {
                 error, ..
             } if matches!(error, WalletMigrationError::SeedRequired))
             {
-                init_wallet_db(&mut db_data, get_wallet_seed(wallet_dir)?)?;
+                let identities = age::IdentityFile::from_file(
+                    self.identity
+                        .ok_or(anyhow!("Identity file required to decrypt mnemonic phrase"))?,
+                )?
+                .into_identities()?;
+
+                init_wallet_db(
+                    &mut db_data,
+                    get_wallet_seed(wallet_dir, identities.iter().map(|i| i.as_ref() as _))?,
+                )?;
             } else {
                 return Err(e.into());
             }
