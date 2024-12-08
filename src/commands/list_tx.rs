@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use gumdrop::Options;
 
 use rusqlite::{named_params, Connection};
+use uuid::Uuid;
 use zcash_primitives::{
     consensus::BlockHeight,
     transaction::{
@@ -28,13 +29,13 @@ impl Command {
         rusqlite::vtab::array::load_module(&conn)?;
 
         // Show the first account in the database.
-        let account_id = conn.query_row(
-            "SELECT id
+        let account_uuid = conn.query_row(
+            "SELECT uuid
             FROM accounts
             ORDER BY id
             LIMIT 1",
             named_params! {},
-            |row| row.get::<_, u32>(0),
+            |row| row.get::<_, Uuid>(0),
         )?;
 
         let mut stmt_txs = conn.prepare(
@@ -59,7 +60,7 @@ impl Command {
                     -- in history). We represent this with NULL.
                 ) AS sort_height
             FROM v_transactions
-            WHERE account_id = :account_id
+            WHERE account_uuid = :account_uuid
             ORDER BY
                 -- By default, integer ordering places NULL before all values. Flip this
                 -- around so that transactions in the mempool are shown as most recent.
@@ -71,8 +72,8 @@ impl Command {
             "SELECT
                 output_pool,
                 output_index,
-                from_account_id,
-                to_account_id,
+                from_account_uuid,
+                to_account_uuid,
                 to_address,
                 value,
                 is_change,
@@ -83,7 +84,7 @@ impl Command {
 
         println!("Transactions:");
         for row in stmt_txs.query_and_then(
-            named_params! {":account_id": account_id},
+            named_params! {":account_uuid": account_uuid},
             |row| -> anyhow::Result<_> {
                 let txid = row.get::<_, Vec<u8>>(1)?;
 
@@ -129,8 +130,8 @@ impl Command {
 struct WalletTxOutput {
     pool: PoolType,
     output_index: u32,
-    from_account: Option<i64>,
-    to_account: Option<i64>,
+    from_account: Option<Uuid>,
+    to_account: Option<Uuid>,
     to_address: Option<String>,
     value: NonNegativeAmount,
     is_change: bool,
@@ -151,8 +152,8 @@ impl WalletTxOutput {
     fn new(
         pool_code: i64,
         output_index: u32,
-        from_account: Option<i64>,
-        to_account: Option<i64>,
+        from_account: Option<Uuid>,
+        to_account: Option<Uuid>,
         to_address: Option<String>,
         value: i64,
         is_change: bool,

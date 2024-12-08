@@ -35,7 +35,7 @@ use crate::{
 #[cfg(feature = "transparent-inputs")]
 use {
     zcash_client_backend::{encoding::AddressCodec, wallet::WalletTransparentOutput},
-    zcash_client_sqlite::AccountId,
+    zcash_client_sqlite::AccountUuid,
     zcash_primitives::{
         legacy::Script,
         transaction::components::transparent::{OutPoint, TxOut},
@@ -636,7 +636,7 @@ async fn refresh_utxos<P: Parameters>(
     params: &P,
     client: &mut CompactTxStreamerClient<Channel>,
     db_data: &mut WalletDb<rusqlite::Connection, P>,
-    account_id: AccountId,
+    account_id: AccountUuid,
     start_height: BlockHeight,
 ) -> Result<(), anyhow::Error> {
     let addresses = db_data

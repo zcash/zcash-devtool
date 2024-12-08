@@ -1,8 +1,9 @@
 use anyhow::anyhow;
 use gumdrop::Options;
 
+use uuid::Uuid;
 use zcash_client_backend::data_api::{Account, WalletRead};
-use zcash_client_sqlite::{AccountId, WalletDb};
+use zcash_client_sqlite::{AccountUuid, WalletDb};
 use zcash_keys::keys::UnifiedAddressRequest;
 
 use crate::{config::get_wallet_network, data::get_db_paths};
@@ -10,8 +11,8 @@ use crate::{config::get_wallet_network, data::get_db_paths};
 // Options accepted for the `list-accounts` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(free, required, help = "the ID of the account to list addresses for")]
-    account_id: u32,
+    #[options(free, required, help = "the UUID of the account to list addresses for")]
+    account_id: Uuid,
 }
 
 impl Command {
@@ -21,7 +22,7 @@ impl Command {
         let db_data = WalletDb::for_path(db_data, params)?;
 
         let account = db_data
-            .get_account(AccountId::from_u32(self.account_id))?
+            .get_account(AccountUuid::from_uuid(self.account_id))?
             .ok_or_else(|| anyhow!("No account exists for account id {}", self.account_id))?;
 
         println!("Account {}", self.account_id);

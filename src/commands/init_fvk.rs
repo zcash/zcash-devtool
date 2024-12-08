@@ -3,12 +3,13 @@ use gumdrop::Options;
 
 use zcash_address::unified::{Encoding, Ufvk};
 use zcash_client_backend::{
-    data_api::{AccountPurpose, WalletWrite},
+    data_api::{AccountPurpose, WalletWrite, Zip32Derivation},
     proto::service,
 };
 use zcash_keys::{encoding::decode_extfvk_with_network, keys::UnifiedFullViewingKey};
 use zcash_primitives::consensus::NetworkType;
 use zcash_protocol::consensus;
+use zip32::fingerprint::SeedFingerprint;
 
 use crate::{
     config::WalletConfig,
@@ -16,35 +17,12 @@ use crate::{
     remote::{tor_client, Servers},
 };
 
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) enum Purpose {
-    #[default]
-    Viewing,
-    Spending,
-}
-
-impl Purpose {
-    pub(crate) fn parse(name: &str) -> Result<Purpose, String> {
-        match name {
-            "viewing" => Ok(Purpose::Viewing),
-            "spending" => Ok(Purpose::Spending),
-            other => Err(format!("Unsupported purpose: {}", other)),
-        }
-    }
-}
-
-impl From<Purpose> for AccountPurpose {
-    fn from(value: Purpose) -> Self {
-        match value {
-            Purpose::Viewing => AccountPurpose::ViewOnly,
-            Purpose::Spending => AccountPurpose::Spending,
-        }
-    }
-}
-
 // Options accepted for the `init` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
+    #[options(help = "a name for the account")]
+    name: String,
+
     #[options(
         help = "serialized full viewing key (Unified or Sapling) to initialize the wallet with"
     )]
@@ -54,17 +32,20 @@ pub(crate) struct Command {
     birthday: Option<u32>,
 
     #[options(
+        help = "hex encoding of the ZIP 32 fingerprint for the seed from which the UFVK was derived",
+        parse(try_from_str = "hex::decode")
+    )]
+    seed_fingerprint: Option<Vec<u8>>,
+
+    #[options(help = "ZIP 32 account index corresponding to the UFVK")]
+    hd_account_index: Option<u32>,
+
+    #[options(
         help = "the server to initialize with (default is \"ecc\")",
         default = "ecc",
         parse(try_from_str = "Servers::parse")
     )]
     server: Servers,
-
-    #[options(
-        help = "the purpose of the viewing key (default is \"viewing\")",
-        parse(try_from_str = "Purpose::parse")
-    )]
-    purpose: Purpose,
 
     #[options(help = "disable connections via TOR")]
     disable_tor: bool,
@@ -123,11 +104,27 @@ impl Command {
         )
         .await?;
 
+        let purpose = match (opts.seed_fingerprint, opts.hd_account_index) {
+            (Some(seed_fingerprint), Some(hd_account_index)) => Ok(AccountPurpose::Spending {
+                derivation: Some(Zip32Derivation::new(
+                    SeedFingerprint::from_bytes(
+                        seed_fingerprint
+                            .as_slice()
+                            .try_into()
+                            .map_err(|_| anyhow!("Incorrect seed_fingerprint length"))?,
+                    ),
+                    zip32::AccountId::try_from(hd_account_index)?,
+                )),
+            }),
+            (None, None) => Ok(AccountPurpose::ViewOnly),
+            _ => Err(anyhow!("Need either both (for spending) or neither (for view-only) of seed_fingerprint and hd_account_index")),
+        }?;
+
         // Save the wallet config to disk.
         WalletConfig::init_without_mnemonic(wallet_dir.as_ref(), birthday.height(), network)?;
 
         let mut wallet_db = init_dbs(network, wallet_dir.as_ref())?;
-        wallet_db.import_account_ufvk(&ufvk, &birthday, opts.purpose.into())?;
+        wallet_db.import_account_ufvk(&opts.name, &ufvk, &birthday, purpose, None)?;
 
         Ok(())
     }

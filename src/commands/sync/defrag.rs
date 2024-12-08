@@ -14,7 +14,7 @@ use zcash_client_backend::data_api::{
     scanning::{ScanPriority, ScanRange},
     WalletSummary,
 };
-use zcash_client_sqlite::AccountId;
+use zcash_client_sqlite::AccountUuid;
 use zcash_protocol::consensus::BlockHeight;
 
 use crate::tui;
@@ -78,7 +78,7 @@ impl AppHandle {
     /// Returns `true` if the TUI exited.
     pub(super) fn set_wallet_summary(
         &self,
-        wallet_summary: Option<WalletSummary<AccountId>>,
+        wallet_summary: Option<WalletSummary<AccountUuid>>,
     ) -> bool {
         match self
             .action_tx
@@ -97,7 +97,7 @@ pub(super) struct App {
     should_quit: bool,
     notify_shutdown: Option<oneshot::Sender<()>>,
     wallet_birthday: BlockHeight,
-    wallet_summary: Option<WalletSummary<AccountId>>,
+    wallet_summary: Option<WalletSummary<AccountUuid>>,
     scan_ranges: BTreeMap<BlockHeight, ScanPriority>,
     fetching_set: RoaringBitmap,
     fetched_set: RoaringBitmap,
@@ -385,7 +385,7 @@ pub(super) enum Action {
     SetFetching(Option<Range<BlockHeight>>),
     SetFetched(BlockHeight),
     SetScanning(Option<Range<BlockHeight>>),
-    SetWalletSummary(Option<WalletSummary<AccountId>>),
+    SetWalletSummary(Option<WalletSummary<AccountUuid>>),
     Render,
 }
 

@@ -65,17 +65,17 @@ impl Command {
             }
             println!("    Balance: {}", printer.format(balance.total()));
             println!(
-                "  Sapling Spendable: {}",
+                "     Sapling Spendable: {}",
                 printer.format(balance.sapling_balance().spendable_value()),
             );
             println!(
-                "  Orchard Spendable: {}",
+                "     Orchard Spendable: {}",
                 printer.format(balance.orchard_balance().spendable_value()),
             );
             #[cfg(feature = "transparent-inputs")]
             println!(
-                "         Unshielded: {}",
-                printer.format(balance.unshielded()),
+                "  Unshielded Spendable: {}",
+                printer.format(balance.unshielded_balance().spendable_value()),
             );
         } else {
             println!("Insufficient information to build a wallet summary.");

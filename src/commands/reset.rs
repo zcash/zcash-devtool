@@ -1,11 +1,15 @@
 use anyhow::anyhow;
 use gumdrop::Options;
 
-use zcash_client_backend::proto::service;
+use zcash_client_backend::{
+    data_api::{Account, WalletRead},
+    proto::service,
+};
+use zcash_client_sqlite::WalletDb;
 
 use crate::{
     config::WalletConfig,
-    data::erase_wallet_state,
+    data::{erase_wallet_state, get_db_paths},
     remote::{tor_client, Servers},
 };
 
@@ -14,9 +18,6 @@ use crate::{
 pub(crate) struct Command {
     #[options(help = "age identity file to decrypt the mnemonic phrase with")]
     identity: String,
-
-    #[options(help = "the number of accounts to re-initialise the wallet with (default is 1)")]
-    accounts: Option<usize>,
 
     #[options(
         help = "the server to re-initialize with (default is \"ecc\")",
@@ -52,6 +53,23 @@ impl Command {
             .try_into()
             .expect("block heights must fit into u32");
 
+        // Get the account name and key source to preserve them.
+        let (account_name, key_source) = {
+            let (_, db_data) = get_db_paths(wallet_dir.as_ref());
+            let db_data = WalletDb::for_path(db_data, params)?;
+
+            let account_id = *db_data
+                .get_account_ids()?
+                .first()
+                .ok_or(anyhow!("Wallet has no accounts"))?;
+
+            let account = db_data.get_account(account_id)?.expect("exists");
+            (
+                account.name().map(String::from),
+                account.source().key_source().map(String::from),
+            )
+        };
+
         let birthday =
             super::init::Command::get_wallet_birthday(client, config.birthday(), Some(chain_tip))
                 .await?;
@@ -67,11 +85,12 @@ impl Command {
         super::init::Command::init_dbs(
             params,
             wallet_dir.as_ref(),
+            account_name.as_deref().unwrap_or(""),
             config
                 .seed()
                 .ok_or(anyhow!("Seed is required for database reset"))?,
             birthday,
-            self.accounts.unwrap_or(1),
+            key_source.as_deref(),
         )
     }
 }

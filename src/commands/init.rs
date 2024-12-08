@@ -20,6 +20,9 @@ use crate::{
 // Options accepted for the `init` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
+    #[options(help = "a name for the account")]
+    name: String,
+
     #[options(help = "age identity file to encrypt the mnemonic phrase to")]
     identity: String,
 
@@ -28,9 +31,6 @@ pub(crate) struct Command {
 
     #[options(help = "the wallet's birthday (default is current chain height)")]
     birthday: Option<u32>,
-
-    #[options(help = "the number of accounts to initialise the wallet with (default is 1)")]
-    accounts: Option<usize>,
 
     #[options(
         help = "the network the wallet will be used with: \"test\" or \"main\" (default is \"test\")",
@@ -110,9 +110,10 @@ impl Command {
         Self::init_dbs(
             params,
             wallet_dir.as_ref(),
+            &opts.name,
             &seed,
             birthday,
-            opts.accounts.unwrap_or(1),
+            None,
         )
     }
 
@@ -137,17 +138,16 @@ impl Command {
     pub(crate) fn init_dbs(
         params: impl Parameters + 'static,
         wallet_dir: Option<&String>,
+        account_name: &str,
         seed: &SecretVec<u8>,
         birthday: AccountBirthday,
-        accounts: usize,
+        key_source: Option<&str>,
     ) -> Result<(), anyhow::Error> {
         // Initialise the block and wallet DBs.
         let mut db_data = init_dbs(params, wallet_dir)?;
 
-        // Add accounts.
-        for _ in 0..accounts {
-            db_data.create_account(seed, &birthday)?;
-        }
+        // Add account.
+        db_data.create_account(account_name, seed, &birthday, key_source)?;
 
         Ok(())
     }
