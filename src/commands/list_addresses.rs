@@ -28,7 +28,7 @@ impl Command {
         println!("Account {}", self.account_id);
         let (ua, _) = account
             .uivk()
-            .default_address(UnifiedAddressRequest::all().unwrap())?;
+            .default_address(UnifiedAddressRequest::all())?;
         println!("     Default Address: {}", ua.encode(&params));
         Ok(())
     }
