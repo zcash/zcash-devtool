@@ -11,7 +11,7 @@ use zcash_client_backend::{
         wallet::{
             create_proposed_transactions, input_selection::GreedyInputSelector, propose_transfer,
         },
-        Account, AccountSource, WalletRead,
+        Account, WalletRead,
     },
     fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
     keys::UnifiedSpendingKey,
@@ -84,12 +84,10 @@ impl Command {
         let account = db_data
             .get_account(account_id)?
             .ok_or(anyhow!("Account missing: {:?}", account_id))?;
-        let account_index = match account.source() {
-            AccountSource::Derived { account_index, .. } => account_index,
-            AccountSource::Imported { .. } => {
-                unreachable!("Imported accounts are not yet supported.")
-            }
-        };
+        let derivation = account
+            .source()
+            .key_derivation()
+            .ok_or(anyhow!("Cannot spend from view-only accounts"))?;
 
         // Decrypt the mnemonic to access the seed.
         let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
@@ -101,7 +99,7 @@ impl Command {
                 .seed()
                 .ok_or(anyhow!("Seed must be present to enable sending"))?
                 .expose_secret(),
-            account_index,
+            derivation.account_index(),
         )
         .map_err(error::Error::from)?;
 

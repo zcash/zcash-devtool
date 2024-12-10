@@ -15,10 +15,13 @@ impl Command {
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let db_data = WalletDb::for_path(db_data, params)?;
 
-        for (i, account_id) in db_data.get_account_ids()?.iter().enumerate() {
+        for account_id in db_data.get_account_ids()?.iter() {
             let account = db_data.get_account(*account_id)?.unwrap();
 
-            println!("Account {}", i);
+            println!("Account {}", account_id.expose_uuid());
+            if let Some(name) = account.name() {
+                println!("     Name: {name}");
+            }
             println!("     UIVK: {}", account.uivk().encode(&params));
             println!(
                 "     UFVK: {}",
