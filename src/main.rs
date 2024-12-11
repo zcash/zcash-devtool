@@ -86,20 +86,21 @@ enum Command {
 fn main() -> Result<(), anyhow::Error> {
     let opts = MyOptions::parse_args_default_or_exit();
 
+    let level_filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());
+
     #[cfg(not(feature = "tui"))]
     let tui_logger: Option<()> = None;
     #[cfg(feature = "tui")]
     let tui_logger =
         if let Some(Command::Sync(commands::sync::Command { defrag: true, .. })) = opts.command {
+            tui_logger::init_logger(level_filter.parse().unwrap())?;
             Some(tui_logger::tracing_subscriber_layer())
         } else {
             None
         };
 
     let stdout_logger = if tui_logger.is_none() {
-        let filter = tracing_subscriber::EnvFilter::from(
-            env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned()),
-        );
+        let filter = tracing_subscriber::EnvFilter::from(level_filter);
         Some(tracing_subscriber::fmt::layer().with_filter(filter))
     } else {
         None
