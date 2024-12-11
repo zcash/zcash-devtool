@@ -162,6 +162,8 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::pczt::Command::Send(command) => command.run(opts.wallet_dir).await,
                 #[cfg(feature = "pczt-qr")]
                 commands::pczt::Command::ToQr(command) => command.run(shutdown).await,
+                #[cfg(feature = "pczt-qr")]
+                commands::pczt::Command::FromQr(command) => command.run(shutdown).await,
             },
             None => Ok(()),
         }

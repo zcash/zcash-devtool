@@ -24,4 +24,7 @@ pub(crate) enum Command {
     #[cfg(feature = "pczt-qr")]
     #[options(help = "render a PCZT as an animated QR code")]
     ToQr(qr::Send),
+    #[cfg(feature = "pczt-qr")]
+    #[options(help = "read a PCZT from an animated QR code via the webcam")]
+    FromQr(qr::Receive),
 }

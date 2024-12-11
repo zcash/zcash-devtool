@@ -49,7 +49,9 @@ iso_currency = { version = "0.5", features = ["with-serde"] }
 rust_decimal = "1"
 
 # PCZT QR codes
+nokhwa = { version = "0.10", optional = true, features = ["input-native"] }
 qrcode = { version = "0.14", optional = true, default-features = false }
+rqrr = { version = "0.8", optional = true }
 ur = { version = "0.4", optional = true }
 
 # TUI
@@ -61,7 +63,7 @@ tui-logger = { version = "0.12", optional = true, features = ["tracing-support"]
 
 [features]
 default = ["transparent-inputs"]
-pczt-qr = ["dep:qrcode", "dep:ur"]
+pczt-qr = ["dep:nokhwa", "dep:qrcode", "dep:rqrr", "dep:ur"]
 transparent-inputs = [
     "zcash_client_sqlite/transparent-inputs",
 ]
