@@ -43,6 +43,7 @@ zip321 = "0.2"
 
 # Seed encryption
 age = { version = "0.11", features = ["armor", "plugin"] }
+chrono = "0.4"
 
 # Currency conversion
 iso_currency = { version = "0.5", features = ["with-serde"] }
