@@ -48,6 +48,10 @@ age = { version = "0.11", features = ["armor", "plugin"] }
 iso_currency = { version = "0.5", features = ["with-serde"] }
 rust_decimal = "1"
 
+# PCZT QR codes
+qrcode = { version = "0.14", optional = true, default-features = false }
+ur = { version = "0.4", optional = true }
+
 # TUI
 crossterm = { version = "0.28", optional = true, features = ["event-stream"] }
 ratatui = { version = "0.28", optional = true }
@@ -57,6 +61,7 @@ tui-logger = { version = "0.12", optional = true, features = ["tracing-support"]
 
 [features]
 default = ["transparent-inputs"]
+pczt-qr = ["dep:qrcode", "dep:ur"]
 transparent-inputs = [
     "zcash_client_sqlite/transparent-inputs",
 ]

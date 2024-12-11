@@ -6,6 +6,9 @@ pub(crate) mod prove;
 pub(crate) mod send;
 pub(crate) mod sign;
 
+#[cfg(feature = "pczt-qr")]
+pub(crate) mod qr;
+
 #[derive(Debug, Options)]
 pub(crate) enum Command {
     #[options(help = "create a PCZT")]
@@ -18,4 +21,7 @@ pub(crate) enum Command {
     Combine(combine::Command),
     #[options(help = "extract a finished transaction and send it")]
     Send(send::Command),
+    #[cfg(feature = "pczt-qr")]
+    #[options(help = "render a PCZT as an animated QR code")]
+    ToQr(qr::Send),
 }
