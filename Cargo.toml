@@ -56,10 +56,10 @@ ur = { version = "0.4", optional = true }
 
 # TUI
 crossterm = { version = "0.28", optional = true, features = ["event-stream"] }
-ratatui = { version = "0.28", optional = true }
+ratatui = { version = "0.29", optional = true }
 roaring = { version = "0.10", optional = true }
 tokio-util = { version = "0.7", optional = true }
-tui-logger = { version = "0.12", optional = true, features = ["tracing-support"] }
+tui-logger = { version = "0.14", optional = true, features = ["tracing-support"] }
 
 [features]
 default = ["transparent-inputs"]
