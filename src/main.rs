@@ -78,6 +78,9 @@ enum Command {
 
     #[options(help = "send funds to the given address")]
     Send(commands::send::Command),
+
+    #[options(help = "send funds using PCZTs")]
+    Pczt(commands::pczt::Command),
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -151,7 +154,18 @@ fn main() -> Result<(), anyhow::Error> {
             Some(Command::ListUnspent(command)) => command.run(opts.wallet_dir),
             Some(Command::Propose(command)) => command.run(opts.wallet_dir).await,
             Some(Command::Send(command)) => command.run(opts.wallet_dir).await,
-            _ => Ok(()),
+            Some(Command::Pczt(command)) => match command {
+                commands::pczt::Command::Create(command) => command.run(opts.wallet_dir).await,
+                commands::pczt::Command::Prove(command) => command.run(opts.wallet_dir).await,
+                commands::pczt::Command::Sign(command) => command.run(opts.wallet_dir).await,
+                commands::pczt::Command::Combine(command) => command.run().await,
+                commands::pczt::Command::Send(command) => command.run(opts.wallet_dir).await,
+                #[cfg(feature = "pczt-qr")]
+                commands::pczt::Command::ToQr(command) => command.run(shutdown).await,
+                #[cfg(feature = "pczt-qr")]
+                commands::pczt::Command::FromQr(command) => command.run(shutdown).await,
+            },
+            None => Ok(()),
         }
     })
 }
