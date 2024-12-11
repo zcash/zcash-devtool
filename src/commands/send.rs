@@ -35,7 +35,10 @@ use crate::{
 // Options accepted for the `send` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(help = "age identity file to decrypt the mnemonic phrase with")]
+    #[options(
+        required,
+        help = "age identity file to decrypt the mnemonic phrase with"
+    )]
     identity: String,
 
     #[options(

@@ -26,6 +26,7 @@ pub(crate) struct Command {
     name: String,
 
     #[options(
+        required,
         help = "age identity file to encrypt the mnemonic phrase to (generated if it doesn't exist)"
     )]
     identity: String,
