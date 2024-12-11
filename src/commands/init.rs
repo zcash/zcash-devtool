@@ -1,6 +1,8 @@
+use age::secrecy::ExposeSecret;
 use bip0039::{Count, English, Mnemonic};
 use gumdrop::Options;
 use secrecy::{SecretVec, Zeroize};
+use tokio::io::AsyncWriteExt;
 use tonic::transport::Channel;
 
 use zcash_client_backend::{
@@ -23,7 +25,9 @@ pub(crate) struct Command {
     #[options(help = "a name for the account")]
     name: String,
 
-    #[options(help = "age identity file to encrypt the mnemonic phrase to")]
+    #[options(
+        help = "age identity file to encrypt the mnemonic phrase to (generated if it doesn't exist)"
+    )]
     identity: String,
 
     #[options(help = "mnemonic phrase to initialise the wallet with (default is new phrase)")]
@@ -70,7 +74,31 @@ impl Command {
             .try_into()
             .expect("block heights must fit into u32");
 
-        let recipients = age::IdentityFile::from_file(opts.identity)?.to_recipients()?;
+        let recipients = if tokio::fs::try_exists(&opts.identity).await? {
+            age::IdentityFile::from_file(opts.identity)?.to_recipients()?
+        } else {
+            eprintln!("Generating a new age identity to encrypt the mnemonic phrase");
+            let identity = age::x25519::Identity::generate();
+            let recipient = identity.to_public();
+
+            // Write it to the provided path so we have it for next time.
+            let mut f = tokio::fs::File::create_new(opts.identity).await?;
+            f.write_all(
+                format!(
+                    "# created: {}\n",
+                    chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+                )
+                .as_bytes(),
+            )
+            .await?;
+            f.write_all(format!("# public key: {}\n", recipient).as_bytes())
+                .await?;
+            f.write_all(format!("{}\n", identity.to_string().expose_secret()).as_bytes())
+                .await?;
+            f.flush().await?;
+
+            vec![Box::new(recipient) as _]
+        };
 
         // Parse or create the wallet's mnemonic phrase.
         let (mnemonic, recover_until) = if let Some(phrase) = opts.phrase {

@@ -844,8 +844,10 @@ checksum = "7e36cc9d416881d2e24f9a963be5fb1cd90966419ac844274161d10488b3e825"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-targets 0.52.6",
 ]
 
@@ -7122,6 +7124,7 @@ dependencies = [
  "anyhow",
  "bip0039",
  "bip32",
+ "chrono",
  "crossterm",
  "futures-util",
  "gumdrop",
