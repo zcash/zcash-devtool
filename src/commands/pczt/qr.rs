@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use gumdrop::Options;
+use minicbor::data::{Int, Type};
 use nokhwa::{
     pixel_format::LumaFormat,
     utils::{CameraIndex, RequestedFormat, RequestedFormatType},
@@ -14,6 +15,7 @@ use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
 use crate::ShutdownListener;
 
 const ZCASH_PCZT: &str = "zcash-pczt";
+const UR_ZCASH_PCZT: &str = "ur:zcash-pczt";
 
 // Options accepted for the `pczt to-qr` command
 #[derive(Debug, Options)]
@@ -32,7 +34,16 @@ impl Send {
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 
-        let mut encoder = ur::Encoder::new(&pczt.serialize(), 100, ZCASH_PCZT)
+        let mut pczt_packet = vec![];
+        minicbor::encode(
+            &ZcashPczt {
+                data: pczt.serialize(),
+            },
+            &mut pczt_packet,
+        )
+        .map_err(|e| anyhow!("Failed to encode PCZT packet: {:?}", e))?;
+
+        let mut encoder = ur::Encoder::new(&pczt_packet, 100, ZCASH_PCZT)
             .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
 
         let mut stdout = stdout();
@@ -47,7 +58,7 @@ impl Send {
             let ur = encoder
                 .next_part()
                 .map_err(|e| anyhow!("Failed to encode PCZT part: {e}"))?;
-            let code = QrCode::new(&ur.to_uppercase())?;
+            let code = QrCode::new(&ur.to_ascii_uppercase())?;
             let string = code
                 .render::<unicode::Dense1x2>()
                 .dark_color(unicode::Dense1x2::Dark)
@@ -91,26 +102,40 @@ impl Receive {
             let frame = camera.frame()?;
             let decoded = frame.decode_image::<LumaFormat>()?;
 
-            let mut img = rqrr::PreparedImage::prepare(decoded);
-            let grids = img.detect_grids();
-            if let Some(grid) = grids.first() {
-                let (_, content) = grid.decode()?;
-                if content.starts_with("ur:zcash-pczt") {
-                    eprintln!("{content}");
-                    decoder
-                        .receive(&content)
-                        .map_err(|e| anyhow!("Failed to parse QR code: {:?}", e))?;
-                } else {
-                    eprintln!("Unexpected UR type: {content}");
+            let mut detect_grids = |mut img: rqrr::PreparedImage<
+                image::ImageBuffer<image::Luma<u8>, Vec<u8>>,
+            >|
+             -> anyhow::Result<()> {
+                let grids = img.detect_grids();
+                if let Some(grid) = grids.first() {
+                    let (_, content) = grid.decode()?;
+                    let content = content.to_ascii_lowercase();
+                    if content.starts_with(UR_ZCASH_PCZT) {
+                        eprintln!("{content}");
+                        decoder
+                            .receive(&content)
+                            .map_err(|e| anyhow!("Failed to parse QR code: {:?}", e))?;
+                    } else {
+                        eprintln!("Unexpected UR type: {content}");
+                    }
                 }
+                Ok(())
+            };
+
+            if let Err(e) = detect_grids(rqrr::PreparedImage::prepare(decoded)) {
+                eprintln!("Error while detecting grids: {e}");
             }
         }
 
+        let pczt_packet = decoder
+            .message()
+            .map_err(|e| anyhow!("Failed to extract full message from QR codes: {:?}", e))?
+            .expect("complete");
+
         let pczt = Pczt::parse(
-            &decoder
-                .message()
-                .map_err(|e| anyhow!("Failed to extract full message from QR codes: {:?}", e))?
-                .expect("complete"),
+            &minicbor::decode::<'_, ZcashPczt>(&pczt_packet)
+                .map_err(|e| anyhow!("Failed to decode PCZT packet: {:?}", e))?
+                .data,
         )
         .map_err(|e| anyhow!("Failed to read PCZT from QR codes: {:?}", e))?;
 
@@ -118,4 +143,72 @@ impl Receive {
 
         Ok(())
     }
+}
+
+const DATA: u8 = 1;
+
+struct ZcashPczt {
+    data: Vec<u8>,
+}
+
+impl<C> minicbor::Encode<C> for ZcashPczt {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.map(1)?;
+
+        e.int(Int::from(DATA))?.bytes(&self.data)?;
+
+        Ok(())
+    }
+}
+
+impl<'b, C> minicbor::Decode<'b, C> for ZcashPczt {
+    fn decode(
+        d: &mut minicbor::Decoder<'b>,
+        _ctx: &mut C,
+    ) -> Result<Self, minicbor::decode::Error> {
+        let mut result = ZcashPczt { data: vec![] };
+        cbor_map(d, &mut result, |key, obj, d| {
+            let key =
+                u8::try_from(key).map_err(|e| minicbor::decode::Error::message(e.to_string()))?;
+            match key {
+                DATA => {
+                    obj.data = d.bytes()?.to_vec();
+                }
+                _ => {}
+            }
+            Ok(())
+        })?;
+        Ok(result)
+    }
+}
+
+fn cbor_map<'b, F, T>(
+    d: &mut minicbor::Decoder<'b>,
+    obj: &mut T,
+    mut cb: F,
+) -> Result<(), minicbor::decode::Error>
+where
+    F: FnMut(Int, &mut T, &mut minicbor::Decoder<'b>) -> Result<(), minicbor::decode::Error>,
+{
+    let entries = d.map()?;
+    let mut index = 0;
+    loop {
+        let key = d.int()?;
+        (cb)(key, obj, d)?;
+        index += 1;
+        if let Some(len) = entries {
+            if len == index {
+                break;
+            }
+        }
+        if let Type::Break = d.datatype()? {
+            d.skip()?;
+            break;
+        }
+    }
+    Ok(())
 }
