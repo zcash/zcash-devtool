@@ -63,9 +63,9 @@ impl Send {
             let code = QrCode::new(&ur.to_ascii_uppercase())?;
             let string = code
                 .render::<unicode::Dense1x2>()
-                .dark_color(unicode::Dense1x2::Dark)
-                .light_color(unicode::Dense1x2::Light)
-                .quiet_zone(false)
+                .dark_color(unicode::Dense1x2::Light)
+                .light_color(unicode::Dense1x2::Dark)
+                .quiet_zone(true)
                 .build();
 
             stdout.write_all(format!("{string}\n").as_bytes()).await?;
