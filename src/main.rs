@@ -81,6 +81,10 @@ enum Command {
 
     #[options(help = "send funds using PCZTs")]
     Pczt(commands::pczt::Command),
+
+    #[cfg(feature = "pczt-qr")]
+    #[options(help = "emulate a Keystone device")]
+    Keystone(commands::keystone::Command),
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -165,6 +169,12 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::pczt::Command::ToQr(command) => command.run(shutdown).await,
                 #[cfg(feature = "pczt-qr")]
                 commands::pczt::Command::FromQr(command) => command.run(shutdown).await,
+            },
+            #[cfg(feature = "pczt-qr")]
+            Some(Command::Keystone(command)) => match command {
+                commands::keystone::Command::Enroll(command) => {
+                    command.run(shutdown, opts.wallet_dir).await
+                }
             },
             None => Ok(()),
         }
