@@ -124,6 +124,8 @@ fn main() -> Result<(), anyhow::Error> {
             })) => match command {
                 commands::wallet::Command::Init(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::InitFvk(command) => command.run(wallet_dir).await,
+                #[cfg(feature = "ledger-support")]
+                commands::wallet::Command::InitLedger(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::Reset(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::ImportUfvk(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::Upgrade(command) => command.run(wallet_dir),

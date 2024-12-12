@@ -22,9 +22,14 @@ impl Command {
         let account = select_account(&db_data, self.account_id)?;
 
         println!("Account {:?}", account.id());
+        #[cfg(not(feature = "ledger-support"))]
         let (ua, _) = account
             .uivk()
             .default_address(UnifiedAddressRequest::all())?;
+        #[cfg(feature = "ledger-support")]
+        let (ua, _) = account
+            .uivk()
+            .default_address(UnifiedAddressRequest::new(false, true, true))?;
         println!("     Default Address: {}", ua.encode(&params));
         Ok(())
     }

@@ -29,12 +29,12 @@ uuid = "1"
 
 orchard = { version = "0.10", default-features = false }
 pczt = "0.1"
-sapling = { package = "sapling-crypto", version = "0.4" }
+sapling = { package = "sapling-crypto", version = "0.4", features = ["test-dependencies", "unstable-ledger"] }
 transparent = { package = "zcash_transparent", version = "0.1", features = ["test-dependencies"] }
 zcash_address = "0.6"
 zcash_client_backend = { version = "0.16", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "pczt", "tor"] }
 zcash_client_sqlite = { version = "0.14", features = ["unstable", "orchard", "serde"] }
-zcash_keys = { version = "0.6", features = ["unstable", "orchard"] }
+zcash_keys = { version = "0.6", features = ["unstable", "orchard", "test-dependencies"] }
 zcash_primitives = "0.21"
 zcash_proofs = "0.21"
 zcash_protocol = { version = "0.4", features = ["local-consensus"] }
@@ -82,6 +82,18 @@ roaring = { version = "0.10", optional = true }
 tokio-util = { version = "0.7", optional = true }
 tui-logger = { version = "0.14", optional = true, features = ["tracing-support"] }
 
+# Ledger Support 
+ledger-zcash = { git = "https://github.com/zecdev/ledger-zcash-rs.git", rev = "a37982096abade5adf0151d92ee1879ca053c085", optional = true }
+zx-bip44 = { version = "0.1.0", optional = true }
+redjubjub = { version = "0.7", optional = true }
+ledger-transport = { version = "0.11", optional = true }
+ledger-zondax-generic = { version = "0.11", optional = true }
+ledger-transport-hid = { version = "0.11", optional = true }
+
+# Manage HidApi instance. 
+bytemuck = { version = "1.20.0", optional = true }
+
+
 [features]
 default = ["transparent-inputs"]
 pczt-qr = ["dep:image", "dep:minicbor", "dep:nokhwa", "dep:qrcode", "dep:rqrr", "dep:ur"]
@@ -95,19 +107,13 @@ tui = [
     "dep:tokio-util",
     "dep:tui-logger",
 ]
+ledger-support = [
+    "dep:ledger-zcash",
+    "dep:zx-bip44",
+    "dep:ledger-transport",
+    "dep:ledger-zondax-generic",
+    "dep:bytemuck",
+]
 
 [patch.crates-io]
-equihash = { git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
-orchard = { git = "https://github.com/zcash/orchard.git", rev = "4fa6d3b549f8803016a309281404eab095d04de8" }
-pczt = { git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
-sapling = { package = "sapling-crypto", git = "https://github.com/zcash/sapling-crypto.git", rev = "3c2235747553da642fb142d1eeb9b1afa8391987" }
-transparent = { package = "zcash_transparent", git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
-zcash_address = { git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
-zcash_encoding = { git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
-zip321 = { git = "https://github.com/zcash/librustzcash.git", rev = "9c6d1b958bd015f3fc3f8d5e5815b2bfc54e484b" }
+sapling-crypto = { git = "https://github.com/pacu/sapling-crypto.git", rev = "cca6c3ccdadd3ed14ed4900aa50d350e9bcac300" }

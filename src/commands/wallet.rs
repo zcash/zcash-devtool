@@ -5,6 +5,8 @@ pub(crate) mod enhance;
 pub(crate) mod import_ufvk;
 pub(crate) mod init;
 pub(crate) mod init_fvk;
+#[cfg(feature = "ledger-support")]
+pub(crate) mod init_ledger;
 pub(crate) mod list_accounts;
 pub(crate) mod list_addresses;
 pub(crate) mod list_tx;
@@ -24,6 +26,8 @@ pub(crate) enum Command {
     /// Initialise a new view-only light wallet
     InitFvk(init_fvk::Command),
 
+    #[cfg(feature = "ledger-support")]
+    InitLedger(init_ledger::Command),
     /// Reset an existing light wallet (does not preserve imported UFVKs)
     Reset(reset::Command),
 
