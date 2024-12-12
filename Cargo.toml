@@ -50,6 +50,7 @@ iso_currency = { version = "0.5", features = ["with-serde"] }
 rust_decimal = "1"
 
 # PCZT QR codes
+image = { version = "0.25", optional = true }
 minicbor = { version = "0.19", optional = true }
 nokhwa = { version = "0.10", optional = true, features = ["input-native"] }
 qrcode = { version = "0.14", optional = true, default-features = false }
@@ -65,7 +66,7 @@ tui-logger = { version = "0.14", optional = true, features = ["tracing-support"]
 
 [features]
 default = ["transparent-inputs"]
-pczt-qr = ["dep:minicbor", "dep:nokhwa", "dep:qrcode", "dep:rqrr", "dep:ur"]
+pczt-qr = ["dep:image", "dep:minicbor", "dep:nokhwa", "dep:qrcode", "dep:rqrr", "dep:ur"]
 transparent-inputs = [
     "zcash_client_sqlite/transparent-inputs",
 ]

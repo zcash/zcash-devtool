@@ -2,10 +2,12 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use gumdrop::Options;
+use image::buffer::ConvertBuffer;
 use minicbor::data::{Int, Type};
 use nokhwa::{
-    pixel_format::LumaFormat,
-    utils::{CameraIndex, RequestedFormat, RequestedFormatType},
+    nokhwa_check, nokhwa_initialize,
+    pixel_format::RgbFormat,
+    utils::{RequestedFormat, RequestedFormatType, Resolution},
     Camera,
 };
 use pczt::Pczt;
@@ -85,10 +87,37 @@ pub(crate) struct Receive {
 
 impl Receive {
     pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
+        nokhwa_initialize(|_| ());
+        if !nokhwa_check() {
+            return Err(anyhow!("Failed to obtain macOS camera permissions"));
+        }
+
+        let cameras = nokhwa::query(nokhwa::utils::ApiBackend::Auto)?;
+        let camera = if cameras.len() > 1 {
+            eprintln!("Available cameras:");
+            for (i, camera) in cameras.iter().enumerate() {
+                eprintln!("{}: {}", i, camera.human_name());
+            }
+            eprint!("Select a camera: ");
+            cameras
+                .get(usize::from(stdin().read_u8().await?) - 48)
+                .ok_or(anyhow!("Invalid camera"))
+        } else {
+            cameras.first().ok_or(anyhow!("No camera"))
+        }?;
+
+        eprintln!("Creating camera");
         let mut camera = Camera::new(
-            CameraIndex::Index(0),
-            RequestedFormat::new::<LumaFormat>(RequestedFormatType::AbsoluteHighestFrameRate),
+            camera.index().clone(),
+            RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution),
         )?;
+
+        eprintln!("Opening camera stream");
+        camera
+            .open_stream()
+            .map_err(|e| anyhow!("Could not open camera stream: {e}"))?;
+
+        eprintln!("Starting detection loop");
         let mut decoder = ur::Decoder::default();
         let mut interval = tokio::time::interval(Duration::from_millis(self.interval));
 
@@ -96,11 +125,14 @@ impl Receive {
             interval.tick().await;
 
             if shutdown.requested() {
+                camera.stop_stream()?;
                 return Ok(());
             }
 
             let frame = camera.frame()?;
-            let decoded = frame.decode_image::<LumaFormat>()?;
+            // Doesn't work in nokhwa 0.10: https://github.com/l1npengtul/nokhwa/issues/100
+            // let decoded = frame.decode_image::<RgbFormat>()?;
+            let decoded = convert_buffer_to_image(frame)?;
 
             let mut detect_grids = |mut img: rqrr::PreparedImage<
                 image::ImageBuffer<image::Luma<u8>, Vec<u8>>,
@@ -122,10 +154,12 @@ impl Receive {
                 Ok(())
             };
 
-            if let Err(e) = detect_grids(rqrr::PreparedImage::prepare(decoded)) {
+            if let Err(e) = detect_grids(rqrr::PreparedImage::prepare(decoded.convert())) {
                 eprintln!("Error while detecting grids: {e}");
             }
         }
+
+        camera.stop_stream()?;
 
         let pczt_packet = decoder
             .message()
@@ -211,4 +245,44 @@ where
         }
     }
     Ok(())
+}
+
+fn convert_buffer_to_image(
+    buffer: nokhwa::Buffer,
+) -> anyhow::Result<image::ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
+    let Resolution {
+        width_x: width,
+        height_y: height,
+    } = buffer.resolution();
+    let mut image_buffer = image::ImageBuffer::<image::Rgb<u8>, Vec<u8>>::new(width, height);
+    let data = buffer.buffer();
+
+    for (y, chunk) in data
+        .chunks_exact((width * 2) as usize)
+        .enumerate()
+        .take(height as usize)
+    {
+        for (x, pixel) in chunk.chunks_exact(4).enumerate() {
+            let [u, y1, v, y2] = [
+                pixel[0] as f32,
+                pixel[1] as f32,
+                pixel[2] as f32,
+                pixel[3] as f32,
+            ];
+            let x = (x * 2) as u32;
+            image_buffer.put_pixel(x, y as u32, yuv_to_rgb(y1, u, v));
+            image_buffer.put_pixel(x + 1, y as u32, yuv_to_rgb(y2, u, v));
+        }
+    }
+
+    Ok(image_buffer)
+}
+
+//YUV to RGB conversion BT.709
+fn yuv_to_rgb(y: f32, u: f32, v: f32) -> image::Rgb<u8> {
+    let r = y + 1.5748 * (v - 128.0);
+    let g = y - 0.1873 * (u - 128.0) - 0.4681 * (v - 128.0);
+    let b = y + 1.8556 * (u - 128.0);
+
+    image::Rgb([r as u8, g as u8, b as u8])
 }
