@@ -13,3 +13,6 @@ pub(crate) mod reset;
 pub(crate) mod send;
 pub(crate) mod sync;
 pub(crate) mod upgrade;
+
+#[cfg(feature = "pczt-qr")]
+pub(crate) mod keystone;

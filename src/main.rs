@@ -81,6 +81,10 @@ enum Command {
 
     #[options(help = "send funds using PCZTs")]
     Pczt(commands::pczt::Command),
+
+    #[cfg(feature = "pczt-qr")]
+    #[options(help = "emulate a Keystone device")]
+    Keystone(commands::keystone::Command),
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -91,13 +95,21 @@ fn main() -> Result<(), anyhow::Error> {
     #[cfg(not(feature = "tui"))]
     let tui_logger: Option<()> = None;
     #[cfg(feature = "tui")]
-    let tui_logger =
-        if let Some(Command::Sync(commands::sync::Command { defrag: true, .. })) = opts.command {
+    let tui_logger = match opts.command {
+        Some(Command::Sync(commands::sync::Command { defrag: true, .. })) => {
             tui_logger::init_logger(level_filter.parse().unwrap())?;
             Some(tui_logger::tracing_subscriber_layer())
-        } else {
-            None
-        };
+        }
+        #[cfg(feature = "pczt-qr")]
+        Some(Command::Pczt(commands::pczt::Command::ToQr(commands::pczt::qr::Send {
+            tui: true,
+            ..
+        }))) => {
+            tui_logger::init_logger(level_filter.parse().unwrap())?;
+            Some(tui_logger::tracing_subscriber_layer())
+        }
+        _ => None,
+    };
 
     let stdout_logger = if tui_logger.is_none() {
         let filter = tracing_subscriber::EnvFilter::from(level_filter);
@@ -162,9 +174,23 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::pczt::Command::Combine(command) => command.run().await,
                 commands::pczt::Command::Send(command) => command.run(opts.wallet_dir).await,
                 #[cfg(feature = "pczt-qr")]
-                commands::pczt::Command::ToQr(command) => command.run(shutdown).await,
+                commands::pczt::Command::ToQr(command) => {
+                    command
+                        .run(
+                            shutdown,
+                            #[cfg(feature = "tui")]
+                            tui,
+                        )
+                        .await
+                }
                 #[cfg(feature = "pczt-qr")]
                 commands::pczt::Command::FromQr(command) => command.run(shutdown).await,
+            },
+            #[cfg(feature = "pczt-qr")]
+            Some(Command::Keystone(command)) => match command {
+                commands::keystone::Command::Enroll(command) => {
+                    command.run(shutdown, opts.wallet_dir).await
+                }
             },
             None => Ok(()),
         }
