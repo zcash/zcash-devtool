@@ -115,7 +115,7 @@ impl Command {
                         if derivation.seed_fingerprint() == &seed_fp.to_bytes()
                             && derivation.derivation_path().len() == 5
                             && derivation.derivation_path()[0]
-                                == bip32::ChildNumber::new(32, true).expect("valid")
+                                == bip32::ChildNumber::new(44, true).expect("valid")
                             && derivation.derivation_path()[1]
                                 == bip32::ChildNumber::new(params.network_type().coin_type(), true)
                                     .expect("valid")
@@ -123,10 +123,9 @@ impl Command {
                             && !derivation.derivation_path()[3].is_hardened()
                             && !derivation.derivation_path()[4].is_hardened()
                         {
-                            let account_index = zip32::AccountId::try_from(
-                                derivation.derivation_path()[2].index() - (1 << 31),
-                            )
-                            .expect("valid");
+                            let account_index =
+                                zip32::AccountId::try_from(derivation.derivation_path()[2].index())
+                                    .expect("valid");
 
                             let scope = TransparentKeyScope::custom(
                                 derivation.derivation_path()[3].index(),
