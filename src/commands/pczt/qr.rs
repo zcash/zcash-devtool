@@ -12,9 +12,15 @@ use nokhwa::{
 };
 use pczt::Pczt;
 use qrcode::{render::unicode, QrCode};
-use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt, Stdout};
 
 use crate::ShutdownListener;
+
+#[cfg(feature = "tui")]
+use crate::tui::Tui;
+
+#[cfg(feature = "tui")]
+mod tui;
 
 const ZCASH_PCZT: &str = "zcash-pczt";
 const UR_ZCASH_PCZT: &str = "ur:zcash-pczt";
@@ -27,10 +33,17 @@ pub(crate) struct Send {
         default = "500"
     )]
     interval: u64,
+
+    #[cfg(feature = "tui")]
+    pub(crate) tui: bool,
 }
 
 impl Send {
-    pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(
+        self,
+        mut shutdown: ShutdownListener,
+        #[cfg(feature = "tui")] tui: Tui,
+    ) -> Result<(), anyhow::Error> {
         let mut buf = vec![];
         stdin().read_to_end(&mut buf).await?;
 
@@ -44,6 +57,20 @@ impl Send {
             &mut pczt_packet,
         )
         .map_err(|e| anyhow!("Failed to encode PCZT packet: {:?}", e))?;
+
+        #[cfg(feature = "tui")]
+        let tui_handle = if self.tui {
+            let mut app = tui::App::new(shutdown.tui_quit_signal());
+            let handle = app.handle();
+            tokio::spawn(async move {
+                if let Err(e) = app.run(tui).await {
+                    tracing::error!("Error while running TUI: {e}");
+                }
+            });
+            Some(handle)
+        } else {
+            None
+        };
 
         let mut encoder = ur::Encoder::new(&pczt_packet, 100, ZCASH_PCZT)
             .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
@@ -60,17 +87,35 @@ impl Send {
             let ur = encoder
                 .next_part()
                 .map_err(|e| anyhow!("Failed to encode PCZT part: {e}"))?;
-            let code = QrCode::new(&ur.to_ascii_uppercase())?;
-            let string = code
-                .render::<unicode::Dense1x2>()
-                .dark_color(unicode::Dense1x2::Light)
-                .light_color(unicode::Dense1x2::Dark)
-                .quiet_zone(true)
-                .build();
 
-            stdout.write_all(format!("{string}\n").as_bytes()).await?;
-            stdout.write_all(format!("{ur}\n\n\n\n").as_bytes()).await?;
-            stdout.flush().await?;
+            async fn render_cli(stdout: &mut Stdout, ur: String) -> anyhow::Result<()> {
+                let code = QrCode::new(ur.to_ascii_uppercase())?;
+                let string = code
+                    .render::<unicode::Dense1x2>()
+                    .dark_color(unicode::Dense1x2::Light)
+                    .light_color(unicode::Dense1x2::Dark)
+                    .quiet_zone(true)
+                    .build();
+
+                stdout.write_all(format!("{string}\n").as_bytes()).await?;
+                stdout.write_all(format!("{ur}\n\n\n\n").as_bytes()).await?;
+                stdout.flush().await?;
+
+                Ok(())
+            }
+
+            #[cfg(feature = "tui")]
+            if let Some(handle) = tui_handle.as_ref() {
+                if handle.set_ur(ur) {
+                    // TUI exited.
+                    return Ok(());
+                }
+            } else {
+                render_cli(&mut stdout, ur).await?;
+            }
+
+            #[cfg(not(feature = "tui"))]
+            render_cli(&mut stdout, ur).await?;
         }
     }
 }
