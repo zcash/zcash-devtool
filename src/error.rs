@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::fmt;
 
 use zcash_client_backend::{
@@ -22,6 +23,15 @@ pub(crate) type WalletErrorT = WalletError<
     ReceivedNoteId,
 >;
 
+pub(crate) type ShieldErrorT = WalletError<
+    SqliteClientError,
+    commitment_tree::Error,
+    GreedyInputSelectorError,
+    zip317::FeeError,
+    zip317::FeeError,
+    Infallible,
+>;
+
 #[derive(Debug)]
 pub enum Error {
     Cache(FsBlockDbError),
@@ -32,6 +42,7 @@ pub enum Error {
     InvalidTreeState,
     MissingParameters,
     SendFailed { code: i32, reason: String },
+    Shield(ShieldErrorT),
     Wallet(WalletErrorT),
     Zip321(Zip321Error),
 }
@@ -47,6 +58,7 @@ impl fmt::Display for Error {
             Error::InvalidTreeState => write!(f, "Invalid TreeState received from server"),
             Error::MissingParameters => write!(f, "Missing proving parameters"),
             Error::SendFailed { code, reason } => write!(f, "Send failed: ({}) {}", code, reason),
+            Error::Shield(e) => e.fmt(f),
             Error::Wallet(e) => e.fmt(f),
             Error::Zip321(e) => write!(f, "{:?}", e),
         }

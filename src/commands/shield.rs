@@ -1,16 +1,14 @@
-#![allow(deprecated)]
-use std::{num::NonZeroUsize, str::FromStr};
+use std::num::NonZeroUsize;
 
 use anyhow::anyhow;
 use gumdrop::Options;
 use secrecy::ExposeSecret;
 
 use uuid::Uuid;
-use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
         wallet::{
-            create_proposed_transactions, input_selection::GreedyInputSelector, propose_transfer,
+            create_proposed_transactions, input_selection::GreedyInputSelector, propose_shielding,
         },
         Account, WalletRead,
     },
@@ -23,20 +21,18 @@ use zcash_client_backend::{
 use zcash_client_sqlite::{AccountUuid, WalletDb};
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::value::Zatoshis;
-use zip321::{Payment, TransactionRequest};
 
 use crate::{
     config::WalletConfig,
     data::get_db_paths,
     error,
     remote::{tor_client, Servers},
-    MIN_CONFIRMATIONS,
 };
 
-// Options accepted for the `send` command
+// Options accepted for the `shield` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(free, required, help = "the UUID of the account to send funds from")]
+    #[options(free, required, help = "the UUID of the account to shield funds in")]
     account_id: Uuid,
 
     #[options(
@@ -46,16 +42,7 @@ pub(crate) struct Command {
     identity: String,
 
     #[options(
-        required,
-        help = "the recipient's Unified, Sapling or transparent address"
-    )]
-    address: String,
-
-    #[options(required, help = "the amount in zatoshis")]
-    value: u64,
-
-    #[options(
-        help = "the server to send via (default is \"ecc\")",
+        help = "the server to shield via (default is \"ecc\")",
         default = "ecc",
         parse(try_from_str = "Servers::parse")
     )]
@@ -88,10 +75,9 @@ impl Command {
         let account = db_data
             .get_account(account_id)?
             .ok_or(anyhow!("Account missing: {:?}", account_id))?;
-        let derivation = account
-            .source()
-            .key_derivation()
-            .ok_or(anyhow!("Cannot spend from view-only accounts"))?;
+        let derivation = account.source().key_derivation().ok_or(anyhow!(
+            "Cannot spend from view-only accounts; did you mean to use `pczt shield` instead?"
+        ))?;
 
         // Decrypt the mnemonic to access the seed.
         let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
@@ -131,22 +117,26 @@ impl Command {
         );
         let input_selector = GreedyInputSelector::new();
 
-        let request = TransactionRequest::new(vec![Payment::without_memo(
-            ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
-            Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
-        )])
-        .map_err(error::Error::from)?;
+        // For this dev tool, shield all funds immediately.
+        let max_height = match db_data.chain_height()? {
+            Some(max_height) => max_height,
+            // If we haven't scanned anything, there's nothing to do.
+            None => return Ok(()),
+        };
+        let transparent_balances = db_data.get_transparent_balances(account_id, max_height)?;
+        let from_addrs = transparent_balances.into_keys().collect::<Vec<_>>();
 
-        let proposal = propose_transfer(
+        let proposal = propose_shielding(
             &mut db_data,
             &params,
-            account.id(),
             &input_selector,
             &change_strategy,
-            request,
-            MIN_CONFIRMATIONS,
+            Zatoshis::ZERO,
+            &from_addrs,
+            account_id,
+            0,
         )
-        .map_err(error::Error::from)?;
+        .map_err(error::Error::Shield)?;
 
         let txids = create_proposed_transactions(
             &mut db_data,
@@ -157,7 +147,7 @@ impl Command {
             OvkPolicy::Sender,
             &proposal,
         )
-        .map_err(error::Error::from)?;
+        .map_err(error::Error::Shield)?;
 
         if txids.len() > 1 {
             return Err(anyhow!(

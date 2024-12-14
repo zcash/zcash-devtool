@@ -1,46 +1,31 @@
-#![allow(deprecated)]
-use std::{num::NonZeroUsize, str::FromStr};
+use std::num::NonZeroUsize;
 
 use anyhow::anyhow;
 use gumdrop::Options;
 
 use tokio::io::{stdout, AsyncWriteExt};
 use uuid::Uuid;
-use zcash_address::ZcashAddress;
 use zcash_client_backend::{
-    data_api::wallet::{
-        create_pczt_from_proposal, input_selection::GreedyInputSelector, propose_transfer,
+    data_api::{
+        wallet::{
+            create_pczt_from_proposal, input_selection::GreedyInputSelector, propose_shielding,
+        },
+        WalletRead,
     },
     fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
     wallet::OvkPolicy,
     ShieldedProtocol,
 };
 use zcash_client_sqlite::{AccountUuid, WalletDb};
-use zcash_protocol::{
-    memo::{Memo, MemoBytes},
-    value::Zatoshis,
-};
-use zip321::{Payment, TransactionRequest};
+use zcash_protocol::value::Zatoshis;
 
-use crate::{config::WalletConfig, data::get_db_paths, error, MIN_CONFIRMATIONS};
+use crate::{config::WalletConfig, data::get_db_paths, error};
 
-// Options accepted for the `pczt create` command
+// Options accepted for the `pczt shield` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(free, required, help = "the UUID of the account to send funds from")]
+    #[options(free, required, help = "the UUID of the account to shield funds in")]
     account_id: Uuid,
-
-    #[options(
-        required,
-        help = "the recipient's Unified, Sapling or transparent address"
-    )]
-    address: String,
-
-    #[options(required, help = "the amount in zatoshis")]
-    value: u64,
-
-    #[options(help = "a memo to send to the recipient")]
-    memo: Option<String>,
 
     #[options(
         help = "note management: the number of notes to maintain in the wallet",
@@ -78,30 +63,26 @@ impl Command {
         );
         let input_selector = GreedyInputSelector::new();
 
-        let request = TransactionRequest::new(vec![Payment::new(
-            ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
-            Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
-            self.memo
-                .map(|memo| Memo::from_str(&memo))
-                .transpose()?
-                .map(MemoBytes::from),
-            None,
-            None,
-            vec![],
-        )
-        .ok_or_else(|| anyhow!("Invalid memo"))?])
-        .map_err(error::Error::from)?;
+        // For this dev tool, shield all funds immediately.
+        let max_height = match db_data.chain_height()? {
+            Some(max_height) => max_height,
+            // If we haven't scanned anything, there's nothing to do.
+            None => return Ok(()),
+        };
+        let transparent_balances = db_data.get_transparent_balances(account_id, max_height)?;
+        let from_addrs = transparent_balances.into_keys().collect::<Vec<_>>();
 
-        let proposal = propose_transfer(
+        let proposal = propose_shielding(
             &mut db_data,
             &params,
-            account_id,
             &input_selector,
             &change_strategy,
-            request,
-            MIN_CONFIRMATIONS,
+            Zatoshis::ZERO,
+            &from_addrs,
+            account_id,
+            0,
         )
-        .map_err(error::Error::from)?;
+        .map_err(error::Error::Shield)?;
 
         let pczt = create_pczt_from_proposal(
             &mut db_data,
@@ -110,7 +91,7 @@ impl Command {
             OvkPolicy::Sender,
             &proposal,
         )
-        .map_err(error::Error::from)?;
+        .map_err(error::Error::Shield)?;
 
         stdout().write_all(&pczt.serialize()).await?;
 

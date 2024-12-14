@@ -4,8 +4,9 @@ use gumdrop::Options;
 use iso_currency::Currency;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use tracing::{info, warn};
+use uuid::Uuid;
 use zcash_client_backend::{data_api::WalletRead, tor};
-use zcash_client_sqlite::WalletDb;
+use zcash_client_sqlite::{AccountUuid, WalletDb};
 use zcash_protocol::value::{Zatoshis, COIN};
 
 use crate::{
@@ -16,6 +17,13 @@ use crate::{
 // Options accepted for the `balance` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
+    #[options(
+        free,
+        required,
+        help = "the UUID of the account for which to get a balance"
+    )]
+    account_id: Uuid,
+
     #[options(help = "Convert ZEC values into the given currency")]
     convert: Option<Currency>,
 }
@@ -26,10 +34,7 @@ impl Command {
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let db_data = WalletDb::for_path(db_data, params)?;
-        let account_id = *db_data
-            .get_account_ids()?
-            .first()
-            .ok_or(anyhow!("Wallet has no accounts"))?;
+        let account_id = AccountUuid::from_uuid(self.account_id);
 
         let address = db_data
             .get_current_address(account_id)?
