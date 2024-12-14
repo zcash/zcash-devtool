@@ -5,8 +5,11 @@ use iso_currency::Currency;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use tracing::{info, warn};
 use uuid::Uuid;
-use zcash_client_backend::{data_api::WalletRead, tor};
-use zcash_client_sqlite::{AccountUuid, WalletDb};
+use zcash_client_backend::{
+    data_api::{Account as _, WalletRead},
+    tor,
+};
+use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::{Zatoshis, COIN};
 
 use crate::{
@@ -14,15 +17,13 @@ use crate::{
     MIN_CONFIRMATIONS,
 };
 
+use super::select_account;
+
 // Options accepted for the `balance` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(
-        free,
-        required,
-        help = "the UUID of the account for which to get a balance"
-    )]
-    account_id: Uuid,
+    #[options(free, help = "the UUID of the account for which to get a balance")]
+    account_id: Option<Uuid>,
 
     #[options(help = "Convert ZEC values into the given currency")]
     convert: Option<Currency>,
@@ -34,10 +35,10 @@ impl Command {
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let db_data = WalletDb::for_path(db_data, params)?;
-        let account_id = AccountUuid::from_uuid(self.account_id);
+        let account = select_account(&db_data, self.account_id)?;
 
         let address = db_data
-            .get_current_address(account_id)?
+            .get_current_address(account.id())?
             .ok_or(error::Error::InvalidRecipient)?;
 
         let printer = if let Some(currency) = self.convert {
@@ -50,7 +51,7 @@ impl Command {
         if let Some(wallet_summary) = db_data.get_wallet_summary(MIN_CONFIRMATIONS.into())? {
             let balance = wallet_summary
                 .account_balances()
-                .get(&account_id)
+                .get(&account.id())
                 .ok_or_else(|| anyhow!("Missing account 0"))?;
 
             println!("{:#?}", wallet_summary);

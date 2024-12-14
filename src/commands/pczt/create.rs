@@ -8,27 +8,32 @@ use tokio::io::{stdout, AsyncWriteExt};
 use uuid::Uuid;
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
-    data_api::wallet::{
-        create_pczt_from_proposal, input_selection::GreedyInputSelector, propose_transfer,
+    data_api::{
+        wallet::{
+            create_pczt_from_proposal, input_selection::GreedyInputSelector, propose_transfer,
+        },
+        Account as _,
     },
     fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
     wallet::OvkPolicy,
     ShieldedProtocol,
 };
-use zcash_client_sqlite::{AccountUuid, WalletDb};
+use zcash_client_sqlite::WalletDb;
 use zcash_protocol::{
     memo::{Memo, MemoBytes},
     value::Zatoshis,
 };
 use zip321::{Payment, TransactionRequest};
 
-use crate::{config::WalletConfig, data::get_db_paths, error, MIN_CONFIRMATIONS};
+use crate::{
+    commands::select_account, config::WalletConfig, data::get_db_paths, error, MIN_CONFIRMATIONS,
+};
 
 // Options accepted for the `pczt create` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(free, required, help = "the UUID of the account to send funds from")]
-    account_id: Uuid,
+    #[options(free, help = "the UUID of the account to send funds from")]
+    account_id: Option<Uuid>,
 
     #[options(
         required,
@@ -62,7 +67,7 @@ impl Command {
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
-        let account_id = AccountUuid::from_uuid(self.account_id);
+        let account = select_account(&db_data, self.account_id)?;
 
         // Create the PCZT.
         let change_strategy = MultiOutputChangeStrategy::new(
@@ -95,7 +100,7 @@ impl Command {
         let proposal = propose_transfer(
             &mut db_data,
             &params,
-            account_id,
+            account.id(),
             &input_selector,
             &change_strategy,
             request,
@@ -106,7 +111,7 @@ impl Command {
         let pczt = create_pczt_from_proposal(
             &mut db_data,
             &params,
-            account_id,
+            account.id(),
             OvkPolicy::Sender,
             &proposal,
         )

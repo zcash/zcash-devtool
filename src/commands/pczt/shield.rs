@@ -10,22 +10,22 @@ use zcash_client_backend::{
         wallet::{
             create_pczt_from_proposal, input_selection::GreedyInputSelector, propose_shielding,
         },
-        WalletRead,
+        Account as _, WalletRead,
     },
     fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
     wallet::OvkPolicy,
     ShieldedProtocol,
 };
-use zcash_client_sqlite::{AccountUuid, WalletDb};
+use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::Zatoshis;
 
-use crate::{config::WalletConfig, data::get_db_paths, error};
+use crate::{commands::select_account, config::WalletConfig, data::get_db_paths, error};
 
 // Options accepted for the `pczt shield` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(free, required, help = "the UUID of the account to shield funds in")]
-    account_id: Uuid,
+    #[options(free, help = "the UUID of the account to shield funds in")]
+    account_id: Option<Uuid>,
 
     #[options(
         help = "note management: the number of notes to maintain in the wallet",
@@ -47,7 +47,7 @@ impl Command {
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
-        let account_id = AccountUuid::from_uuid(self.account_id);
+        let account = select_account(&db_data, self.account_id)?;
 
         // Create the PCZT.
         let change_strategy = MultiOutputChangeStrategy::new(
@@ -69,7 +69,7 @@ impl Command {
             // If we haven't scanned anything, there's nothing to do.
             None => return Ok(()),
         };
-        let transparent_balances = db_data.get_transparent_balances(account_id, max_height)?;
+        let transparent_balances = db_data.get_transparent_balances(account.id(), max_height)?;
         let from_addrs = transparent_balances.into_keys().collect::<Vec<_>>();
 
         let proposal = propose_shielding(
@@ -79,7 +79,7 @@ impl Command {
             &change_strategy,
             Zatoshis::ZERO,
             &from_addrs,
-            account_id,
+            account.id(),
             0,
         )
         .map_err(error::Error::Shield)?;
@@ -87,7 +87,7 @@ impl Command {
         let pczt = create_pczt_from_proposal(
             &mut db_data,
             &params,
-            account_id,
+            account.id(),
             OvkPolicy::Sender,
             &proposal,
         )

@@ -6,20 +6,26 @@ use gumdrop::Options;
 use uuid::Uuid;
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
-    data_api::wallet::{input_selection::GreedyInputSelector, propose_transfer},
+    data_api::{
+        wallet::{input_selection::GreedyInputSelector, propose_transfer},
+        Account as _,
+    },
     fees::{zip317::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
     ShieldedProtocol,
 };
-use zcash_client_sqlite::{AccountUuid, WalletDb};
+use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::Zatoshis;
 use zip321::{Payment, TransactionRequest};
 
-use crate::{config::get_wallet_network, data::get_db_paths, error, MIN_CONFIRMATIONS};
+use crate::{
+    commands::select_account, config::get_wallet_network, data::get_db_paths, error,
+    MIN_CONFIRMATIONS,
+};
 // Options accepted for the `propose` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(free, required, help = "the UUID of the account to send funds from")]
-    account_id: Uuid,
+    #[options(free, help = "the UUID of the account to send funds from")]
+    account_id: Option<Uuid>,
 
     #[options(
         required,
@@ -49,7 +55,7 @@ impl Command {
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
-        let account_id = AccountUuid::from_uuid(self.account_id);
+        let account = select_account(&db_data, self.account_id)?;
 
         let change_strategy = MultiOutputChangeStrategy::new(
             StandardFeeRule::Zip317,
@@ -73,7 +79,7 @@ impl Command {
         let proposal = propose_transfer(
             &mut db_data,
             &params,
-            account_id,
+            account.id(),
             &input_selector,
             &change_strategy,
             request,

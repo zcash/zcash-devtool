@@ -18,11 +18,12 @@ use zcash_client_backend::{
     wallet::OvkPolicy,
     ShieldedProtocol,
 };
-use zcash_client_sqlite::{AccountUuid, WalletDb};
+use zcash_client_sqlite::WalletDb;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::value::Zatoshis;
 
 use crate::{
+    commands::select_account,
     config::WalletConfig,
     data::get_db_paths,
     error,
@@ -32,8 +33,8 @@ use crate::{
 // Options accepted for the `shield` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(free, required, help = "the UUID of the account to shield funds in")]
-    account_id: Uuid,
+    #[options(free, help = "the UUID of the account to shield funds in")]
+    account_id: Option<Uuid>,
 
     #[options(
         required,
@@ -71,10 +72,7 @@ impl Command {
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
-        let account_id = AccountUuid::from_uuid(self.account_id);
-        let account = db_data
-            .get_account(account_id)?
-            .ok_or(anyhow!("Account missing: {:?}", account_id))?;
+        let account = select_account(&db_data, self.account_id)?;
         let derivation = account.source().key_derivation().ok_or(anyhow!(
             "Cannot spend from view-only accounts; did you mean to use `pczt shield` instead?"
         ))?;
@@ -123,7 +121,7 @@ impl Command {
             // If we haven't scanned anything, there's nothing to do.
             None => return Ok(()),
         };
-        let transparent_balances = db_data.get_transparent_balances(account_id, max_height)?;
+        let transparent_balances = db_data.get_transparent_balances(account.id(), max_height)?;
         let from_addrs = transparent_balances.into_keys().collect::<Vec<_>>();
 
         let proposal = propose_shielding(
@@ -133,7 +131,7 @@ impl Command {
             &change_strategy,
             Zatoshis::ZERO,
             &from_addrs,
-            account_id,
+            account.id(),
             0,
         )
         .map_err(error::Error::Shield)?;
