@@ -5,6 +5,7 @@ use anyhow::anyhow;
 use gumdrop::Options;
 use secrecy::ExposeSecret;
 
+use uuid::Uuid;
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
@@ -19,7 +20,7 @@ use zcash_client_backend::{
     wallet::OvkPolicy,
     ShieldedProtocol,
 };
-use zcash_client_sqlite::WalletDb;
+use zcash_client_sqlite::{AccountUuid, WalletDb};
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::value::Zatoshis;
 use zip321::{Payment, TransactionRequest};
@@ -35,6 +36,9 @@ use crate::{
 // Options accepted for the `send` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
+    #[options(free, required, help = "the UUID of the account to send funds from")]
+    account_id: Uuid,
+
     #[options(
         required,
         help = "age identity file to decrypt the mnemonic phrase with"
@@ -80,10 +84,7 @@ impl Command {
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
-        let account_id = *db_data
-            .get_account_ids()?
-            .first()
-            .ok_or(anyhow!("Wallet has no accounts"))?;
+        let account_id = AccountUuid::from_uuid(self.account_id);
         let account = db_data
             .get_account(account_id)?
             .ok_or(anyhow!("Account missing: {:?}", account_id))?;
