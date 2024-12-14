@@ -34,14 +34,12 @@ where
         Some(uuid) => Ok(AccountUuid::from_uuid(uuid)),
         None => {
             let account_ids = db_data.get_account_ids()?;
-            if account_ids.len() > 1 {
-                Err(anyhow!(
+            match &account_ids[..] {
+                [] => Err(anyhow!("Wallet contains no accounts.")),
+                [account_id] => Ok(*account_id),
+                _ => Err(anyhow!(
                     "More than one account is available; please specify the account UUID."
-                ))
-            } else {
-                account_ids
-                    .first()
-                    .map_or(Err(anyhow!("Wallet contains no accounts.")), |v| Ok(*v))
+                )),
             }
         }
     }?;
