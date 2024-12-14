@@ -6,10 +6,12 @@ use minicbor::data::{Int, Tag};
 use qrcode::{render::unicode, QrCode};
 use tokio::io::{stdout, AsyncWriteExt};
 use uuid::Uuid;
-use zcash_client_backend::data_api::{Account, WalletRead};
-use zcash_client_sqlite::{AccountUuid, WalletDb};
+use zcash_client_backend::data_api::Account;
+use zcash_client_sqlite::WalletDb;
 
 use crate::{config::WalletConfig, data::get_db_paths, ShutdownListener};
+
+use super::select_account;
 
 const ZCASH_ACCOUNTS: &str = "zcash-accounts";
 
@@ -22,8 +24,8 @@ pub(crate) enum Command {
 // Options accepted for the `keystone enroll` command
 #[derive(Debug, Options)]
 pub(crate) struct Enroll {
-    #[options(free, required, help = "the UUID of the account to enroll")]
-    account_id: Uuid,
+    #[options(free, help = "the UUID of the account to enroll")]
+    account_id: Option<Uuid>,
 
     #[options(
         help = "the duration in milliseconds to wait between QR codes (default is 500)",
@@ -43,10 +45,7 @@ impl Enroll {
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let db_data = WalletDb::for_path(db_data, params)?;
-        let account_id = AccountUuid::from_uuid(self.account_id);
-        let account = db_data
-            .get_account(account_id)?
-            .ok_or(anyhow!("Account missing: {:?}", account_id))?;
+        let account = select_account(&db_data, self.account_id)?;
 
         let key_derivation = account
             .source()

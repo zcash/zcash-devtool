@@ -20,12 +20,13 @@ use zcash_client_backend::{
     wallet::OvkPolicy,
     ShieldedProtocol,
 };
-use zcash_client_sqlite::{AccountUuid, WalletDb};
+use zcash_client_sqlite::WalletDb;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::value::Zatoshis;
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
+    commands::select_account,
     config::WalletConfig,
     data::get_db_paths,
     error,
@@ -36,8 +37,8 @@ use crate::{
 // Options accepted for the `send` command
 #[derive(Debug, Options)]
 pub(crate) struct Command {
-    #[options(free, required, help = "the UUID of the account to send funds from")]
-    account_id: Uuid,
+    #[options(free, help = "the UUID of the account to send funds from")]
+    account_id: Option<Uuid>,
 
     #[options(
         required,
@@ -84,10 +85,7 @@ impl Command {
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
-        let account_id = AccountUuid::from_uuid(self.account_id);
-        let account = db_data
-            .get_account(account_id)?
-            .ok_or(anyhow!("Account missing: {:?}", account_id))?;
+        let account = select_account(&db_data, self.account_id)?;
         let derivation = account
             .source()
             .key_derivation()
