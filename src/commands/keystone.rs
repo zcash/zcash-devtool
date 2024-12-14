@@ -85,12 +85,12 @@ impl Enroll {
             let ur = encoder
                 .next_part()
                 .map_err(|e| anyhow!("Failed to encode PCZT part: {e}"))?;
-            let code = QrCode::new(&ur.to_uppercase())?;
+            let code = QrCode::new(ur.to_uppercase())?;
             let string = code
                 .render::<unicode::Dense1x2>()
-                .dark_color(unicode::Dense1x2::Dark)
-                .light_color(unicode::Dense1x2::Light)
-                .quiet_zone(false)
+                .dark_color(unicode::Dense1x2::Light)
+                .light_color(unicode::Dense1x2::Dark)
+                .quiet_zone(true)
                 .build();
 
             stdout.write_all(format!("{string}\n").as_bytes()).await?;

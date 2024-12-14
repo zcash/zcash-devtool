@@ -2,6 +2,7 @@ use gumdrop::Options;
 
 pub(crate) mod combine;
 pub(crate) mod create;
+pub(crate) mod inspect;
 pub(crate) mod prove;
 pub(crate) mod send;
 pub(crate) mod sign;
@@ -13,6 +14,8 @@ pub(crate) mod qr;
 pub(crate) enum Command {
     #[options(help = "create a PCZT")]
     Create(create::Command),
+    #[options(help = "inspect a PCZT")]
+    Inspect(inspect::Command),
     #[options(help = "create proofs for a PCZT")]
     Prove(prove::Command),
     #[options(help = "apply signatures to a PCZT")]
