@@ -106,7 +106,7 @@ impl Command {
             for (index, value) in sapling_spends.iter().enumerate() {
                 if let Some(value) = value {
                     if value.inner() == 0 {
-                        println!("  - Dummy Spend");
+                        println!("- {index}: Zero value (likely a dummy)");
                     } else {
                         println!("- {index}: {} zatoshis", value.inner());
                     }
@@ -119,7 +119,7 @@ impl Command {
             for (index, value) in sapling_outputs.iter().enumerate() {
                 if let Some(value) = value {
                     if value.inner() == 0 {
-                        println!("  - Dummy Output");
+                        println!("- {index}: Zero value (likely a dummy)");
                     } else {
                         println!("- {index}: {} zatoshis", value.inner());
                     }
@@ -133,14 +133,14 @@ impl Command {
                 println!("- {index}:");
                 if let Some(value) = spend_value {
                     if value.inner() == 0 {
-                        println!("  - Dummy Spend");
+                        println!("  - Spend: Zero value (likely a dummy)");
                     } else {
                         println!("  - Spend: {} zatoshis", value.inner());
                     }
                 }
                 if let Some(value) = output_value {
                     if value.inner() == 0 {
-                        println!("  - Dummy Output");
+                        println!("  - Output: Zero value (likely a dummy)");
                     } else {
                         println!("  - Output: {} zatoshis", value.inner());
                     }
