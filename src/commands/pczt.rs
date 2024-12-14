@@ -5,6 +5,7 @@ pub(crate) mod create;
 pub(crate) mod inspect;
 pub(crate) mod prove;
 pub(crate) mod send;
+pub(crate) mod shield;
 pub(crate) mod sign;
 
 #[cfg(feature = "pczt-qr")]
@@ -14,6 +15,8 @@ pub(crate) mod qr;
 pub(crate) enum Command {
     #[options(help = "create a PCZT")]
     Create(create::Command),
+    #[options(help = "create a shielding PCZT")]
+    Shield(shield::Command),
     #[options(help = "inspect a PCZT")]
     Inspect(inspect::Command),
     #[options(help = "create proofs for a PCZT")]
