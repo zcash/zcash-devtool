@@ -43,7 +43,7 @@ impl Command {
                 transparent_outputs = bundle
                     .outputs()
                     .iter()
-                    .map(|output| *output.value())
+                    .map(|output| (output.user_address().clone(), *output.value()))
                     .collect();
                 Ok::<_, pczt::roles::verifier::TransparentError<()>>(())
             })
@@ -53,7 +53,7 @@ impl Command {
                 sapling_outputs = bundle
                     .outputs()
                     .iter()
-                    .map(|output| *output.value())
+                    .map(|output| (output.user_address().clone(), *output.value()))
                     .collect();
                 Ok::<_, pczt::roles::verifier::SaplingError<()>>(())
             })
@@ -62,7 +62,13 @@ impl Command {
                 orchard_actions = bundle
                     .actions()
                     .iter()
-                    .map(|action| (*action.spend().value(), *action.output().value()))
+                    .map(|action| {
+                        (
+                            *action.spend().value(),
+                            action.output().user_address().clone(),
+                            *action.output().value(),
+                        )
+                    })
                     .collect();
                 Ok::<_, pczt::roles::verifier::OrchardError<()>>(())
             })
@@ -96,8 +102,15 @@ impl Command {
 
         if !pczt.transparent().outputs().is_empty() {
             println!("{} transparent outputs", pczt.transparent().outputs().len());
-            for (index, value) in transparent_outputs.iter().enumerate() {
-                println!("- {index}: {} zatoshis", value.into_u64());
+            for (index, (user_address, value)) in transparent_outputs.iter().enumerate() {
+                println!(
+                    "- {index}: {} zatoshis{}",
+                    value.into_u64(),
+                    match user_address {
+                        Some(addr) => format!(" to {addr}"),
+                        None => "".into(),
+                    }
+                );
             }
         }
 
@@ -116,20 +129,31 @@ impl Command {
 
         if !pczt.sapling().outputs().is_empty() {
             println!("{} Sapling outputs", pczt.sapling().outputs().len());
-            for (index, value) in sapling_outputs.iter().enumerate() {
+            for (index, (user_address, value)) in sapling_outputs.iter().enumerate() {
                 if let Some(value) = value {
                     if value.inner() == 0 {
                         println!("- {index}: Zero value (likely a dummy)");
                     } else {
-                        println!("- {index}: {} zatoshis", value.inner());
+                        println!(
+                            "- {index}: {} zatoshis{}",
+                            value.inner(),
+                            match user_address {
+                                Some(addr) => format!(" to {addr}"),
+                                None => "".into(),
+                            }
+                        );
                     }
+                } else if let Some(addr) = user_address {
+                    println!("- {index}: {addr}");
                 }
             }
         }
 
         if !pczt.orchard().actions().is_empty() {
             println!("{} Orchard actions:", pczt.orchard().actions().len());
-            for (index, (spend_value, output_value)) in orchard_actions.iter().enumerate() {
+            for (index, (spend_value, output_user_address, output_value)) in
+                orchard_actions.iter().enumerate()
+            {
                 println!("- {index}:");
                 if let Some(value) = spend_value {
                     if value.inner() == 0 {
@@ -142,8 +166,17 @@ impl Command {
                     if value.inner() == 0 {
                         println!("  - Output: Zero value (likely a dummy)");
                     } else {
-                        println!("  - Output: {} zatoshis", value.inner());
+                        println!(
+                            "  - Output: {} zatoshis{}",
+                            value.inner(),
+                            match output_user_address {
+                                Some(addr) => format!(" to {addr}"),
+                                None => "".into(),
+                            }
+                        );
                     }
+                } else if let Some(addr) = output_user_address {
+                    println!("  - Output: {addr}");
                 }
             }
         }
@@ -180,13 +213,15 @@ impl Command {
                         {
                             let sighash = v5_signature_hash(
                                 &tx_data,
-                                &SignableInput::Transparent {
-                                    hash_type: hash_type.encode(),
-                                    index,
-                                    script_code: redeem_script.as_ref().unwrap_or(&script_pubkey), // for p2pkh, always the same as script_pubkey
-                                    script_pubkey: &script_pubkey,
-                                    value,
-                                },
+                                &SignableInput::Transparent(
+                                    transparent::sighash::SignableInput::from_parts(
+                                        hash_type,
+                                        index,
+                                        redeem_script.as_ref().unwrap_or(&script_pubkey), // for p2pkh, always the same as script_pubkey
+                                        &script_pubkey,
+                                        value,
+                                    ),
+                                ),
                                 &txid_parts,
                             );
 
