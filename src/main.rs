@@ -174,7 +174,7 @@ fn main() -> Result<(), anyhow::Error> {
             Some(Command::Pczt(command)) => match command {
                 commands::pczt::Command::Create(command) => command.run(opts.wallet_dir).await,
                 commands::pczt::Command::Shield(command) => command.run(opts.wallet_dir).await,
-                commands::pczt::Command::Inspect(command) => command.run().await,
+                commands::pczt::Command::Inspect(command) => command.run(opts.wallet_dir).await,
                 commands::pczt::Command::Prove(command) => command.run(opts.wallet_dir).await,
                 commands::pczt::Command::Sign(command) => command.run(opts.wallet_dir).await,
                 commands::pczt::Command::Combine(command) => command.run().await,
