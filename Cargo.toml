@@ -1,5 +1,5 @@
 [package]
-name = "zec-sqlite-cli"
+name = "zcash-devtool"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.70"
