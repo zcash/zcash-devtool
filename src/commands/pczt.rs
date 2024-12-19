@@ -1,4 +1,4 @@
-use gumdrop::Options;
+use clap::Subcommand;
 
 pub(crate) mod combine;
 pub(crate) mod create;
@@ -12,28 +12,28 @@ pub(crate) mod sign;
 #[cfg(feature = "pczt-qr")]
 pub(crate) mod qr;
 
-#[derive(Debug, Options)]
+#[derive(Debug, Subcommand)]
 pub(crate) enum Command {
-    #[options(help = "create a PCZT")]
+    /// Create a PCZT
     Create(create::Command),
-    #[options(help = "create a shielding PCZT")]
+    /// Create a shielding PCZT
     Shield(shield::Command),
-    #[options(help = "inspect a PCZT")]
+    /// Inspect a PCZT
     Inspect(inspect::Command),
-    #[options(help = "redact a PCZT")]
+    /// Redact a PCZT
     Redact(redact::Command),
-    #[options(help = "create proofs for a PCZT")]
+    /// Create proofs for a PCZT
     Prove(prove::Command),
-    #[options(help = "apply signatures to a PCZT")]
+    /// Apply signatures to a PCZT
     Sign(sign::Command),
-    #[options(help = "combine two PCZTs")]
+    /// Combine two PCZTs
     Combine(combine::Command),
-    #[options(help = "extract a finished transaction and send it")]
+    /// Extract a finished transaction and send it
     Send(send::Command),
     #[cfg(feature = "pczt-qr")]
-    #[options(help = "render a PCZT as an animated QR code")]
+    /// Render a PCZT as an animated QR code
     ToQr(qr::Send),
     #[cfg(feature = "pczt-qr")]
-    #[options(help = "read a PCZT from an animated QR code via the webcam")]
+    /// Read a PCZT from an animated QR code via the webcam
     FromQr(qr::Receive),
 }

@@ -1,6 +1,5 @@
 use anyhow::anyhow;
-use gumdrop::Options;
-
+use clap::Args;
 use uuid::Uuid;
 use zcash_client_backend::{
     data_api::{Account as _, InputSource, WalletRead},
@@ -14,9 +13,9 @@ use crate::{config::get_wallet_network, data::get_db_paths, error, ui::format_ze
 use super::select_account;
 
 // Options accepted for the `list-unspent` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(free, help = "the UUID of the account for which to list unspent funds")]
+    /// The UUID of the account for which to list unspent funds
     account_id: Option<Uuid>,
 }
 

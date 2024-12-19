@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
-use gumdrop::Options;
+use clap::{Args, Subcommand};
 use minicbor::data::{Int, Tag};
 use qrcode::{render::unicode, QrCode};
 use tokio::io::{stdout, AsyncWriteExt};
@@ -15,22 +15,22 @@ use super::select_account;
 
 const ZCASH_ACCOUNTS: &str = "zcash-accounts";
 
-#[derive(Debug, Options)]
+#[cfg(feature = "pczt-qr")]
+#[derive(Debug, Subcommand)]
 pub(crate) enum Command {
-    #[options(help = "emulate the Keystone enrollment protocol")]
+    /// Emulate the Keystone enrollment protocol
     Enroll(Enroll),
 }
 
 // Options accepted for the `keystone enroll` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Enroll {
-    #[options(free, help = "the UUID of the account to enroll")]
+    /// The UUID of the account to enroll
     account_id: Option<Uuid>,
 
-    #[options(
-        help = "the duration in milliseconds to wait between QR codes (default is 500)",
-        default = "500"
-    )]
+    /// The duration in milliseconds to wait between QR codes (default is 500)
+    #[arg(long)]
+    #[arg(default_value_t = 500)]
     interval: u64,
 }
 

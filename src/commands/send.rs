@@ -2,9 +2,8 @@
 use std::{num::NonZeroUsize, str::FromStr};
 
 use anyhow::anyhow;
-use gumdrop::Options;
+use clap::Args;
 use secrecy::ExposeSecret;
-
 use uuid::Uuid;
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
@@ -35,46 +34,40 @@ use crate::{
 };
 
 // Options accepted for the `send` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(free, help = "the UUID of the account to send funds from")]
+    /// The UUID of the account to send funds from
     account_id: Option<Uuid>,
 
-    #[options(
-        required,
-        help = "age identity file to decrypt the mnemonic phrase with"
-    )]
+    /// age identity file to decrypt the mnemonic phrase with
+    #[arg(short, long)]
     identity: String,
 
-    #[options(
-        required,
-        help = "the recipient's Unified, Sapling or transparent address"
-    )]
+    /// The recipient's Unified, Sapling or transparent address
+    #[arg(long)]
     address: String,
 
-    #[options(required, help = "the amount in zatoshis")]
+    /// The amount in zatoshis
+    #[arg(long)]
     value: u64,
 
-    #[options(
-        help = "the server to send via (default is \"ecc\")",
-        default = "ecc",
-        parse(try_from_str = "Servers::parse")
-    )]
+    /// The server to send via (default is \"ecc\")
+    #[arg(short, long)]
+    #[arg(default_value = "ecc", value_parser = Servers::parse)]
     server: Servers,
 
-    #[options(help = "disable connections via TOR")]
+    /// Disable connections via TOR
+    #[arg(long)]
     disable_tor: bool,
 
-    #[options(
-        help = "note management: the number of notes to maintain in the wallet",
-        default = "4"
-    )]
+    /// Note management: the number of notes to maintain in the wallet
+    #[arg(long)]
+    #[arg(default_value_t = 4)]
     target_note_count: usize,
 
-    #[options(
-        help = "note management: the minimum allowed value for split change amounts",
-        default = "10000000"
-    )]
+    /// Note management: the minimum allowed value for split change amounts
+    #[arg(long)]
+    #[arg(default_value_t = 10000000)]
     min_split_output_value: u64,
 }
 

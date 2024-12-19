@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use gumdrop::Options;
+use clap::Args;
 use pczt::{
     roles::{prover::Prover, updater::Updater},
     Pczt,
@@ -12,20 +12,18 @@ use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::consensus::{NetworkConstants, Parameters};
 use zip32::fingerprint::SeedFingerprint;
 
-use crate::config::WalletConfig;
+use crate::{config::WalletConfig, parse_hex};
 
 // Options accepted for the `pczt prove` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(
-        help = "hex encoding of the Sapling proof generation key",
-        parse(try_from_str = "hex::decode")
-    )]
+    /// Hex encoding of the Sapling proof generation key
+    #[arg(long)]
+    #[arg(value_parser = parse_hex)]
     sapling_proof_generation_key: Option<Vec<u8>>,
 
-    #[options(
-        help = "age identity file to decrypt the mnemonic phrase with for deriving the Sapling proof generation key"
-    )]
+    /// age identity file to decrypt the mnemonic phrase with for deriving the Sapling proof generation key
+    #[arg(short, long)]
     identity: Option<String>,
 }
 

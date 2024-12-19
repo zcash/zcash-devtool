@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
-use gumdrop::Options;
+use clap::Args;
 use image::buffer::ConvertBuffer;
 use minicbor::data::{Int, Type};
 use nokhwa::{
@@ -26,15 +26,16 @@ const ZCASH_PCZT: &str = "zcash-pczt";
 const UR_ZCASH_PCZT: &str = "ur:zcash-pczt";
 
 // Options accepted for the `pczt to-qr` command
-#[derive(Debug, Options)]
+#[cfg(feature = "pczt-qr")]
+#[derive(Debug, Args)]
 pub(crate) struct Send {
-    #[options(
-        help = "the duration in milliseconds to wait between QR codes (default is 500)",
-        default = "500"
-    )]
+    /// The duration in milliseconds to wait between QR codes (default is 500)
+    #[arg(long)]
+    #[arg(default_value_t = 500)]
     interval: u64,
 
     #[cfg(feature = "tui")]
+    #[arg(long)]
     pub(crate) tui: bool,
 }
 
@@ -121,12 +122,12 @@ impl Send {
 }
 
 // Options accepted for the `pczt from-qr` command
-#[derive(Debug, Options)]
+#[cfg(feature = "pczt-qr")]
+#[derive(Debug, Args)]
 pub(crate) struct Receive {
-    #[options(
-        help = "the duration in milliseconds to wait between scanning for QR codes (default is 500)",
-        default = "500"
-    )]
+    /// The duration in milliseconds to wait between scanning for QR codes (default is 500)
+    #[arg(long)]
+    #[arg(default_value_t = 500)]
     interval: u64,
 }
 

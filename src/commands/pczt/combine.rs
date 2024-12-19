@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::anyhow;
-use gumdrop::Options;
+use clap::Args;
 use pczt::{roles::combiner::Combiner, Pczt};
 use tokio::{
     fs::File,
@@ -9,9 +9,10 @@ use tokio::{
 };
 
 // Options accepted for the `pczt combine` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(help = "a list of PCZT files to combine")]
+    /// A list of PCZT files to combine
+    #[arg(short, long)]
     input: Vec<PathBuf>,
 }
 

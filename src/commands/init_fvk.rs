@@ -1,6 +1,5 @@
 use anyhow::anyhow;
-use gumdrop::Options;
-
+use clap::Args;
 use zcash_address::unified::{Encoding, Ufvk};
 use zcash_client_backend::{
     data_api::{AccountPurpose, WalletWrite, Zip32Derivation},
@@ -14,40 +13,41 @@ use zip32::fingerprint::SeedFingerprint;
 use crate::{
     config::WalletConfig,
     data::init_dbs,
+    parse_hex,
     remote::{tor_client, Servers},
 };
 
-// Options accepted for the `init` command
-#[derive(Debug, Options)]
+// Options accepted for the `init-fvk` command
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(help = "a name for the account")]
+    /// A name for the account
+    #[arg(long)]
     name: String,
 
-    #[options(
-        help = "serialized full viewing key (Unified or Sapling) to initialize the wallet with"
-    )]
+    /// Serialized full viewing key (Unified or Sapling) to initialize the wallet with
+    #[arg(long)]
     fvk: String,
 
-    #[options(help = "the wallet's birthday (default is current chain height)")]
+    /// The wallet's birthday (default is current chain height)
+    #[arg(long)]
     birthday: Option<u32>,
 
-    #[options(
-        help = "hex encoding of the ZIP 32 fingerprint for the seed from which the UFVK was derived",
-        parse(try_from_str = "hex::decode")
-    )]
+    /// Hex encoding of the ZIP 32 fingerprint for the seed from which the UFVK was derived
+    #[arg(long)]
+    #[arg(value_parser = parse_hex)]
     seed_fingerprint: Option<Vec<u8>>,
 
-    #[options(help = "ZIP 32 account index corresponding to the UFVK")]
+    /// ZIP 32 account index corresponding to the UFVK
+    #[arg(long)]
     hd_account_index: Option<u32>,
 
-    #[options(
-        help = "the server to initialize with (default is \"ecc\")",
-        default = "ecc",
-        parse(try_from_str = "Servers::parse")
-    )]
+    /// The server to initialize with (default is \"ecc\")
+    #[arg(short, long)]
+    #[arg(default_value = "ecc", value_parser = Servers::parse)]
     server: Servers,
 
-    #[options(help = "disable connections via TOR")]
+    /// Disable connections via TOR
+    #[arg(long)]
     disable_tor: bool,
 }
 

@@ -7,7 +7,8 @@ use std::env;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use gumdrop::Options;
+use clap::{Parser, Subcommand};
+use iso_currency::Currency;
 use tracing_subscriber::{layer::SubscriberExt, Layer};
 
 mod commands;
@@ -23,75 +24,83 @@ mod tui;
 
 const MIN_CONFIRMATIONS: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(3) };
 
-#[derive(Debug, Options)]
-struct MyOptions {
-    #[options(help = "print help message")]
-    help: bool,
-
-    #[options(help = "path to the wallet directory")]
-    wallet_dir: Option<String>,
-
-    #[options(command)]
-    command: Option<Command>,
+fn parse_hex(data: &str) -> Result<Vec<u8>, hex::FromHexError> {
+    hex::decode(data)
 }
 
-#[derive(Debug, Options)]
-enum Command {
-    #[options(help = "initialise a new light wallet")]
+fn parse_currency(data: &str) -> Result<Currency, String> {
+    Currency::from_code(data).ok_or_else(|| format!("Invalid currency '{data}'"))
+}
+
+#[derive(Debug, Parser)]
+pub(crate) struct MyOptions {
+    /// Path to the wallet directory
+    #[arg(short, long)]
+    pub(crate) wallet_dir: Option<String>,
+
+    #[command(subcommand)]
+    pub(crate) command: Option<Command>,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum Command {
+    /// Initialise a new light wallet
     Init(commands::init::Command),
 
-    #[options(help = "initialise a new view-only light wallet")]
+    /// Initialise a new view-only light wallet
     InitFvk(commands::init_fvk::Command),
 
-    #[options(help = "reset an existing light wallet (does not preserve imported UFVKs)")]
+    /// Reset an existing light wallet (does not preserve imported UFVKs)
     Reset(commands::reset::Command),
 
-    #[options(help = "import a UFVK")]
+    /// Import a UFVK
     ImportUfvk(commands::import_ufvk::Command),
 
-    #[options(help = "upgrade an existing light wallet")]
+    /// Upgrade an existing light wallet
     Upgrade(commands::upgrade::Command),
 
-    #[options(help = "scan the chain and sync the wallet")]
+    /// Scan the chain and sync the wallet
     Sync(commands::sync::Command),
 
-    #[options(help = "ensure all transactions have full data available")]
+    /// Ensure all transactions have full data available
     Enhance(commands::enhance::Command),
 
-    #[options(help = "get the balance in the wallet")]
+    /// Get the balance in the wallet
     Balance(commands::balance::Command),
 
-    #[options(help = "list the accounts in the wallet")]
+    /// List the accounts in the wallet
     ListAccounts(commands::list_accounts::Command),
 
-    #[options(help = "list the addresses for an account in the wallet")]
+    /// List the addresses for an account in the wallet
     ListAddresses(commands::list_addresses::Command),
 
-    #[options(help = "list the transactions in the wallet")]
+    /// List the transactions in the wallet
     ListTx(commands::list_tx::Command),
 
-    #[options(help = "list the unspent notes in the wallet")]
+    /// List the unspent notes in the wallet
     ListUnspent(commands::list_unspent::Command),
 
-    #[options(help = "shield transparent funds received by the wallet")]
+    /// Shield transparent funds received by the wallet
     Shield(commands::shield::Command),
 
-    #[options(help = "propose a transfer of funds to the given address and display the proposal")]
+    /// Propose a transfer of funds to the given address and display the proposal
     Propose(commands::propose::Command),
 
-    #[options(help = "send funds to the given address")]
+    /// Send funds to the given address
     Send(commands::send::Command),
 
-    #[options(help = "send funds using PCZTs")]
+    /// Send funds using PCZTs
+    #[command(subcommand)]
     Pczt(commands::pczt::Command),
 
+    /// Emulate a Keystone device
     #[cfg(feature = "pczt-qr")]
-    #[options(help = "emulate a Keystone device")]
+    #[command(subcommand)]
     Keystone(commands::keystone::Command),
 }
 
 fn main() -> Result<(), anyhow::Error> {
-    let opts = MyOptions::parse_args_default_or_exit();
+    let opts = MyOptions::parse();
 
     let level_filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());
 

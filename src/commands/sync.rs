@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use anyhow::anyhow;
+use clap::Args;
 use futures_util::TryStreamExt;
-use gumdrop::Options;
 use orchard::tree::MerkleHashOrchard;
 use prost::Message;
 use tokio::{fs::File, io::AsyncWriteExt, task::JoinHandle};
@@ -55,16 +55,15 @@ mod defrag;
 const BATCH_SIZE: u32 = 10_000;
 
 // Options accepted for the `sync` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(
-        help = "the server to sync with (default is \"ecc\")",
-        default = "ecc",
-        parse(try_from_str = "Servers::parse")
-    )]
+    /// The server to sync with (default is \"ecc\")
+    #[arg(short, long)]
+    #[arg(default_value = "ecc", value_parser = Servers::parse)]
     server: Servers,
 
     #[cfg(feature = "tui")]
+    #[arg(long)]
     pub(crate) defrag: bool,
 }
 

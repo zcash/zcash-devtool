@@ -1,6 +1,5 @@
 use anyhow::anyhow;
-use gumdrop::Options;
-
+use clap::Args;
 use zcash_client_sqlite::{
     chain::init::init_blockmeta_db,
     wallet::init::{init_wallet_db, WalletMigrationError},
@@ -14,9 +13,10 @@ use crate::{
 };
 
 // Options accepted for the `upgrade` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(help = "age identity file to decrypt the mnemonic phrase with")]
+    /// age identity file to decrypt the mnemonic phrase with
+    #[arg(short, long)]
     identity: Option<String>,
 }
 

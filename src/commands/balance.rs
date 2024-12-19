@@ -1,6 +1,5 @@
 use anyhow::anyhow;
-use gumdrop::Options;
-
+use clap::Args;
 use iso_currency::Currency;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use tracing::{info, warn};
@@ -13,19 +12,21 @@ use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::{Zatoshis, COIN};
 
 use crate::{
-    config::get_wallet_network, data::get_db_paths, error, remote::tor_client, ui::format_zec,
-    MIN_CONFIRMATIONS,
+    config::get_wallet_network, data::get_db_paths, error, parse_currency, remote::tor_client,
+    ui::format_zec, MIN_CONFIRMATIONS,
 };
 
 use super::select_account;
 
 // Options accepted for the `balance` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(free, help = "the UUID of the account for which to get a balance")]
+    /// The UUID of the account for which to get a balance
     account_id: Option<Uuid>,
 
-    #[options(help = "Convert ZEC values into the given currency")]
+    /// Convert ZEC values into the given currency
+    #[arg(long)]
+    #[arg(value_parser = parse_currency)]
     convert: Option<Currency>,
 }
 

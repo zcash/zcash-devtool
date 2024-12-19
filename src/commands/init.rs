@@ -1,6 +1,6 @@
 use age::secrecy::ExposeSecret;
 use bip0039::{Count, English, Mnemonic};
-use gumdrop::Options;
+use clap::Args;
 use secrecy::{SecretVec, Zeroize};
 use tokio::io::AsyncWriteExt;
 use tonic::transport::Channel;
@@ -20,37 +20,36 @@ use crate::{
 };
 
 // Options accepted for the `init` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(help = "a name for the account")]
+    /// A name for the account
+    #[arg(long)]
     name: String,
 
-    #[options(
-        required,
-        help = "age identity file to encrypt the mnemonic phrase to (generated if it doesn't exist)"
-    )]
+    /// age identity file to encrypt the mnemonic phrase to (generated if it doesn't exist)
+    #[arg(short, long)]
     identity: String,
 
-    #[options(help = "mnemonic phrase to initialise the wallet with (default is new phrase)")]
+    /// Mnemonic phrase to initialise the wallet with (default is new phrase)
+    #[arg(long)]
     phrase: Option<String>,
 
-    #[options(help = "the wallet's birthday (default is current chain height)")]
+    /// The wallet's birthday (default is current chain height)
+    #[arg(long)]
     birthday: Option<u32>,
 
-    #[options(
-        help = "the network the wallet will be used with: \"test\" or \"main\" (default is \"test\")",
-        parse(try_from_str = "Network::parse")
-    )]
+    /// The network the wallet will be used with: \"test\" or \"main\" (default is \"test\")
+    #[arg(short, long)]
+    #[arg(value_parser = Network::parse)]
     network: Network,
 
-    #[options(
-        help = "the server to initialize with (default is \"ecc\")",
-        default = "ecc",
-        parse(try_from_str = "Servers::parse")
-    )]
+    /// The server to initialize with (default is \"ecc\")
+    #[arg(short, long)]
+    #[arg(default_value = "ecc", value_parser = Servers::parse)]
     server: Servers,
 
-    #[options(help = "disable connections via TOR")]
+    /// Disable connections via TOR
+    #[arg(long)]
     disable_tor: bool,
 }
 

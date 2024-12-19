@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use gumdrop::Options;
+use clap::Args;
 use pczt::{
     roles::redactor::{
         orchard::ActionRedactor,
@@ -12,9 +12,10 @@ use pczt::{
 use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
 
 // Options accepted for the `pczt redact` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(help = "a list of PCZT keys to redact, in foo.bar.baz notation")]
+    /// A list of PCZT keys to redact, in foo.bar.baz notation
+    #[arg(short, long)]
     key: Vec<String>,
 }
 

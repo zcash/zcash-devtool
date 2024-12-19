@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use anyhow::anyhow;
+use clap::Args;
 use futures_util::StreamExt;
-use gumdrop::Options;
 use tonic::{transport::Channel, Code};
 use tracing::info;
 use zcash_client_backend::{
@@ -26,16 +26,15 @@ use crate::{
 };
 
 // Options accepted for the `enhance` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(
-        help = "the server to enhance with (default is \"ecc\")",
-        default = "ecc",
-        parse(try_from_str = "Servers::parse")
-    )]
+    /// The server to enhance with (default is \"ecc\")
+    #[arg(short, long)]
+    #[arg(default_value = "ecc", value_parser = Servers::parse)]
     server: Servers,
 
-    #[options(help = "disable connections via TOR")]
+    /// Disable connections via TOR
+    #[arg(long)]
     disable_tor: bool,
 }
 
