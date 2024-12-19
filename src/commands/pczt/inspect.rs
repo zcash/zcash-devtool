@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use gumdrop::Options;
 use pczt::{roles::verifier::Verifier, Pczt};
+use secrecy::ExposeSecret;
 use tokio::io::{stdin, AsyncReadExt};
 use zcash_primitives::transaction::{
     sighash::{SighashType, SignableInput},
@@ -8,17 +9,61 @@ use zcash_primitives::transaction::{
     txid::{to_txid, TxIdDigester},
     TxVersion,
 };
+use zcash_protocol::consensus::{NetworkConstants, Parameters};
+use zip32::fingerprint::SeedFingerprint;
+
+use crate::config::WalletConfig;
 
 // Options accepted for the `pczt inspect` command
 #[derive(Debug, Options)]
-pub(crate) struct Command {}
+pub(crate) struct Command {
+    #[options(
+        help = "age identity file to decrypt the mnemonic phrase with (if a wallet is provided)"
+    )]
+    identity: Option<String>,
+}
 
 impl Command {
-    pub(crate) async fn run(self) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+        // Allow the user to optionally provide the wallet dir, to inspect the PCZT in the
+        // context of a wallet.
+        let mut config = match (WalletConfig::read(wallet_dir.as_ref()), wallet_dir) {
+            (Err(_), None) => Ok(None),
+            (res, _) => res.map(Some),
+        }?;
+
         let mut buf = vec![];
         stdin().read_to_end(&mut buf).await?;
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
+
+        let seed_fp = config
+            .as_mut()
+            .zip(self.identity)
+            .map(|(config, identity)| {
+                // Decrypt the mnemonic to access the seed.
+                let identities = age::IdentityFile::from_file(identity)?.into_identities()?;
+                config.decrypt(identities.iter().map(|i| i.as_ref() as _))?;
+
+                let seed = config
+                    .seed()
+                    .ok_or(anyhow!(
+                        "Identity provided for a wallet that doesn't have a seed"
+                    ))?
+                    .expose_secret();
+
+                SeedFingerprint::from_seed(seed)
+                    .ok_or_else(|| anyhow!("Invalid seed length"))
+                    .map(|seed_fp| {
+                        (
+                            seed_fp,
+                            zip32::ChildIndex::hardened(
+                                config.network().network_type().coin_type(),
+                            ),
+                        )
+                    })
+            })
+            .transpose()?;
 
         let mut transparent_inputs = vec![];
         let mut transparent_outputs = vec![];
@@ -53,7 +98,19 @@ impl Command {
                 sapling_outputs = bundle
                     .outputs()
                     .iter()
-                    .map(|output| (output.user_address().clone(), *output.value()))
+                    .map(|output| {
+                        (
+                            output.user_address().clone(),
+                            *output.value(),
+                            output
+                                .zip32_derivation()
+                                .as_ref()
+                                .zip(seed_fp.as_ref())
+                                .and_then(|(derivation, (seed_fp, coin_type))| {
+                                    derivation.extract_account_index(seed_fp, *coin_type)
+                                }),
+                        )
+                    })
                     .collect();
                 Ok::<_, pczt::roles::verifier::SaplingError<()>>(())
             })
@@ -67,6 +124,14 @@ impl Command {
                             *action.spend().value(),
                             action.output().user_address().clone(),
                             *action.output().value(),
+                            action
+                                .output()
+                                .zip32_derivation()
+                                .as_ref()
+                                .zip(seed_fp.as_ref())
+                                .and_then(|(derivation, (seed_fp, coin_type))| {
+                                    derivation.extract_account_index(seed_fp, *coin_type)
+                                }),
                         )
                     })
                     .collect();
@@ -129,29 +194,40 @@ impl Command {
 
         if !pczt.sapling().outputs().is_empty() {
             println!("{} Sapling outputs", pczt.sapling().outputs().len());
-            for (index, (user_address, value)) in sapling_outputs.iter().enumerate() {
+            for (index, (user_address, value, account_index)) in sapling_outputs.iter().enumerate()
+            {
                 if let Some(value) = value {
                     if value.inner() == 0 {
                         println!("- {index}: Zero value (likely a dummy)");
                     } else {
                         println!(
-                            "- {index}: {} zatoshis{}",
+                            "- {index}: {} zatoshis{}{}",
                             value.inner(),
                             match user_address {
                                 Some(addr) => format!(" to {addr}"),
+                                None => "".into(),
+                            },
+                            match account_index {
+                                Some(idx) =>
+                                    format!(" (change to ZIP 32 account index {})", u32::from(*idx)),
                                 None => "".into(),
                             }
                         );
                     }
                 } else if let Some(addr) = user_address {
                     println!("- {index}: {addr}");
+                } else if let Some(idx) = account_index {
+                    println!(
+                        "- {index}: change to ZIP 32 account index {}",
+                        u32::from(*idx)
+                    );
                 }
             }
         }
 
         if !pczt.orchard().actions().is_empty() {
             println!("{} Orchard actions:", pczt.orchard().actions().len());
-            for (index, (spend_value, output_user_address, output_value)) in
+            for (index, (spend_value, output_user_address, output_value, output_account_index)) in
                 orchard_actions.iter().enumerate()
             {
                 println!("- {index}:");
@@ -167,16 +243,26 @@ impl Command {
                         println!("  - Output: Zero value (likely a dummy)");
                     } else {
                         println!(
-                            "  - Output: {} zatoshis{}",
+                            "  - Output: {} zatoshis{}{}",
                             value.inner(),
                             match output_user_address {
                                 Some(addr) => format!(" to {addr}"),
+                                None => "".into(),
+                            },
+                            match output_account_index {
+                                Some(idx) =>
+                                    format!(" (change to ZIP 32 account index {})", u32::from(*idx)),
                                 None => "".into(),
                             }
                         );
                     }
                 } else if let Some(addr) = output_user_address {
                     println!("  - Output: {addr}");
+                } else if let Some(idx) = output_account_index {
+                    println!(
+                        "- {index}: change to ZIP 32 account index {}",
+                        u32::from(*idx)
+                    );
                 }
             }
         }

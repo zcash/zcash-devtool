@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, convert::Infallible};
 
 use anyhow::anyhow;
 use gumdrop::Options;
 use pczt::{
-    roles::{signer::Signer, updater::Updater},
+    roles::{signer::Signer, verifier::Verifier},
     Pczt,
 };
 use secrecy::ExposeSecret;
@@ -46,8 +46,7 @@ impl Command {
         let seed_fp =
             SeedFingerprint::from_seed(seed).ok_or_else(|| anyhow!("Invalid seed length"))?;
 
-        // Find all the spends matching our seed. For now as a hack, we use the Updater
-        // role to access the bundle data we need.
+        // Find all the spends matching our seed.
         enum KeyRef {
             Orchard {
                 index: usize,
@@ -62,80 +61,58 @@ impl Command {
             },
         }
         let mut keys = BTreeMap::<zip32::AccountId, Vec<KeyRef>>::new();
-        let pczt = Updater::new(pczt)
-            .update_orchard_with(|updater| {
-                for (index, action) in updater.bundle().actions().iter().enumerate() {
-                    if let Some(derivation) = action.spend().zip32_derivation() {
-                        if derivation.seed_fingerprint() == &seed_fp.to_bytes()
-                            && derivation.derivation_path().len() == 3
-                            && derivation.derivation_path()[0] == zip32::ChildIndex::hardened(32)
-                            && derivation.derivation_path()[1]
-                                == zip32::ChildIndex::hardened(params.network_type().coin_type())
-                        {
-                            let account_index = zip32::AccountId::try_from(
-                                derivation.derivation_path()[2].index() - (1 << 31),
+        let pczt = Verifier::new(pczt)
+            .with_orchard::<Infallible, _>(|bundle| {
+                for (index, action) in bundle.actions().iter().enumerate() {
+                    if let Some(account_index) = action
+                        .spend()
+                        .zip32_derivation()
+                        .as_ref()
+                        .and_then(|derivation| {
+                            derivation.extract_account_index(
+                                &seed_fp,
+                                zip32::ChildIndex::hardened(params.network_type().coin_type()),
                             )
-                            .expect("valid");
-
-                            keys.entry(account_index)
-                                .or_default()
-                                .push(KeyRef::Orchard { index });
-                        }
+                        })
+                    {
+                        keys.entry(account_index)
+                            .or_default()
+                            .push(KeyRef::Orchard { index });
                     }
                 }
                 Ok(())
             })
-            .expect("no errors")
-            .update_sapling_with(|updater| {
-                for (index, spend) in updater.bundle().spends().iter().enumerate() {
-                    if let Some(derivation) = spend.zip32_derivation() {
-                        if derivation.seed_fingerprint() == &seed_fp.to_bytes()
-                            && derivation.derivation_path().len() == 3
-                            && derivation.derivation_path()[0] == zip32::ChildIndex::hardened(32)
-                            && derivation.derivation_path()[1]
-                                == zip32::ChildIndex::hardened(params.network_type().coin_type())
-                        {
-                            let account_index = zip32::AccountId::try_from(
-                                derivation.derivation_path()[2].index() - (1 << 31),
+            .map_err(|e| anyhow!("Invalid PCZT: {:?}", e))?
+            .with_sapling::<Infallible, _>(|bundle| {
+                for (index, spend) in bundle.spends().iter().enumerate() {
+                    if let Some(account_index) =
+                        spend.zip32_derivation().as_ref().and_then(|derivation| {
+                            derivation.extract_account_index(
+                                &seed_fp,
+                                zip32::ChildIndex::hardened(params.network_type().coin_type()),
                             )
-                            .expect("valid");
-
-                            keys.entry(account_index)
-                                .or_default()
-                                .push(KeyRef::Sapling { index });
-                        }
+                        })
+                    {
+                        keys.entry(account_index)
+                            .or_default()
+                            .push(KeyRef::Sapling { index });
                     }
                 }
                 Ok(())
             })
-            .expect("no errors")
-            .update_transparent_with(|updater| {
-                for (index, input) in updater.bundle().inputs().iter().enumerate() {
+            .map_err(|e| anyhow!("Invalid PCZT: {:?}", e))?
+            .with_transparent::<Infallible, _>(|bundle| {
+                for (index, input) in bundle.inputs().iter().enumerate() {
                     for derivation in input.bip32_derivation().values() {
-                        if derivation.seed_fingerprint() == &seed_fp.to_bytes()
-                            && derivation.derivation_path().len() == 5
-                            && derivation.derivation_path()[0]
-                                == bip32::ChildNumber::new(44, true).expect("valid")
-                            && derivation.derivation_path()[1]
-                                == bip32::ChildNumber::new(params.network_type().coin_type(), true)
-                                    .expect("valid")
-                            && derivation.derivation_path()[2].is_hardened()
-                            && !derivation.derivation_path()[3].is_hardened()
-                            && !derivation.derivation_path()[4].is_hardened()
+                        if let Some((account_index, scope, address_index)) = derivation
+                            .extract_bip_44_fields(
+                                &seed_fp,
+                                bip32::ChildNumber(
+                                    params.network_type().coin_type()
+                                        | bip32::ChildNumber::HARDENED_FLAG,
+                                ),
+                            )
                         {
-                            let account_index =
-                                zip32::AccountId::try_from(derivation.derivation_path()[2].index())
-                                    .expect("valid");
-
-                            let scope = TransparentKeyScope::custom(
-                                derivation.derivation_path()[3].index(),
-                            )
-                            .expect("valid");
-                            let address_index = NonHardenedChildIndex::from_index(
-                                derivation.derivation_path()[4].index(),
-                            )
-                            .expect("valid");
-
                             keys.entry(account_index)
                                 .or_default()
                                 .push(KeyRef::Transparent {
@@ -148,7 +125,7 @@ impl Command {
                 }
                 Ok(())
             })
-            .expect("no errors")
+            .map_err(|e| anyhow!("Invalid PCZT: {:?}", e))?
             .finish();
 
         let mut signer =
