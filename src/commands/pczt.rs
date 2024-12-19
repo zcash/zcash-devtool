@@ -4,6 +4,7 @@ pub(crate) mod combine;
 pub(crate) mod create;
 pub(crate) mod inspect;
 pub(crate) mod prove;
+pub(crate) mod redact;
 pub(crate) mod send;
 pub(crate) mod shield;
 pub(crate) mod sign;
@@ -19,6 +20,8 @@ pub(crate) enum Command {
     Shield(shield::Command),
     #[options(help = "inspect a PCZT")]
     Inspect(inspect::Command),
+    #[options(help = "redact a PCZT")]
+    Redact(redact::Command),
     #[options(help = "create proofs for a PCZT")]
     Prove(prove::Command),
     #[options(help = "apply signatures to a PCZT")]
