@@ -1,6 +1,11 @@
-# zec-sqlite-cli
+# zcash-devtool
 
-This repository contains a CLI app for testing the `zcash_client_sqlite` crate.
+This repository contains a CLI app for working with Zcash transactions and the
+Zcash blockchain, including stateless Zcash wallet functionality based upon the
+`zcash_client_backend` and `zcash_client_sqlite` crates. It is built by
+developers, for developers for use in prototyping Zcash functionality, and
+should not be considered production-ready. The command-line API that this tool
+exposes can and will change at any time and without warning.
 
 ## Security Warnings
 
