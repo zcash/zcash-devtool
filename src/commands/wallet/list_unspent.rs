@@ -8,9 +8,9 @@ use zcash_client_backend::{
 use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::{Zatoshis, MAX_MONEY};
 
-use crate::{config::get_wallet_network, data::get_db_paths, error, ui::format_zec};
-
-use super::select_account;
+use crate::{
+    commands::select_account, config::get_wallet_network, data::get_db_paths, error, ui::format_zec,
+};
 
 // Options accepted for the `list-unspent` command
 #[derive(Debug, Args)]

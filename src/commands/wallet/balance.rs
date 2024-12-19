@@ -12,11 +12,9 @@ use zcash_client_sqlite::WalletDb;
 use zcash_protocol::value::{Zatoshis, COIN};
 
 use crate::{
-    config::get_wallet_network, data::get_db_paths, error, parse_currency, remote::tor_client,
-    ui::format_zec, MIN_CONFIRMATIONS,
+    commands::select_account, config::get_wallet_network, data::get_db_paths, error,
+    parse_currency, remote::tor_client, ui::format_zec, MIN_CONFIRMATIONS,
 };
-
-use super::select_account;
 
 // Options accepted for the `balance` command
 #[derive(Debug, Args)]
