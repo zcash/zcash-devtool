@@ -2,17 +2,14 @@
 #![allow(clippy::assign_op_pattern)]
 #![allow(clippy::ptr_offset_with_cast)]
 
+use sha2::{Digest, Sha256};
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
 use std::io::{self, Read};
 
-use sha2::{Digest, Sha256};
 use zcash_encoding::Vector;
-use zcash_primitives::{
-    block::BlockHeader,
-    consensus::{BlockHeight, BranchId, Network, NetworkUpgrade, Parameters},
-    transaction::Transaction,
-};
+use zcash_primitives::{block::BlockHeader, transaction::Transaction};
+use zcash_protocol::consensus::{BlockHeight, BranchId, Network, NetworkUpgrade, Parameters};
 
 use super::{
     transaction::{extract_height_from_coinbase, is_coinbase},

@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use clap::Args;
 use secrecy::ExposeSecret;
 use uuid::Uuid;
+
 use zcash_client_backend::{
     data_api::{
         wallet::{
@@ -12,14 +13,13 @@ use zcash_client_backend::{
         Account, WalletRead,
     },
     fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
-    keys::UnifiedSpendingKey,
     proto::service,
     wallet::OvkPolicy,
-    ShieldedProtocol,
 };
 use zcash_client_sqlite::WalletDb;
+use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_proofs::prover::LocalTxProver;
-use zcash_protocol::value::Zatoshis;
+use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
 
 use crate::{
     commands::select_account,

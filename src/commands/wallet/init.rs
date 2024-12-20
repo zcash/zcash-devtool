@@ -9,8 +9,7 @@ use zcash_client_backend::{
     data_api::{AccountBirthday, WalletWrite},
     proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
 };
-use zcash_primitives::consensus::{self, Parameters};
-use zcash_protocol::consensus::BlockHeight;
+use zcash_protocol::consensus::{self, BlockHeight, Parameters};
 
 use crate::{
     config::WalletConfig,

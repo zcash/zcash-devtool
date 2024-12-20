@@ -34,12 +34,13 @@ use crate::{
 
 #[cfg(feature = "transparent-inputs")]
 use {
-    zcash_client_backend::{encoding::AddressCodec, wallet::WalletTransparentOutput},
-    zcash_client_sqlite::AccountUuid,
-    zcash_primitives::{
-        legacy::Script,
-        transaction::components::transparent::{OutPoint, TxOut},
+    ::transparent::{
+        address::Script,
+        bundle::{OutPoint, TxOut},
     },
+    zcash_client_backend::wallet::WalletTransparentOutput,
+    zcash_client_sqlite::AccountUuid,
+    zcash_keys::encoding::AddressCodec,
     zcash_protocol::value::Zatoshis,
 };
 

@@ -2,16 +2,12 @@ use anyhow::anyhow;
 use clap::Args;
 use rusqlite::{named_params, Connection};
 use uuid::Uuid;
-use zcash_primitives::{
-    consensus::BlockHeight,
-    transaction::{
-        components::{amount::NonNegativeAmount, Amount},
-        TxId,
-    },
-};
+
 use zcash_protocol::{
+    consensus::BlockHeight,
     memo::{Memo, MemoBytes},
-    PoolType,
+    value::{ZatBalance, Zatoshis},
+    PoolType, TxId,
 };
 
 use crate::{data::get_db_paths, ui::format_zec};
@@ -132,7 +128,7 @@ struct WalletTxOutput {
     from_account: Option<Uuid>,
     to_account: Option<Uuid>,
     to_address: Option<String>,
-    value: NonNegativeAmount,
+    value: Zatoshis,
     is_change: bool,
     memo: Option<Memo>,
 }
@@ -165,7 +161,7 @@ impl WalletTxOutput {
             from_account,
             to_account,
             to_address,
-            value: NonNegativeAmount::from_nonnegative_i64(value)?,
+            value: Zatoshis::from_nonnegative_i64(value)?,
             is_change,
             memo: memo
                 .as_ref()
@@ -212,8 +208,8 @@ struct WalletTx {
     mined_height: Option<BlockHeight>,
     txid: TxId,
     expiry_height: Option<BlockHeight>,
-    account_balance_delta: Amount,
-    fee_paid: Option<NonNegativeAmount>,
+    account_balance_delta: ZatBalance,
+    fee_paid: Option<Zatoshis>,
     sent_note_count: usize,
     received_note_count: usize,
     memo_count: usize,
@@ -241,10 +237,10 @@ impl WalletTx {
             mined_height: mined_height.map(BlockHeight::from_u32),
             txid: TxId::from_bytes(txid.try_into().map_err(|_| anyhow!("Invalid TxId"))?),
             expiry_height: expiry_height.map(BlockHeight::from_u32),
-            account_balance_delta: Amount::from_i64(account_balance_delta)
+            account_balance_delta: ZatBalance::from_i64(account_balance_delta)
                 .map_err(|_| anyhow!("Amount out of range"))?,
             fee_paid: fee_paid
-                .map(|v| NonNegativeAmount::from_u64(v).map_err(|_| anyhow!("Fee out of range")))
+                .map(|v| Zatoshis::from_u64(v).map_err(|_| anyhow!("Fee out of range")))
                 .transpose()?,
             sent_note_count,
             received_note_count,

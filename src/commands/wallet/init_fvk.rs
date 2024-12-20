@@ -1,13 +1,13 @@
 use anyhow::anyhow;
 use clap::Args;
+
 use zcash_address::unified::{Encoding, Ufvk};
 use zcash_client_backend::{
     data_api::{AccountPurpose, WalletWrite, Zip32Derivation},
     proto::service,
 };
 use zcash_keys::{encoding::decode_extfvk_with_network, keys::UnifiedFullViewingKey};
-use zcash_primitives::consensus::NetworkType;
-use zcash_protocol::consensus;
+use zcash_protocol::consensus::{self, NetworkType};
 use zip32::fingerprint::SeedFingerprint;
 
 use crate::{
