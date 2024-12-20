@@ -8,10 +8,11 @@ use group::GroupEncoding;
 use sapling::{note_encryption::SaplingDomain, SaplingVerificationContext};
 use secp256k1::{Secp256k1, VerifyOnly};
 
+#[allow(deprecated)]
+use ::transparent::keys::pubkey_to_address;
 use ::transparent::{
     address::{Script, TransparentAddress},
     bundle as transparent,
-    keys::pubkey_to_address,
     sighash::{SighashType, TransparentAuthorizingContext},
 };
 use orchard::note_encryption::OrchardDomain;

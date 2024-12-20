@@ -254,11 +254,8 @@ impl<'b, C> minicbor::Decode<'b, C> for ZcashPczt {
         cbor_map(d, &mut result, |key, obj, d| {
             let key =
                 u8::try_from(key).map_err(|e| minicbor::decode::Error::message(e.to_string()))?;
-            match key {
-                DATA => {
-                    obj.data = d.bytes()?.to_vec();
-                }
-                _ => {}
+            if key == DATA {
+                obj.data = d.bytes()?.to_vec();
             }
             Ok(())
         })?;

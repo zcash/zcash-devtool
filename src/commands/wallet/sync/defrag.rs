@@ -246,7 +246,7 @@ impl App {
             // Determine the density of blocks we will be rendering. Use ceiling division
             // to ensure we don't require more cells than we have (which would cause the
             // blocks around the chain tip to never be rendered).
-            let area = u32::from(defrag_area.area());
+            let area = defrag_area.area();
             let blocks_per_cell = (block_count + area - 1) / area;
             let blocks_per_row = blocks_per_cell * u32::from(defrag_area.width);
 
