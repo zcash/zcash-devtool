@@ -4,6 +4,7 @@ use uuid::Uuid;
 use zcash_client_backend::data_api::WalletRead;
 use zcash_client_sqlite::AccountUuid;
 
+pub(crate) mod inspect;
 pub(crate) mod pczt;
 pub(crate) mod wallet;
 

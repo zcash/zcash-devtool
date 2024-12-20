@@ -40,6 +40,9 @@ pub(crate) struct MyOptions {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    /// Inspect Zcash-related data
+    Inspect(commands::inspect::Command),
+
     /// Manipulate a local wallet backed by `zcash_client_sqlite`
     Wallet(commands::Wallet),
 
@@ -114,6 +117,7 @@ fn main() -> Result<(), anyhow::Error> {
         let shutdown = ShutdownListener::new();
 
         match opts.command {
+            Some(Command::Inspect(command)) => command.run().await,
             Some(Command::Wallet(commands::Wallet {
                 wallet_dir,
                 command,

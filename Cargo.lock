@@ -1758,6 +1758,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
 dependencies = [
  "pkcs8",
+ "serde",
  "signature",
 ]
 
@@ -1774,6 +1775,22 @@ dependencies = [
  "serde",
  "sha2",
  "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "ed25519-zebra"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d9ce6874da5d4415896cd45ffbc4d1cfc0c4f9c079427bd870742c30f2f65a9"
+dependencies = [
+ "curve25519-dalek",
+ "ed25519",
+ "hashbrown 0.14.5",
+ "hex",
+ "rand_core",
+ "serde",
+ "sha2",
  "zeroize",
 ]
 
@@ -2448,6 +2465,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 dependencies = [
  "ahash 0.8.11",
+ "allocator-api2",
 ]
 
 [[package]]
@@ -7501,16 +7519,23 @@ version = "0.1.0"
 dependencies = [
  "age",
  "anyhow",
+ "bech32 0.11.0",
+ "bellman",
  "bip0039",
  "bip32",
+ "blake2b_simd",
  "chrono",
  "clap",
  "crossterm",
+ "ed25519-zebra",
+ "equihash",
  "futures-util",
+ "group",
  "hex",
  "image",
  "iso_currency",
  "jubjub",
+ "lazy_static",
  "minicbor",
  "nokhwa",
  "orchard",
@@ -7525,8 +7550,11 @@ dependencies = [
  "rust_decimal",
  "sapling-crypto",
  "schemerz",
+ "secp256k1",
  "secrecy 0.8.0",
  "serde",
+ "serde_json",
+ "sha2",
  "time",
  "tokio",
  "tokio-util",
@@ -7535,12 +7563,15 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tui-logger",
+ "uint",
  "ur",
  "uuid",
  "zcash_address",
  "zcash_client_backend",
  "zcash_client_sqlite",
+ "zcash_encoding",
  "zcash_keys",
+ "zcash_note_encryption",
  "zcash_primitives",
  "zcash_proofs",
  "zcash_protocol",
