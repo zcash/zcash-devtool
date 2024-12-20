@@ -5,6 +5,7 @@ use anyhow::anyhow;
 use clap::Args;
 use tokio::io::{stdout, AsyncWriteExt};
 use uuid::Uuid;
+
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
@@ -15,12 +16,12 @@ use zcash_client_backend::{
     },
     fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
     wallet::OvkPolicy,
-    ShieldedProtocol,
 };
 use zcash_client_sqlite::WalletDb;
 use zcash_protocol::{
     memo::{Memo, MemoBytes},
     value::Zatoshis,
+    ShieldedProtocol,
 };
 use zip321::{Payment, TransactionRequest};
 

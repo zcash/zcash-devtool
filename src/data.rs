@@ -6,8 +6,7 @@ use zcash_client_sqlite::{FsBlockDb, WalletDb};
 use tracing::error;
 
 use zcash_client_sqlite::chain::BlockMeta;
-use zcash_primitives::consensus;
-use zcash_protocol::consensus::Parameters;
+use zcash_protocol::consensus::{self, Parameters};
 
 use crate::error;
 

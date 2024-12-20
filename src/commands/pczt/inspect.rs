@@ -3,8 +3,10 @@ use clap::Args;
 use pczt::{roles::verifier::Verifier, Pczt};
 use secrecy::ExposeSecret;
 use tokio::io::{stdin, AsyncReadExt};
+
+use ::transparent::sighash::SighashType;
 use zcash_primitives::transaction::{
-    sighash::{SighashType, SignableInput},
+    sighash::SignableInput,
     sighash_v5::v5_signature_hash,
     txid::{to_txid, TxIdDigester},
     TxVersion,

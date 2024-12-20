@@ -1,16 +1,13 @@
 use std::convert::Infallible;
 use std::fmt;
 
-use zcash_client_backend::{
-    data_api::{
-        error::Error as WalletError, wallet::input_selection::GreedyInputSelectorError,
-        BirthdayError,
-    },
-    keys::DerivationError,
+use zcash_client_backend::data_api::{
+    error::Error as WalletError, wallet::input_selection::GreedyInputSelectorError, BirthdayError,
 };
 use zcash_client_sqlite::{
     error::SqliteClientError, wallet::commitment_tree, FsBlockDbError, ReceivedNoteId,
 };
+use zcash_keys::keys::DerivationError;
 use zcash_primitives::transaction::fees::zip317;
 use zip321::Zip321Error;
 

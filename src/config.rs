@@ -7,8 +7,7 @@ use std::path::Path;
 use secrecy::{ExposeSecret, SecretVec, Zeroize};
 use serde::{Deserialize, Serialize};
 
-use zcash_primitives::consensus::{self, BlockHeight};
-use zcash_protocol::consensus::Parameters;
+use zcash_protocol::consensus::{self, BlockHeight, Parameters};
 
 use crate::{
     data::{Network, DEFAULT_WALLET_DIR},

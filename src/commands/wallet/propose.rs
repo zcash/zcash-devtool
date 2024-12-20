@@ -10,10 +10,9 @@ use zcash_client_backend::{
         Account as _,
     },
     fees::{zip317::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
-    ShieldedProtocol,
 };
 use zcash_client_sqlite::WalletDb;
-use zcash_protocol::value::Zatoshis;
+use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
 use zip321::{Payment, TransactionRequest};
 
 use crate::{

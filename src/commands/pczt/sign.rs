@@ -8,8 +8,9 @@ use pczt::{
 };
 use secrecy::ExposeSecret;
 use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
+
+use ::transparent::keys::{NonHardenedChildIndex, TransparentKeyScope};
 use zcash_keys::keys::UnifiedSpendingKey;
-use zcash_primitives::legacy::keys::{NonHardenedChildIndex, TransparentKeyScope};
 use zcash_protocol::consensus::{NetworkConstants, Parameters};
 use zip32::fingerprint::SeedFingerprint;
 

@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use clap::Args;
+
 use zcash_address::unified::{self, Encoding};
 use zcash_client_backend::{
     data_api::{AccountBirthday, AccountPurpose, WalletWrite, Zip32Derivation},
@@ -7,7 +8,7 @@ use zcash_client_backend::{
 };
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedFullViewingKey;
-use zcash_primitives::consensus;
+use zcash_protocol::consensus;
 use zip32::fingerprint::SeedFingerprint;
 
 use crate::{
