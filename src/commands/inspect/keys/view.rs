@@ -119,8 +119,6 @@ pub(crate) fn inspect_sapling_extfvk(data: Vec<u8>, network: NetworkType) {
                         canopy: None,
                         nu5: None,
                         nu6: None,
-                        #[cfg(zcash_unstable = "zfuture")]
-                        z_future: None,
                     }),
                 };
                 eprintln!("- Equivalent UFVK: {encoded_ufvk}");
@@ -137,8 +135,6 @@ pub(crate) fn inspect_sapling_extfvk(data: Vec<u8>, network: NetworkType) {
                         canopy: None,
                         nu5: None,
                         nu6: None,
-                        #[cfg(zcash_unstable = "zfuture")]
-                        z_future: None,
                     }),
                 };
                 eprintln!("  - Default address: {encoded_ua}");

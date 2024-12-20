@@ -14,7 +14,7 @@ use zcash_primitives::{
     transaction::Transaction,
 };
 
-use crate::{
+use super::{
     transaction::{extract_height_from_coinbase, is_coinbase},
     Context, ZUint256,
 };

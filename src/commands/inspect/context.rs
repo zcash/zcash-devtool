@@ -18,7 +18,7 @@ pub(crate) struct JsonNetwork(Network);
 
 struct JsonNetworkVisitor;
 
-impl<'de> Visitor<'de> for JsonNetworkVisitor {
+impl Visitor<'_> for JsonNetworkVisitor {
     type Value = JsonNetwork;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -54,7 +54,7 @@ struct JsonAccountId(AccountId);
 
 struct JsonAccountIdVisitor;
 
-impl<'de> Visitor<'de> for JsonAccountIdVisitor {
+impl Visitor<'_> for JsonAccountIdVisitor {
     type Value = JsonAccountId;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -124,7 +124,7 @@ pub(crate) struct ZUint256(pub [u8; 32]);
 
 struct ZUint256Visitor;
 
-impl<'de> Visitor<'de> for ZUint256Visitor {
+impl Visitor<'_> for ZUint256Visitor {
     type Value = ZUint256;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -174,7 +174,7 @@ struct ZOutputValue(NonNegativeAmount);
 
 struct ZOutputValueVisitor;
 
-impl<'de> Visitor<'de> for ZOutputValueVisitor {
+impl Visitor<'_> for ZOutputValueVisitor {
     type Value = ZOutputValue;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -220,7 +220,7 @@ struct ZScript(Script);
 
 struct ZScriptVisitor;
 
-impl<'de> Visitor<'de> for ZScriptVisitor {
+impl Visitor<'_> for ZScriptVisitor {
     type Value = ZScript;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -276,7 +276,7 @@ impl From<TxOut> for ZTxOut {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Context {
     network: Option<JsonNetwork>,
     accounts: Option<Vec<JsonAccountId>>,

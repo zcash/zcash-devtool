@@ -20,7 +20,7 @@ use zcash_protocol::{
     local_consensus::LocalNetwork,
 };
 
-use crate::Context;
+use super::Context;
 
 pub(crate) mod view;
 
@@ -199,8 +199,6 @@ pub(crate) fn inspect_sapling_extsk(data: Vec<u8>, network: NetworkType) {
                         canopy: None,
                         nu5: None,
                         nu6: None,
-                        #[cfg(zcash_unstable = "zfuture")]
-                        z_future: None,
                     }),
                 };
                 eprintln!("- UFVK: {encoded_ufvk}");
@@ -217,8 +215,6 @@ pub(crate) fn inspect_sapling_extsk(data: Vec<u8>, network: NetworkType) {
                         canopy: None,
                         nu5: None,
                         nu6: None,
-                        #[cfg(zcash_unstable = "zfuture")]
-                        z_future: None,
                     }),
                 };
                 eprintln!("  - Default address: {encoded_ua}");
