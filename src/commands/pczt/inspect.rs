@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use gumdrop::Options;
+use clap::Args;
 use pczt::{roles::verifier::Verifier, Pczt};
 use secrecy::ExposeSecret;
 use tokio::io::{stdin, AsyncReadExt};
@@ -15,11 +15,10 @@ use zip32::fingerprint::SeedFingerprint;
 use crate::config::WalletConfig;
 
 // Options accepted for the `pczt inspect` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(
-        help = "age identity file to decrypt the mnemonic phrase with (if a wallet is provided)"
-    )]
+    /// age identity file to decrypt the mnemonic phrase with (if a wallet is provided)
+    #[arg(short, long)]
     identity: Option<String>,
 }
 

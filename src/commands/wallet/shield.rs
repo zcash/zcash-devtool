@@ -1,16 +1,13 @@
-#![allow(deprecated)]
-use std::{num::NonZeroUsize, str::FromStr};
+use std::num::NonZeroUsize;
 
 use anyhow::anyhow;
-use gumdrop::Options;
+use clap::Args;
 use secrecy::ExposeSecret;
-
 use uuid::Uuid;
-use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
         wallet::{
-            create_proposed_transactions, input_selection::GreedyInputSelector, propose_transfer,
+            create_proposed_transactions, input_selection::GreedyInputSelector, propose_shielding,
         },
         Account, WalletRead,
     },
@@ -23,7 +20,6 @@ use zcash_client_backend::{
 use zcash_client_sqlite::WalletDb;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::value::Zatoshis;
-use zip321::{Payment, TransactionRequest};
 
 use crate::{
     commands::select_account,
@@ -31,50 +27,35 @@ use crate::{
     data::get_db_paths,
     error,
     remote::{tor_client, Servers},
-    MIN_CONFIRMATIONS,
 };
 
-// Options accepted for the `send` command
-#[derive(Debug, Options)]
+// Options accepted for the `shield` command
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(free, help = "the UUID of the account to send funds from")]
+    /// The UUID of the account to shield funds in
     account_id: Option<Uuid>,
 
-    #[options(
-        required,
-        help = "age identity file to decrypt the mnemonic phrase with"
-    )]
+    /// age identity file to decrypt the mnemonic phrase with
+    #[arg(short, long)]
     identity: String,
 
-    #[options(
-        required,
-        help = "the recipient's Unified, Sapling or transparent address"
-    )]
-    address: String,
-
-    #[options(required, help = "the amount in zatoshis")]
-    value: u64,
-
-    #[options(
-        help = "the server to send via (default is \"ecc\")",
-        default = "ecc",
-        parse(try_from_str = "Servers::parse")
-    )]
+    /// The server to shield via (default is \"ecc\")
+    #[arg(short, long)]
+    #[arg(default_value = "ecc", value_parser = Servers::parse)]
     server: Servers,
 
-    #[options(help = "disable connections via TOR")]
+    /// Disable connections via TOR
+    #[arg(long)]
     disable_tor: bool,
 
-    #[options(
-        help = "note management: the number of notes to maintain in the wallet",
-        default = "4"
-    )]
+    /// Note management: the number of notes to maintain in the wallet
+    #[arg(long)]
+    #[arg(default_value_t = 4)]
     target_note_count: usize,
 
-    #[options(
-        help = "note management: the minimum allowed value for split change amounts",
-        default = "10000000"
-    )]
+    /// Note management: the minimum allowed value for split change amounts
+    #[arg(long)]
+    #[arg(default_value_t = 10000000)]
     min_split_output_value: u64,
 }
 
@@ -86,10 +67,9 @@ impl Command {
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params)?;
         let account = select_account(&db_data, self.account_id)?;
-        let derivation = account
-            .source()
-            .key_derivation()
-            .ok_or(anyhow!("Cannot spend from view-only accounts"))?;
+        let derivation = account.source().key_derivation().ok_or(anyhow!(
+            "Cannot spend from view-only accounts; did you mean to use `pczt shield` instead?"
+        ))?;
 
         // Decrypt the mnemonic to access the seed.
         let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
@@ -129,22 +109,26 @@ impl Command {
         );
         let input_selector = GreedyInputSelector::new();
 
-        let request = TransactionRequest::new(vec![Payment::without_memo(
-            ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
-            Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
-        )])
-        .map_err(error::Error::from)?;
+        // For this dev tool, shield all funds immediately.
+        let max_height = match db_data.chain_height()? {
+            Some(max_height) => max_height,
+            // If we haven't scanned anything, there's nothing to do.
+            None => return Ok(()),
+        };
+        let transparent_balances = db_data.get_transparent_balances(account.id(), max_height)?;
+        let from_addrs = transparent_balances.into_keys().collect::<Vec<_>>();
 
-        let proposal = propose_transfer(
+        let proposal = propose_shielding(
             &mut db_data,
             &params,
-            account.id(),
             &input_selector,
             &change_strategy,
-            request,
-            MIN_CONFIRMATIONS,
+            Zatoshis::ZERO,
+            &from_addrs,
+            account.id(),
+            0,
         )
-        .map_err(error::Error::from)?;
+        .map_err(error::Error::Shield)?;
 
         let txids = create_proposed_transactions(
             &mut db_data,
@@ -155,7 +139,7 @@ impl Command {
             OvkPolicy::Sender,
             &proposal,
         )
-        .map_err(error::Error::from)?;
+        .map_err(error::Error::Shield)?;
 
         if txids.len() > 1 {
             return Err(anyhow!(

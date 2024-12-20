@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, convert::Infallible};
 
 use anyhow::anyhow;
-use gumdrop::Options;
+use clap::Args;
 use pczt::{
     roles::{signer::Signer, verifier::Verifier},
     Pczt,
@@ -16,12 +16,10 @@ use zip32::fingerprint::SeedFingerprint;
 use crate::config::WalletConfig;
 
 // Options accepted for the `pczt sign` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(
-        required,
-        help = "age identity file to decrypt the mnemonic phrase with"
-    )]
+    /// age identity file to decrypt the mnemonic phrase with
+    #[arg(short, long)]
     identity: String,
 }
 

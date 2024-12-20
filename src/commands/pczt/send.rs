@@ -1,6 +1,5 @@
 use anyhow::anyhow;
-use gumdrop::Options;
-
+use clap::Args;
 use pczt::Pczt;
 use tokio::io::{stdin, AsyncReadExt};
 use zcash_client_backend::{
@@ -18,16 +17,15 @@ use crate::{
 };
 
 // Options accepted for the `pczt send` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(
-        help = "the server to send via (default is \"ecc\")",
-        default = "ecc",
-        parse(try_from_str = "Servers::parse")
-    )]
+    /// The server to send via (default is \"ecc\")
+    #[arg(short, long)]
+    #[arg(default_value = "ecc", value_parser = Servers::parse)]
     server: Servers,
 
-    #[options(help = "disable connections via TOR")]
+    /// Disable connections via TOR
+    #[arg(long)]
     disable_tor: bool,
 }
 

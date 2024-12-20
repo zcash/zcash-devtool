@@ -33,7 +33,7 @@ const ZEC_ROCKS_MAINNET: &[Server<'_>] = &[
 ];
 const ZEC_ROCKS_TESTNET: &[Server<'_>] = &[Server::fixed("testnet.zec.rocks", 443)];
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum ServerOperator {
     Ecc,
     YWallet,
@@ -53,7 +53,7 @@ impl ServerOperator {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum Servers {
     Hosted(ServerOperator),
     Custom(Vec<Server<'static>>),
@@ -93,7 +93,7 @@ impl Servers {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Server<'a> {
     host: Cow<'a, str>,
     port: u16,

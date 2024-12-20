@@ -7,7 +7,8 @@ use std::env;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use gumdrop::Options;
+use clap::{Parser, Subcommand};
+use iso_currency::Currency;
 use tracing_subscriber::{layer::SubscriberExt, Layer};
 
 mod commands;
@@ -23,75 +24,35 @@ mod tui;
 
 const MIN_CONFIRMATIONS: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(3) };
 
-#[derive(Debug, Options)]
-struct MyOptions {
-    #[options(help = "print help message")]
-    help: bool,
-
-    #[options(help = "path to the wallet directory")]
-    wallet_dir: Option<String>,
-
-    #[options(command)]
-    command: Option<Command>,
+fn parse_hex(data: &str) -> Result<Vec<u8>, hex::FromHexError> {
+    hex::decode(data)
 }
 
-#[derive(Debug, Options)]
-enum Command {
-    #[options(help = "initialise a new light wallet")]
-    Init(commands::init::Command),
+fn parse_currency(data: &str) -> Result<Currency, String> {
+    Currency::from_code(data).ok_or_else(|| format!("Invalid currency '{data}'"))
+}
 
-    #[options(help = "initialise a new view-only light wallet")]
-    InitFvk(commands::init_fvk::Command),
+#[derive(Debug, Parser)]
+pub(crate) struct MyOptions {
+    #[command(subcommand)]
+    pub(crate) command: Option<Command>,
+}
 
-    #[options(help = "reset an existing light wallet (does not preserve imported UFVKs)")]
-    Reset(commands::reset::Command),
+#[derive(Debug, Subcommand)]
+pub(crate) enum Command {
+    /// Manipulate a local wallet backed by `zcash_client_sqlite`
+    Wallet(commands::Wallet),
 
-    #[options(help = "import a UFVK")]
-    ImportUfvk(commands::import_ufvk::Command),
+    /// Send funds using PCZTs
+    Pczt(commands::Pczt),
 
-    #[options(help = "upgrade an existing light wallet")]
-    Upgrade(commands::upgrade::Command),
-
-    #[options(help = "scan the chain and sync the wallet")]
-    Sync(commands::sync::Command),
-
-    #[options(help = "ensure all transactions have full data available")]
-    Enhance(commands::enhance::Command),
-
-    #[options(help = "get the balance in the wallet")]
-    Balance(commands::balance::Command),
-
-    #[options(help = "list the accounts in the wallet")]
-    ListAccounts(commands::list_accounts::Command),
-
-    #[options(help = "list the addresses for an account in the wallet")]
-    ListAddresses(commands::list_addresses::Command),
-
-    #[options(help = "list the transactions in the wallet")]
-    ListTx(commands::list_tx::Command),
-
-    #[options(help = "list the unspent notes in the wallet")]
-    ListUnspent(commands::list_unspent::Command),
-
-    #[options(help = "shield transparent funds received by the wallet")]
-    Shield(commands::shield::Command),
-
-    #[options(help = "propose a transfer of funds to the given address and display the proposal")]
-    Propose(commands::propose::Command),
-
-    #[options(help = "send funds to the given address")]
-    Send(commands::send::Command),
-
-    #[options(help = "send funds using PCZTs")]
-    Pczt(commands::pczt::Command),
-
+    /// Emulate a Keystone device
     #[cfg(feature = "pczt-qr")]
-    #[options(help = "emulate a Keystone device")]
-    Keystone(commands::keystone::Command),
+    Keystone(commands::Keystone),
 }
 
 fn main() -> Result<(), anyhow::Error> {
-    let opts = MyOptions::parse_args_default_or_exit();
+    let opts = MyOptions::parse();
 
     let level_filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());
 
@@ -99,15 +60,21 @@ fn main() -> Result<(), anyhow::Error> {
     let tui_logger: Option<()> = None;
     #[cfg(feature = "tui")]
     let tui_logger = match opts.command {
-        Some(Command::Sync(commands::sync::Command { defrag: true, .. })) => {
+        Some(Command::Wallet(commands::Wallet {
+            command:
+                commands::wallet::Command::Sync(commands::wallet::sync::Command {
+                    defrag: true, ..
+                }),
+            ..
+        })) => {
             tui_logger::init_logger(level_filter.parse().unwrap())?;
             Some(tui_logger::tracing_subscriber_layer())
         }
         #[cfg(feature = "pczt-qr")]
-        Some(Command::Pczt(commands::pczt::Command::ToQr(commands::pczt::qr::Send {
-            tui: true,
+        Some(Command::Pczt(commands::Pczt {
+            command: commands::pczt::Command::ToQr(commands::pczt::qr::Send { tui: true, .. }),
             ..
-        }))) => {
+        })) => {
             tui_logger::init_logger(level_filter.parse().unwrap())?;
             Some(tui_logger::tracing_subscriber_layer())
         }
@@ -147,39 +114,47 @@ fn main() -> Result<(), anyhow::Error> {
         let shutdown = ShutdownListener::new();
 
         match opts.command {
-            Some(Command::Init(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::InitFvk(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::Reset(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::ImportUfvk(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::Upgrade(command)) => command.run(opts.wallet_dir),
-            Some(Command::Sync(command)) => {
-                command
-                    .run(
-                        shutdown,
-                        opts.wallet_dir,
-                        #[cfg(feature = "tui")]
-                        tui,
-                    )
-                    .await
-            }
-            Some(Command::Enhance(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::Balance(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::ListAccounts(command)) => command.run(opts.wallet_dir),
-            Some(Command::ListAddresses(command)) => command.run(opts.wallet_dir),
-            Some(Command::ListTx(command)) => command.run(opts.wallet_dir),
-            Some(Command::ListUnspent(command)) => command.run(opts.wallet_dir),
-            Some(Command::Shield(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::Propose(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::Send(command)) => command.run(opts.wallet_dir).await,
-            Some(Command::Pczt(command)) => match command {
-                commands::pczt::Command::Create(command) => command.run(opts.wallet_dir).await,
-                commands::pczt::Command::Shield(command) => command.run(opts.wallet_dir).await,
-                commands::pczt::Command::Inspect(command) => command.run(opts.wallet_dir).await,
+            Some(Command::Wallet(commands::Wallet {
+                wallet_dir,
+                command,
+            })) => match command {
+                commands::wallet::Command::Init(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::InitFvk(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::Reset(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::ImportUfvk(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::Upgrade(command) => command.run(wallet_dir),
+                commands::wallet::Command::Sync(command) => {
+                    command
+                        .run(
+                            shutdown,
+                            wallet_dir,
+                            #[cfg(feature = "tui")]
+                            tui,
+                        )
+                        .await
+                }
+                commands::wallet::Command::Enhance(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::Balance(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::ListAccounts(command) => command.run(wallet_dir),
+                commands::wallet::Command::ListAddresses(command) => command.run(wallet_dir),
+                commands::wallet::Command::ListTx(command) => command.run(wallet_dir),
+                commands::wallet::Command::ListUnspent(command) => command.run(wallet_dir),
+                commands::wallet::Command::Shield(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::Propose(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::Send(command) => command.run(wallet_dir).await,
+            },
+            Some(Command::Pczt(commands::Pczt {
+                wallet_dir,
+                command,
+            })) => match command {
+                commands::pczt::Command::Create(command) => command.run(wallet_dir).await,
+                commands::pczt::Command::Shield(command) => command.run(wallet_dir).await,
+                commands::pczt::Command::Inspect(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Redact(command) => command.run().await,
-                commands::pczt::Command::Prove(command) => command.run(opts.wallet_dir).await,
-                commands::pczt::Command::Sign(command) => command.run(opts.wallet_dir).await,
+                commands::pczt::Command::Prove(command) => command.run(wallet_dir).await,
+                commands::pczt::Command::Sign(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Combine(command) => command.run().await,
-                commands::pczt::Command::Send(command) => command.run(opts.wallet_dir).await,
+                commands::pczt::Command::Send(command) => command.run(wallet_dir).await,
                 #[cfg(feature = "pczt-qr")]
                 commands::pczt::Command::ToQr(command) => {
                     command
@@ -194,9 +169,12 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::pczt::Command::FromQr(command) => command.run(shutdown).await,
             },
             #[cfg(feature = "pczt-qr")]
-            Some(Command::Keystone(command)) => match command {
+            Some(Command::Keystone(commands::Keystone {
+                wallet_dir,
+                command,
+            })) => match command {
                 commands::keystone::Command::Enroll(command) => {
-                    command.run(shutdown, opts.wallet_dir).await
+                    command.run(shutdown, wallet_dir).await
                 }
             },
             None => Ok(()),

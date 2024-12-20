@@ -1,6 +1,5 @@
 use anyhow::anyhow;
-use gumdrop::Options;
-
+use clap::Args;
 use zcash_address::unified::{self, Encoding};
 use zcash_client_backend::{
     data_api::{AccountBirthday, AccountPurpose, WalletWrite, Zip32Derivation},
@@ -13,39 +12,39 @@ use zip32::fingerprint::SeedFingerprint;
 
 use crate::{
     data::get_db_paths,
-    error,
+    error, parse_hex,
     remote::{tor_client, Servers},
 };
 
 // Options accepted for the `import-ufvk` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(help = "a name for the account")]
+    /// A name for the account
+    #[arg(long)]
     name: String,
 
-    #[options(free, required, help = "The Unified Full Viewing Key to import")]
+    /// The Unified Full Viewing Key to import
     ufvk: String,
 
-    #[options(free, required, help = "the UFVK's birthday")]
+    /// The UFVK's birthday
     birthday: u32,
 
-    #[options(
-        help = "hex encoding of the ZIP 32 fingerprint for the seed from which the UFVK was derived",
-        parse(try_from_str = "hex::decode")
-    )]
+    /// Hex encoding of the ZIP 32 fingerprint for the seed from which the UFVK was derived
+    #[arg(long)]
+    #[arg(value_parser = parse_hex)]
     seed_fingerprint: Option<Vec<u8>>,
 
-    #[options(help = "ZIP 32 account index corresponding to the UFVK")]
+    /// ZIP 32 account index corresponding to the UFVK
+    #[arg(long)]
     hd_account_index: Option<u32>,
 
-    #[options(
-        help = "the server to initialize with (default is \"ecc\")",
-        default = "ecc",
-        parse(try_from_str = "Servers::parse")
-    )]
+    /// The server to initialize with (default is \"ecc\")
+    #[arg(short, long)]
+    #[arg(default_value = "ecc", value_parser = Servers::parse)]
     server: Servers,
 
-    #[options(help = "disable connections via TOR")]
+    /// Disable connections via TOR
+    #[arg(long)]
     disable_tor: bool,
 }
 

@@ -1,6 +1,5 @@
 use anyhow::anyhow;
-use gumdrop::Options;
-
+use clap::Args;
 use zcash_client_backend::{
     data_api::{Account, WalletRead},
     proto::service,
@@ -14,22 +13,19 @@ use crate::{
 };
 
 // Options accepted for the `reset` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(
-        required,
-        help = "age identity file to decrypt the mnemonic phrase with"
-    )]
+    /// age identity file to decrypt the mnemonic phrase with
+    #[arg(short, long)]
     identity: String,
 
-    #[options(
-        help = "the server to re-initialize with (default is \"ecc\")",
-        default = "ecc",
-        parse(try_from_str = "Servers::parse")
-    )]
+    /// The server to re-initialize with (default is \"ecc\")
+    #[arg(short, long)]
+    #[arg(default_value = "ecc", value_parser = Servers::parse)]
     server: Servers,
 
-    #[options(help = "disable connections via TOR")]
+    /// Disable connections via TOR
+    #[arg(long)]
     disable_tor: bool,
 }
 

@@ -1,5 +1,4 @@
-use gumdrop::Options;
-
+use clap::Args;
 use uuid::Uuid;
 use zcash_client_backend::data_api::Account;
 use zcash_client_sqlite::WalletDb;
@@ -7,10 +6,10 @@ use zcash_keys::keys::UnifiedAddressRequest;
 
 use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths};
 
-// Options accepted for the `list-accounts` command
-#[derive(Debug, Options)]
+// Options accepted for the `list-addresses` command
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(free, help = "the UUID of the account to list addresses for")]
+    /// The UUID of the account to list addresses for
     account_id: Option<Uuid>,
 }
 

@@ -1,6 +1,5 @@
 use anyhow::anyhow;
-use gumdrop::Options;
-
+use clap::Args;
 use rusqlite::{named_params, Connection};
 use uuid::Uuid;
 use zcash_primitives::{
@@ -17,8 +16,8 @@ use zcash_protocol::{
 
 use crate::{data::get_db_paths, ui::format_zec};
 
-// Options accepted for the `list` command
-#[derive(Debug, Options)]
+// Options accepted for the `list-tx` command
+#[derive(Debug, Args)]
 pub(crate) struct Command {}
 
 impl Command {

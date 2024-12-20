@@ -1,8 +1,7 @@
 use std::num::NonZeroUsize;
 
 use anyhow::anyhow;
-use gumdrop::Options;
-
+use clap::Args;
 use tokio::io::{stdout, AsyncWriteExt};
 use uuid::Uuid;
 use zcash_client_backend::{
@@ -22,21 +21,19 @@ use zcash_protocol::value::Zatoshis;
 use crate::{commands::select_account, config::WalletConfig, data::get_db_paths, error};
 
 // Options accepted for the `pczt shield` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {
-    #[options(free, help = "the UUID of the account to shield funds in")]
+    /// The UUID of the account to shield funds in
     account_id: Option<Uuid>,
 
-    #[options(
-        help = "note management: the number of notes to maintain in the wallet",
-        default = "4"
-    )]
+    /// Note management: the number of notes to maintain in the wallet
+    #[arg(long)]
+    #[arg(default_value_t = 4)]
     target_note_count: usize,
 
-    #[options(
-        help = "note management: the minimum allowed value for split change amounts",
-        default = "10000000"
-    )]
+    /// Note management: the minimum allowed value for split change amounts
+    #[arg(long)]
+    #[arg(default_value_t = 10000000)]
     min_split_output_value: u64,
 }
 

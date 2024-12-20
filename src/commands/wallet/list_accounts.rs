@@ -1,12 +1,11 @@
-use gumdrop::Options;
-
+use clap::Args;
 use zcash_client_backend::data_api::{Account, WalletRead};
 use zcash_client_sqlite::WalletDb;
 
 use crate::{config::get_wallet_network, data::get_db_paths};
 
 // Options accepted for the `list-accounts` command
-#[derive(Debug, Options)]
+#[derive(Debug, Args)]
 pub(crate) struct Command {}
 
 impl Command {
