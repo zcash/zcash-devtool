@@ -106,69 +106,18 @@ impl Command {
         
         println!("Device ID {:?}", ledger_id);
 
-        println!("get FullViewingKey ");
-        // get FVK
-        let mut fvk_bytes = app.get_fvk(0x8000_0000)
+        println!("get UnifiedFullViewingKey ");
+        // get UFVK
+        let mut ufvk_raw = app.get_ufvk(0)
             .await
             .map_err(anyhow::Error::new)?;
-
-        let mut dk_bytes = app.get_dk(0x8000_0000)
-            .await
-            .map_err(anyhow::Error::new)?;
-        // // get parts according to https://github.com/Zondax/ledger-zcash/blob/main/docs/APDUSPEC.md
-        // // let mut ak_bytes = [0u8; AK_SIZE];
-        // // ak_bytes.copy_from_slice(&fvk_bytes[0..AK_SIZE]);
-
-        // // let mut nk_bytes = [0u8; NSK_SIZE];
-        // // nk_bytes.copy_from_slice(&ak_bytes[AK_SIZE..(AK_SIZE + NSK_SIZE)]);
-
-        // // let mut ovk_bytes = [0u8; NSK_SIZE];
-        // // ovk_bytes.copy_from_slice(&fvk_bytes[(AK_SIZE + NSK_SIZE)..(AK_SIZE + NSK_SIZE + OVK_SIZE)]);
-
-
-        // // let ak = match SpendValidatingKey::from_bytes(&ak_bytes) {
-        // //     Some(s) => s,
-        // //     None => return Err(anyhow!("Failed to parse SpendValidatingKey from bytes")),
-        // // };
-
-        // // let nk = NullifierDerivingKey::from_bytes(nk_bytes);
-
-        // let vk = ViewingKey { ak, nk };
-        println!("Create FVK from bytes");
-        let mut buffer = &fvk_bytes[..];
-        let fvk = FullViewingKey::read(buffer)
-            .map_err(anyhow::Error::new)?;
-
-
-        println!("FVK {:?}",fvk_bytes);
-        println!("FVK {:?}",fvk);
-
-        println!("Get Diverisifier Key");
-        let dk = DiversifierKey::from_bytes(dk_bytes);
-        println!("DK {:?}",dk_bytes);
-
-        // Create a slice that contains the FVK + DK so we can create a Diversifiable FVK
-        // from bytes
-        let mut dfvk_bytes = [0u8; FVK_SIZE + DK_SIZE];
-
-        dfvk_bytes[..FVK_SIZE].copy_from_slice(&fvk_bytes);
-        dfvk_bytes[FVK_SIZE..FVK_SIZE + DK_SIZE].copy_from_slice(&dk_bytes);
-
-
-        let dfvk = DiversifiableFullViewingKey::from_bytes(&dfvk_bytes)
-            .expect("Unable to create Sapling Diversifiable Full Viewing Key");
 
         
-        let path = BIP44Path::from_string("m/44'/133'/0'/0/0")
-            .map_err(|_|anyhow!("Error mapping path m/44'/133'/0/0"))?;
+        let dfvk = DiversifiableFullViewingKey::from_bytes(&ufvk_raw.dfvk)
+            .expect("Unable to create Sapling Diversifiable Full Viewing Key");
 
-        // Obtain Transparent PubKey
-        let t_pubkey = app.get_address_unshielded(&path, false)
-            .await
-            .map_err(anyhow::Error::new)?;
-
-        println!("got transparent address {:?}", t_pubkey.address);
-        let pub_key_bytes = PublicKeyBytes::from(t_pubkey.public_key);
+       
+        let pub_key_bytes = PublicKeyBytes::from(ufvk_raw.transparent);
 
         let mut account_pub_key_bytes = [0u8; 65];
 
