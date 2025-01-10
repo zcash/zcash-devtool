@@ -1,5 +1,8 @@
+use std::collections::BTreeMap;
+use std::io::Write;
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use clap::Args;
 use crossterm::event::KeyCode;
 use futures_util::FutureExt;
@@ -16,10 +19,13 @@ use ratatui::{
 use shardtree::{error::ShardTreeError, store::ShardStore, LocatedTree, RetentionFlags};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
-use zcash_client_backend::data_api::WalletCommitmentTrees;
+use zcash_client_backend::data_api::{WalletCommitmentTrees, WalletRead};
 use zcash_client_sqlite::{wallet::commitment_tree::SqliteShardStore, WalletDb};
 use zcash_primitives::merkle_tree::HashSer;
-use zcash_protocol::{consensus::Network, ShieldedProtocol};
+use zcash_protocol::{
+    consensus::{BlockHeight, Network},
+    ShieldedProtocol,
+};
 
 use crate::{
     config::get_wallet_network,
@@ -64,6 +70,10 @@ pub(crate) struct Command {
     /// A node address `level:index` or leaf position.
     #[arg(short, long, value_parser = parse_address)]
     address: Option<Address>,
+
+    /// Set to show block boundaries.
+    #[arg(long)]
+    show_block_boundaries: bool,
 }
 
 impl Command {
@@ -77,7 +87,13 @@ impl Command {
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let db_data = WalletDb::for_path(db_data, params, ())?;
 
-        let mut app = App::new(shutdown.tui_quit_signal(), db_data, self.pool, self.address);
+        let mut app = App::new(
+            shutdown.tui_quit_signal(),
+            db_data,
+            self.pool,
+            self.address,
+            self.show_block_boundaries,
+        )?;
         if let Err(e) = app.run(tui).await {
             tracing::error!("Error while running TUI: {e}");
         }
@@ -94,6 +110,7 @@ pub(super) struct App {
     address: Address,
     action_tx: mpsc::UnboundedSender<Action>,
     action_rx: mpsc::UnboundedReceiver<Action>,
+    block_boundaries: Option<BTreeMap<u32, BlockHeight>>,
     region: Option<Region>,
 }
 
@@ -103,10 +120,57 @@ impl App {
         db_data: WalletDb<rusqlite::Connection, Network, ()>,
         pool: ShieldedProtocol,
         address: Option<Address>,
-    ) -> Self {
+        show_block_boundaries: bool,
+    ) -> anyhow::Result<Self> {
         let address =
             address.unwrap_or_else(|| Address::above_position(SHARD_ROOT_LEVEL, 0.into()));
         let (action_tx, action_rx) = mpsc::unbounded_channel();
+
+        let block_boundaries = if show_block_boundaries {
+            println!("Caching block boundaries for performance");
+            let scanned_range = match (db_data.get_wallet_birthday()?, db_data.block_max_scanned()?)
+            {
+                (Some(birthday_height), Some(max_scanned)) => {
+                    Ok(u32::from(birthday_height)..=u32::from(max_scanned.block_height()))
+                }
+                _ => Err(anyhow!("Tree is empty")),
+            }?;
+
+            // Crude progress bar.
+            let mut last_pos = 0;
+            let max = (scanned_range.end() - scanned_range.start()) as f64;
+
+            let blocks = scanned_range
+                .enumerate()
+                .map(|(i, height)| {
+                    let cur_pos = ((i * 100) as f64 / max) as u8;
+                    if cur_pos > last_pos {
+                        last_pos = cur_pos;
+                        print!(".");
+                        std::io::stdout().flush()?;
+                    }
+
+                    db_data.block_metadata(height.into())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            println!();
+
+            let mut block_boundaries = BTreeMap::new();
+            for block in blocks {
+                if let Some(block) = block {
+                    if let Some(key) = match pool {
+                        ShieldedProtocol::Sapling => block.sapling_tree_size(),
+                        ShieldedProtocol::Orchard => block.orchard_tree_size(),
+                    } {
+                        block_boundaries.entry(key).or_insert(block.block_height());
+                    }
+                }
+            }
+            Some(block_boundaries)
+        } else {
+            None
+        };
+
         let mut app = Self {
             should_quit: false,
             notify_shutdown: Some(notify_shutdown),
@@ -115,10 +179,11 @@ impl App {
             address,
             action_tx,
             action_rx,
+            block_boundaries,
             region: None,
         };
         app.reload_region();
-        app
+        Ok(app)
     }
 
     pub(super) async fn run(&mut self, mut tui: tui::Tui) -> anyhow::Result<()> {
@@ -233,7 +298,7 @@ impl App {
 
     fn reload_region(&mut self) {
         let address = self.address;
-        let region = match self.pool {
+        let mut region = match self.pool {
             ShieldedProtocol::Sapling => self
                 .db_data
                 .with_sapling_tree_mut(move |tree| {
@@ -259,6 +324,9 @@ impl App {
                 })
                 .unwrap(),
         };
+        if let Some(block_boundaries) = &self.block_boundaries {
+            region.add_block_boundaries(block_boundaries);
+        }
 
         self.region = Some(region);
     }
@@ -404,6 +472,7 @@ struct Node {
     address: Address,
     flags: Option<RetentionFlags>,
     is_nil: bool,
+    block_boundary: Option<BlockHeight>,
 }
 
 impl Node {
@@ -412,11 +481,24 @@ impl Node {
             address: node.root_addr(),
             flags: node.root().leaf_value().map(|(_, flags)| *flags),
             is_nil: node.root().is_nil(),
+            block_boundary: None,
         }
     }
 
     fn is_checkpoint(&self) -> bool {
         self.flags.map_or(false, |flags| flags.is_checkpoint())
+    }
+
+    fn add_block_boundary(&mut self, block_boundaries: &BTreeMap<u32, BlockHeight>) {
+        // If the maximum position within this node is the last note in a block, render
+        // a block boundary.
+        if let Some(height) =
+            block_boundaries.get(&(u64::from(self.address.max_position()) as u32 + 1))
+        {
+            self.block_boundary = Some(*height);
+        }
+        // TODO: Once `BTreeMap::upper_bound` stabilises, show inexact block boundaries in
+        // addition to exact ones.
     }
 }
 
@@ -496,6 +578,46 @@ impl Region {
         })
     }
 
+    fn add_block_boundaries(&mut self, block_boundaries: &BTreeMap<u32, BlockHeight>) {
+        // Annotate the lowest-level nodes in the region with block boundaries.
+        if let Some(right) = &mut self.r {
+            right.add_block_boundary(block_boundaries);
+            if let Some(left) = &mut self.l {
+                left.add_block_boundary(block_boundaries);
+            }
+        } else {
+            self.node.add_block_boundary(block_boundaries);
+        }
+        if let Some(parent) = &mut self.p {
+            if let Some(sibling) = &mut parent.sibling_child {
+                if let Some(right) = &mut sibling.r {
+                    right.add_block_boundary(block_boundaries);
+                    if let Some(left) = &mut sibling.l {
+                        left.add_block_boundary(block_boundaries);
+                    }
+                } else {
+                    sibling.node.add_block_boundary(block_boundaries);
+                }
+            } else {
+                parent.node.add_block_boundary(block_boundaries);
+            }
+        }
+        if let Some(parent) = &mut self.op {
+            if let Some(sibling) = &mut parent.sibling_child {
+                if let Some(right) = &mut sibling.r {
+                    right.add_block_boundary(block_boundaries);
+                    if let Some(left) = &mut sibling.l {
+                        left.add_block_boundary(block_boundaries);
+                    }
+                } else {
+                    sibling.node.add_block_boundary(block_boundaries);
+                }
+            } else {
+                parent.node.add_block_boundary(block_boundaries);
+            }
+        }
+    }
+
     fn render(self) -> impl Widget {
         Canvas::default()
             .block(Block::bordered().title(match self.pool {
@@ -524,20 +646,26 @@ impl Region {
                         draw_shard_boundary(ctx, Y_GRANDPARENT);
                     }
                 }
-                if self.node.is_checkpoint() {
+                if let Some(height) = self.node.block_boundary {
+                    draw_block_boundary(ctx, X_NODE, height);
+                } else if self.node.is_checkpoint() {
                     draw_checkpoint(ctx, X_NODE);
                 }
                 if let Some(left) = self.l {
                     let x_left = X_NODE - CHILD_OFFSET;
                     draw_edge(ctx, X_NODE, Y_NODE, x_left, Y_CHILD);
-                    if left.is_checkpoint() {
+                    if let Some(height) = left.block_boundary {
+                        draw_block_boundary(ctx, x_left, height);
+                    } else if left.is_checkpoint() {
                         draw_checkpoint(ctx, x_left);
                     }
                 }
                 if let Some(right) = self.r {
                     let x_right = X_NODE + CHILD_OFFSET;
                     draw_edge(ctx, X_NODE, Y_NODE, x_right, Y_CHILD);
-                    if right.is_checkpoint() {
+                    if let Some(height) = right.block_boundary {
+                        draw_block_boundary(ctx, x_right, height);
+                    } else if right.is_checkpoint() {
                         draw_checkpoint(ctx, x_right);
                     }
                 }
@@ -625,7 +753,9 @@ impl Parent {
         if self.is_parent_of_region {
             draw_edge(ctx, X_NODE, Y_NODE, self.x, self.y);
         }
-        if self.node.is_checkpoint() {
+        if let Some(height) = self.node.block_boundary {
+            draw_block_boundary(ctx, self.x, height);
+        } else if self.node.is_checkpoint() {
             draw_checkpoint(ctx, self.x);
         }
         if let Some(grandparent) = self.grandparent {
@@ -700,20 +830,26 @@ impl Sibling {
 
     fn draw_edges(&self, ctx: &mut Context<'_>, parent_x: f64, parent_y: f64) {
         draw_edge(ctx, parent_x, parent_y, self.x, self.y);
-        if self.node.is_checkpoint() {
+        if let Some(height) = self.node.block_boundary {
+            draw_block_boundary(ctx, self.x, height);
+        } else if self.node.is_checkpoint() {
             draw_checkpoint(ctx, self.x);
         }
         if let Some(left) = self.l {
             let x_left = self.x - CHILD_OFFSET;
             draw_edge(ctx, self.x, self.y, x_left, self.y - ROW_SPACING);
-            if left.is_checkpoint() {
+            if let Some(height) = left.block_boundary {
+                draw_block_boundary(ctx, x_left, height);
+            } else if left.is_checkpoint() {
                 draw_checkpoint(ctx, x_left);
             }
         }
         if let Some(right) = self.r {
             let x_right = self.x + CHILD_OFFSET;
             draw_edge(ctx, self.x, self.y, x_right, self.y - ROW_SPACING);
-            if right.is_checkpoint() {
+            if let Some(height) = right.block_boundary {
+                draw_block_boundary(ctx, x_right, height);
+            } else if right.is_checkpoint() {
                 draw_checkpoint(ctx, x_right);
             }
         }
@@ -773,6 +909,11 @@ fn draw_shard_boundary(ctx: &mut Context<'_>, y: f64) {
         y2: y,
         color: Color::Green,
     });
+}
+
+fn draw_block_boundary(ctx: &mut Context<'_>, x: f64, height: BlockHeight) {
+    draw_checkpoint(ctx, x);
+    ctx.print(x, -30.0, format!("{}", u32::from(height)));
 }
 
 fn draw_checkpoint(ctx: &mut Context<'_>, x: f64) {
