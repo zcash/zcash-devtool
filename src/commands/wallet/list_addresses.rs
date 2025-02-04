@@ -2,7 +2,6 @@ use clap::Args;
 use uuid::Uuid;
 use zcash_client_backend::data_api::Account;
 use zcash_client_sqlite::WalletDb;
-use zcash_keys::keys::UnifiedAddressRequest;
 
 use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths};
 
@@ -22,9 +21,7 @@ impl Command {
         let account = select_account(&db_data, self.account_id)?;
 
         println!("Account {:?}", account.id());
-        let (ua, _) = account
-            .uivk()
-            .default_address(UnifiedAddressRequest::all())?;
+        let (ua, _) = account.uivk().default_address(None)?;
         println!("     Default Address: {}", ua.encode(&params));
         Ok(())
     }
