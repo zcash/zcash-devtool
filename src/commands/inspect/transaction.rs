@@ -182,7 +182,7 @@ pub(crate) fn inspect(
     };
 
     let transparent_coins = match (
-        tx.transparent_bundle().map_or(false, |b| !b.vin.is_empty()),
+        tx.transparent_bundle().is_some_and(|b| !b.vin.is_empty()),
         context.as_ref().and_then(|ctx| ctx.transparent_coins()),
     ) {
         (true, coins) => coins,
