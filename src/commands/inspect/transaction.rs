@@ -182,7 +182,7 @@ pub(crate) fn inspect(
     };
 
     let transparent_coins = match (
-        tx.transparent_bundle().map_or(false, |b| !b.vin.is_empty()),
+        tx.transparent_bundle().is_some_and(|b| !b.vin.is_empty()),
         context.as_ref().and_then(|ctx| ctx.transparent_coins()),
     ) {
         (true, coins) => coins,
@@ -317,8 +317,9 @@ pub(crate) fn inspect(
                                         ),
                                         txid_parts,
                                     );
-                                    let msg = secp256k1::Message::from_slice(sighash.as_ref())
-                                        .expect("signature_hash() returns correct length");
+                                    let msg =
+                                        secp256k1::Message::from_digest_slice(sighash.as_ref())
+                                            .expect("signature_hash() returns correct length");
 
                                     if let Err(e) = ctx.verify_ecdsa(&msg, &sig, &pubkey) {
                                         eprintln!("    ⚠️  Spend {} is invalid: {}", i, e);
