@@ -35,7 +35,7 @@ pub(crate) struct Command {
     /// Hex encoding of the ZIP 32 fingerprint for the seed from which the UFVK was derived
     #[arg(long)]
     #[arg(value_parser = parse_hex)]
-    seed_fingerprint: Option<Vec<u8>>,
+    seed_fingerprint: Option<std::vec::Vec<u8>>,
 
     /// ZIP 32 account index corresponding to the UFVK
     #[arg(long)]
