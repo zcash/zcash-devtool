@@ -20,7 +20,7 @@ pub(crate) struct Command {
     /// Hex encoding of the Sapling proof generation key
     #[arg(long)]
     #[arg(value_parser = parse_hex)]
-    sapling_proof_generation_key: Option<Vec<u8>>,
+    sapling_proof_generation_key: Option<std::vec::Vec<u8>>,
 
     /// age identity file to decrypt the mnemonic phrase with for deriving the Sapling proof generation key
     #[arg(short, long)]
