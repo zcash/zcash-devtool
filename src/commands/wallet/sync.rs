@@ -18,6 +18,7 @@ use zcash_client_backend::{
             scan_cached_blocks,
         },
         scanning::{ScanPriority, ScanRange},
+        wallet::ConfirmationsPolicy,
     },
     proto::service::{self, BlockId, compact_tx_streamer_client::CompactTxStreamerClient},
 };
@@ -49,10 +50,7 @@ use {
 };
 
 #[cfg(feature = "tui")]
-use {
-    zcash_client_backend::data_api::wallet::ConfirmationsPolicy,
-    zcash_protocol::consensus::NetworkUpgrade,
-};
+use zcash_protocol::consensus::NetworkUpgrade;
 
 #[cfg(feature = "tui")]
 use crate::tui::Tui;
@@ -585,7 +583,7 @@ fn scan_blocks<P: Parameters + Send + 'static>(
             Ok(true)
         }
         Ok(_) => {
-            if let Some(summary) = db_data.get_wallet_summary(0)? {
+            if let Some(summary) = db_data.get_wallet_summary(ConfirmationsPolicy::MIN)? {
                 info!(
                     "Scan complete for range {}; progress is {}/{}",
                     scan_range,
