@@ -339,19 +339,31 @@ impl App {
 
         let region = self.region.clone().expect("always set");
 
+        frame.render_widget(region.render(), upper_area);
         frame.render_widget(
             Paragraph::new(
                 [
-                    Some(ratatui::text::Line::from(format!(
-                        "{} node",
-                        if region.node.is_nil {
-                            "Nil"
-                        } else if region.node.flags.is_some() {
-                            "Leaf"
-                        } else {
-                            "Parent"
-                        },
-                    ))),
+                    Some(ratatui::text::Line::from(if region.node.is_nil {
+                        "Nil node".into()
+                    } else if region.node.flags.is_some() {
+                        format!(
+                            "Leaf node{}",
+                            if let Some(v) = region.node.value {
+                                format!(": {v}")
+                            } else {
+                                " (no value)".into()
+                            }
+                        )
+                    } else {
+                        format!(
+                            "Parent node{}",
+                            if let Some(a) = region.node.annotation {
+                                format!(": {a}")
+                            } else {
+                                " (no annotation)".into()
+                            }
+                        )
+                    })),
                     region.node.flags.and_then(|flags| {
                         (flags == RetentionFlags::EPHEMERAL).then(|| "Ephemeral".into())
                     }),
@@ -384,7 +396,6 @@ impl App {
             .block(Block::bordered().title("Debug")),
             debug_area,
         );
-        frame.render_widget(region.render(), upper_area);
     }
 }
 
@@ -467,18 +478,30 @@ impl<'a, H: Clone + HashSer> NodeFetcher<'a, H> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Node {
     address: Address,
+    annotation: Option<String>,
+    value: Option<String>,
     flags: Option<RetentionFlags>,
     is_nil: bool,
     block_boundary: Option<BlockHeight>,
 }
 
 impl Node {
-    fn new<H>(node: LocatedTree<Option<Arc<H>>, (H, RetentionFlags)>) -> Self {
+    fn new<H: HashSer>(node: LocatedTree<Option<Arc<H>>, (H, RetentionFlags)>) -> Self {
         Self {
             address: node.root_addr(),
+            annotation: node.root().annotation().and_then(|a| a.as_ref()).map(|a| {
+                let mut data = vec![];
+                a.write(&mut data).unwrap();
+                hex::encode(data)
+            }),
+            value: node.root().leaf_value().map(|(v, _)| {
+                let mut data = vec![];
+                v.write(&mut data).unwrap();
+                hex::encode(data)
+            }),
             flags: node.root().leaf_value().map(|(_, flags)| *flags),
             is_nil: node.root().is_nil(),
             block_boundary: None,
@@ -618,7 +641,7 @@ impl Region {
         }
     }
 
-    fn render(self) -> impl Widget {
+    fn render(&self) -> impl Widget + use<'_> {
         Canvas::default()
             .block(Block::bordered().title(match self.pool {
                 ShieldedProtocol::Sapling => "Sapling tree",
@@ -632,15 +655,17 @@ impl Region {
                     draw_shard_boundary(ctx, Y_NODE);
                 } else if self
                     .l
-                    .or(self.r)
+                    .as_ref()
+                    .or(self.r.as_ref())
                     .map_or(false, |node| node.address.level() == SHARD_ROOT_LEVEL)
                 {
                     draw_shard_boundary(ctx, Y_CHILD);
-                } else if let Some(parent) = self.p {
+                } else if let Some(parent) = &self.p {
                     if parent.node.address.level() == SHARD_ROOT_LEVEL {
                         draw_shard_boundary(ctx, Y_PARENT);
                     } else if parent
                         .grandparent
+                        .as_ref()
                         .map_or(false, |node| node.address.level() == SHARD_ROOT_LEVEL)
                     {
                         draw_shard_boundary(ctx, Y_GRANDPARENT);
@@ -651,7 +676,7 @@ impl Region {
                 } else if self.node.is_checkpoint() {
                     draw_checkpoint(ctx, X_NODE);
                 }
-                if let Some(left) = self.l {
+                if let Some(left) = &self.l {
                     let x_left = X_NODE - CHILD_OFFSET;
                     draw_edge(ctx, X_NODE, Y_NODE, x_left, Y_CHILD);
                     if let Some(height) = left.block_boundary {
@@ -660,7 +685,7 @@ impl Region {
                         draw_checkpoint(ctx, x_left);
                     }
                 }
-                if let Some(right) = self.r {
+                if let Some(right) = &self.r {
                     let x_right = X_NODE + CHILD_OFFSET;
                     draw_edge(ctx, X_NODE, Y_NODE, x_right, Y_CHILD);
                     if let Some(height) = right.block_boundary {
@@ -669,26 +694,26 @@ impl Region {
                         draw_checkpoint(ctx, x_right);
                     }
                 }
-                if let Some(parent) = self.p {
+                if let Some(parent) = &self.p {
                     parent.draw_edges(ctx);
                 }
-                if let Some(parent) = self.op {
+                if let Some(parent) = &self.op {
                     parent.draw_edges(ctx);
                 }
                 ctx.layer();
 
                 // Draw nodes on the upper layer.
                 draw_node(ctx, X_NODE, Y_NODE, self.node.address);
-                if let Some(left) = self.l {
+                if let Some(left) = &self.l {
                     draw_node(ctx, X_NODE - CHILD_OFFSET, Y_CHILD, left.address);
                 }
-                if let Some(right) = self.r {
+                if let Some(right) = &self.r {
                     draw_node(ctx, X_NODE + CHILD_OFFSET, Y_CHILD, right.address);
                 }
-                if let Some(parent) = self.p {
+                if let Some(parent) = &self.p {
                     parent.draw_nodes(ctx);
                 }
-                if let Some(parent) = self.op {
+                if let Some(parent) = &self.op {
                     parent.draw_nodes(ctx);
                 }
 
@@ -703,7 +728,7 @@ impl Region {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Parent {
     x: f64,
     y: f64,
@@ -758,7 +783,7 @@ impl Parent {
         } else if self.node.is_checkpoint() {
             draw_checkpoint(ctx, self.x);
         }
-        if let Some(grandparent) = self.grandparent {
+        if let Some(grandparent) = &self.grandparent {
             let grandparent_x = if self.node.address.is_left_child() {
                 self.x + NODE_GAP
             } else {
@@ -769,14 +794,14 @@ impl Parent {
                 draw_checkpoint(ctx, grandparent_x);
             }
         }
-        if let Some(sibling) = self.sibling_child {
+        if let Some(sibling) = &self.sibling_child {
             sibling.draw_edges(ctx, self.x, self.y);
         }
     }
 
-    fn draw_nodes(self, ctx: &mut Context<'_>) {
+    fn draw_nodes(&self, ctx: &mut Context<'_>) {
         draw_node(ctx, self.x, self.y, self.node.address);
-        if let Some(grandparent) = self.grandparent {
+        if let Some(grandparent) = &self.grandparent {
             let grandparent_x = if self.node.address.is_left_child() {
                 self.x + NODE_GAP
             } else {
@@ -784,13 +809,13 @@ impl Parent {
             };
             draw_node(ctx, grandparent_x, Y_GRANDPARENT, grandparent.address);
         }
-        if let Some(sibling) = self.sibling_child {
+        if let Some(sibling) = &self.sibling_child {
             sibling.draw_nodes(ctx);
         }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Sibling {
     x: f64,
     y: f64,
@@ -835,7 +860,7 @@ impl Sibling {
         } else if self.node.is_checkpoint() {
             draw_checkpoint(ctx, self.x);
         }
-        if let Some(left) = self.l {
+        if let Some(left) = &self.l {
             let x_left = self.x - CHILD_OFFSET;
             draw_edge(ctx, self.x, self.y, x_left, self.y - ROW_SPACING);
             if let Some(height) = left.block_boundary {
@@ -844,7 +869,7 @@ impl Sibling {
                 draw_checkpoint(ctx, x_left);
             }
         }
-        if let Some(right) = self.r {
+        if let Some(right) = &self.r {
             let x_right = self.x + CHILD_OFFSET;
             draw_edge(ctx, self.x, self.y, x_right, self.y - ROW_SPACING);
             if let Some(height) = right.block_boundary {
@@ -855,9 +880,9 @@ impl Sibling {
         }
     }
 
-    fn draw_nodes(self, ctx: &mut Context<'_>) {
+    fn draw_nodes(&self, ctx: &mut Context<'_>) {
         draw_node(ctx, self.x, self.y, self.node.address);
-        if let Some(left) = self.l {
+        if let Some(left) = &self.l {
             draw_node(
                 ctx,
                 self.x - CHILD_OFFSET,
@@ -865,7 +890,7 @@ impl Sibling {
                 left.address,
             );
         }
-        if let Some(right) = self.r {
+        if let Some(right) = &self.r {
             draw_node(
                 ctx,
                 self.x + CHILD_OFFSET,
