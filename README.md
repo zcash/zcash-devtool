@@ -54,6 +54,11 @@ If you want to run with debug or trace logging:
 RUST_LOG=debug cargo run --release -- -w <wallet_dir> <command>
 ```
 
+## Documentation
+
+For a step-by-step guide for how to get started using these tools, see [this
+walkthrough](doc/walkthrough.md).
+
 ## License
 
 All code in this workspace is licensed under either of
