@@ -140,6 +140,7 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::wallet::Command::Enhance(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::Balance(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::ListAccounts(command) => command.run(wallet_dir),
+                commands::wallet::Command::GenerateAddress(command) => command.run(wallet_dir),
                 commands::wallet::Command::ListAddresses(command) => command.run(wallet_dir),
                 commands::wallet::Command::ListTx(command) => command.run(wallet_dir),
                 commands::wallet::Command::ListUnspent(command) => command.run(wallet_dir),
