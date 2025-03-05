@@ -192,5 +192,5 @@ pub(crate) async fn tor_client<P: AsRef<Path>>(
     // Ensure Tor directory exists.
     tokio::fs::create_dir_all(&tor_dir).await?;
 
-    Ok(tor::Client::create(&tor_dir).await?)
+    Ok(tor::Client::create(&tor_dir, |_| {}).await?)
 }
