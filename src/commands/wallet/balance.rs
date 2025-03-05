@@ -9,6 +9,7 @@ use zcash_client_backend::{
     tor,
 };
 use zcash_client_sqlite::WalletDb;
+use zcash_keys::keys::UnifiedAddressRequest;
 use zcash_protocol::value::{Zatoshis, COIN};
 
 use crate::{
@@ -33,11 +34,14 @@ impl Command {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let db_data = WalletDb::for_path(db_data, params)?;
+        let db_data = WalletDb::for_path(db_data, params, ())?;
         let account = select_account(&db_data, self.account_id)?;
 
         let address = db_data
-            .get_current_address(account.id())?
+            .get_last_generated_address_matching(
+                account.id(),
+                UnifiedAddressRequest::AllAvailableKeys,
+            )?
             .ok_or(error::Error::InvalidRecipient)?;
 
         let printer = if let Some(currency) = self.convert {

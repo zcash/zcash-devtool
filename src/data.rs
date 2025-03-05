@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use zcash_client_sqlite::chain::init::init_blockmeta_db;
+use zcash_client_sqlite::util::SystemClock;
 use zcash_client_sqlite::wallet::init::init_wallet_db;
 use zcash_client_sqlite::{FsBlockDb, WalletDb};
 
@@ -101,11 +102,11 @@ pub(crate) async fn erase_wallet_state<P: AsRef<Path>>(wallet_dir: Option<P>) {
 pub(crate) fn init_dbs<P: Parameters + 'static>(
     params: P,
     wallet_dir: Option<&String>,
-) -> Result<WalletDb<rusqlite::Connection, P>, anyhow::Error> {
+) -> Result<WalletDb<rusqlite::Connection, P, SystemClock>, anyhow::Error> {
     // Initialise the block and wallet DBs.
     let (db_cache, db_data) = get_db_paths(wallet_dir);
     let mut db_cache = FsBlockDb::for_path(db_cache).map_err(error::Error::from)?;
-    let mut db_data = WalletDb::for_path(db_data, params)?;
+    let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
     init_blockmeta_db(&mut db_cache)?;
     init_wallet_db(&mut db_data, None)?;
 

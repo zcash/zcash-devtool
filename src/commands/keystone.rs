@@ -7,7 +7,7 @@ use qrcode::{render::unicode, QrCode};
 use tokio::io::{stdout, AsyncWriteExt};
 use uuid::Uuid;
 use zcash_client_backend::data_api::Account;
-use zcash_client_sqlite::WalletDb;
+use zcash_client_sqlite::{util::SystemClock, WalletDb};
 
 use crate::{config::WalletConfig, data::get_db_paths, ShutdownListener};
 
@@ -44,7 +44,7 @@ impl Enroll {
         let params = config.network();
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let db_data = WalletDb::for_path(db_data, params)?;
+        let db_data = WalletDb::for_path(db_data, params, SystemClock)?;
         let account = select_account(&db_data, self.account_id)?;
 
         let key_derivation = account

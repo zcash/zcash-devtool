@@ -18,7 +18,7 @@ use zcash_client_backend::{
     proto::service,
     wallet::OvkPolicy,
 };
-use zcash_client_sqlite::WalletDb;
+use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
@@ -77,7 +77,7 @@ impl Command {
         let params = config.network();
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
         let account = select_account(&db_data, self.account_id)?;
         let derivation = account
             .source()
