@@ -6,7 +6,7 @@ use zcash_client_backend::{
     data_api::{AccountBirthday, AccountPurpose, WalletWrite, Zip32Derivation},
     proto::service,
 };
-use zcash_client_sqlite::WalletDb;
+use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_protocol::consensus;
 use zip32::fingerprint::SeedFingerprint;
@@ -63,7 +63,7 @@ impl Command {
         }?;
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
 
         // Construct an `AccountBirthday` for the account's birthday.
         let birthday = {

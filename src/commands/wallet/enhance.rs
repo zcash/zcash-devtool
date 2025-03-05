@@ -14,7 +14,7 @@ use zcash_client_backend::{
         self, compact_tx_streamer_client::CompactTxStreamerClient, BlockRange, RawTransaction,
     },
 };
-use zcash_client_sqlite::WalletDb;
+use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_keys::encoding::AddressCodec;
 use zcash_primitives::transaction::{Transaction, TxId};
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network};
@@ -87,7 +87,7 @@ impl Command {
         let params = get_wallet_network(wallet_dir.as_ref())?;
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
 
-        let mut db_data = WalletDb::for_path(db_data, params)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
         let chain_tip = db_data.chain_height()?.ok_or_else(|| {
             anyhow!("Chain height must be available to perform transaction enhancement.")
         })?;

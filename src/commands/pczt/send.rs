@@ -6,7 +6,7 @@ use zcash_client_backend::{
     data_api::{wallet::extract_and_store_transaction_from_pczt, WalletRead},
     proto::service,
 };
-use zcash_client_sqlite::WalletDb;
+use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_proofs::prover::LocalTxProver;
 
 use crate::{
@@ -35,7 +35,7 @@ impl Command {
         let params = config.network();
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
 
         let server = self.server.pick(params)?;
         let mut client = if self.disable_tor {
@@ -56,9 +56,8 @@ impl Command {
         let txid = extract_and_store_transaction_from_pczt::<_, ()>(
             &mut db_data,
             pczt,
-            &spend_vk,
-            &output_vk,
-            &orchard::circuit::VerifyingKey::build(),
+            Some((&spend_vk, &output_vk)),
+            Some(&orchard::circuit::VerifyingKey::build()),
         )
         .map_err(|e| anyhow!("Failed to extract and store transaction from PCZT: {:?}", e))?;
 

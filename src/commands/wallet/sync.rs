@@ -20,7 +20,9 @@ use zcash_client_backend::{
     },
     proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient, BlockId},
 };
-use zcash_client_sqlite::{chain::BlockMeta, FsBlockDb, FsBlockDbError, WalletDb};
+use zcash_client_sqlite::{
+    chain::BlockMeta, util::SystemClock, FsBlockDb, FsBlockDbError, WalletDb,
+};
 use zcash_primitives::merkle_tree::HashSer;
 use zcash_protocol::consensus::{BlockHeight, Parameters};
 
@@ -80,7 +82,7 @@ impl Command {
         let (fsblockdb_root, db_data) = get_db_paths(wallet_dir.as_ref());
         let fsblockdb_root = fsblockdb_root.as_path();
         let mut db_cache = FsBlockDb::for_path(fsblockdb_root).map_err(error::Error::from)?;
-        let mut db_data = WalletDb::for_path(db_data, params)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
         let mut client = self.server.pick(params)?.connect_direct().await?;
 
         #[cfg(any(feature = "transparent-inputs", feature = "tui"))]
@@ -113,7 +115,7 @@ impl Command {
             params: &P,
             fsblockdb_root: &Path,
             db_cache: &mut FsBlockDb,
-            db_data: &mut WalletDb<rusqlite::Connection, P>,
+            db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock>,
             #[cfg(feature = "transparent-inputs")] wallet_birthday: BlockHeight,
             #[cfg(feature = "tui")] tui_handle: Option<&defrag::AppHandle>,
         ) -> Result<bool, anyhow::Error> {
@@ -344,7 +346,7 @@ impl Command {
 
 async fn update_subtree_roots<P: Parameters>(
     client: &mut CompactTxStreamerClient<Channel>,
-    db_data: &mut WalletDb<rusqlite::Connection, P>,
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock>,
 ) -> Result<(), anyhow::Error> {
     let mut request = service::GetSubtreeRootsArg::default();
     request.set_shielded_protocol(service::ShieldedProtocol::Sapling);
@@ -389,7 +391,7 @@ async fn update_subtree_roots<P: Parameters>(
 
 async fn update_chain_tip<P: Parameters>(
     client: &mut CompactTxStreamerClient<Channel>,
-    db_data: &mut WalletDb<rusqlite::Connection, P>,
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock>,
 ) -> Result<BlockHeight, anyhow::Error> {
     let tip_height: BlockHeight = client
         .get_latest_block(service::ChainSpec::default())
@@ -517,7 +519,7 @@ fn scan_blocks<P: Parameters + Send + 'static>(
     params: &P,
     fsblockdb_root: &Path,
     db_cache: &mut FsBlockDb,
-    db_data: &mut WalletDb<rusqlite::Connection, P>,
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock>,
     initial_chain_state: &ChainState,
     scan_range: &ScanRange,
     #[cfg(feature = "tui")] tui_handle: Option<&defrag::AppHandle>,
@@ -635,12 +637,12 @@ fn scan_blocks<P: Parameters + Send + 'static>(
 async fn refresh_utxos<P: Parameters>(
     params: &P,
     client: &mut CompactTxStreamerClient<Channel>,
-    db_data: &mut WalletDb<rusqlite::Connection, P>,
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock>,
     account_id: AccountUuid,
     start_height: BlockHeight,
 ) -> Result<(), anyhow::Error> {
     let addresses = db_data
-        .get_transparent_receivers(account_id)?
+        .get_transparent_receivers(account_id, true)?
         .into_keys()
         .map(|addr| addr.encode(params))
         .collect::<Vec<_>>();

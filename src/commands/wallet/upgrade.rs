@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use clap::Args;
 use zcash_client_sqlite::{
     chain::init::init_blockmeta_db,
+    util::SystemClock,
     wallet::init::{init_wallet_db, WalletMigrationError},
     FsBlockDb, WalletDb,
 };
@@ -26,7 +27,7 @@ impl Command {
 
         let (fsblockdb_root, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_cache = FsBlockDb::for_path(fsblockdb_root).map_err(error::Error::from)?;
-        let mut db_data = WalletDb::for_path(db_data, params)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
 
         init_blockmeta_db(&mut db_cache)?;
 

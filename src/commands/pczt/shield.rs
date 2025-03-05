@@ -14,7 +14,7 @@ use zcash_client_backend::{
     fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
     wallet::OvkPolicy,
 };
-use zcash_client_sqlite::WalletDb;
+use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
 
 use crate::{commands::select_account, config::WalletConfig, data::get_db_paths, error};
@@ -42,7 +42,7 @@ impl Command {
         let params = config.network();
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
         let account = select_account(&db_data, self.account_id)?;
 
         // Create the PCZT.

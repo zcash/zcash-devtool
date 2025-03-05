@@ -11,7 +11,7 @@ use zcash_client_backend::{
     },
     fees::{zip317::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
 };
-use zcash_client_sqlite::WalletDb;
+use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
 use zip321::{Payment, TransactionRequest};
 
@@ -50,7 +50,7 @@ impl Command {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
         let account = select_account(&db_data, self.account_id)?;
 
         let change_strategy = MultiOutputChangeStrategy::new(
