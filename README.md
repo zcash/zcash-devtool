@@ -53,6 +53,11 @@ If you want to run with debug or trace logging:
 ```
 RUST_LOG=debug cargo run --release -- -w <wallet_dir> <command>
 ```
+### Video tutorial of Zcash Devtool
+Kris Nuttycombe (@nuttycom) presented this tool during ZconVI. The session is available
+on Youtube [here](https://www.youtube.com/watch?v=5gvQF5oFT8E)
+
+[![Youtube preview of the ZconVI presentation Zcash-devtool: the Zcash development multitool](https://img.youtube.com/vi/5gvQF5oFT8E/0.jpg)](https://www.youtube.com/watch?v=5gvQF5oFT8E)
 
 ## License
 
