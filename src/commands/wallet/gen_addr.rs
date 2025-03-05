@@ -1,7 +1,7 @@
 use clap::Args;
 use uuid::Uuid;
-use zcash_client_backend::data_api::Account;
-use zcash_client_sqlite::WalletDb;
+use zcash_client_backend::data_api::{Account, WalletWrite};
+use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_keys::keys::UnifiedAddressRequest;
 
 use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths};
@@ -25,16 +25,16 @@ impl Command {
     pub(crate) fn run(self, wallet_dir: Option<String>) -> anyhow::Result<()> {
         let params = get_wallet_network(wallet_dir.as_ref())?;
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let db_data = WalletDb::for_path(db_data, params, ())?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
 
         let account = select_account(&db_data, self.account_id)?;
 
         println!("Account {:?}", account.id());
-        let (ua, _) = account
-            .uivk()
-            .default_address(UnifiedAddressRequest::AllAvailableKeys)?;
+        let (ua, _) = db_data
+            .get_next_available_address(account.id(), UnifiedAddressRequest::AllAvailableKeys)?
+            .unwrap();
         let ua_str = ua.encode(&params);
-        println!("     Default Address: {}", ua_str);
+        println!("     Address: {}", ua_str);
 
         #[cfg(feature = "qr")]
         if self.display_qr {

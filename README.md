@@ -59,6 +59,8 @@ on Youtube [here](https://www.youtube.com/watch?v=5gvQF5oFT8E)
 
 [![Youtube preview of the ZconVI presentation Zcash-devtool: the Zcash development multitool](https://img.youtube.com/vi/5gvQF5oFT8E/0.jpg)](https://www.youtube.com/watch?v=5gvQF5oFT8E)
 
+The code developed in this demo resulted in [this](https://github.com/zcash/zcash-devtool/pull/86) pull request.
+
 ## License
 
 All code in this workspace is licensed under either of
