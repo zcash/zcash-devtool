@@ -61,6 +61,11 @@ on Youtube [here](https://www.youtube.com/watch?v=5gvQF5oFT8E)
 
 The code developed in this demo resulted in [this](https://github.com/zcash/zcash-devtool/pull/86) pull request.
 
+## Documentation
+
+For a step-by-step guide for how to get started using these tools, see [this
+walkthrough](doc/walkthrough.md).
+
 ## License
 
 All code in this workspace is licensed under either of
