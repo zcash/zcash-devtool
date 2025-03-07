@@ -15,6 +15,7 @@ pub(crate) mod reset;
 pub(crate) mod send;
 pub(crate) mod shield;
 pub(crate) mod sync;
+pub(crate) mod tree;
 pub(crate) mod upgrade;
 
 #[derive(Debug, Subcommand)]
@@ -66,4 +67,8 @@ pub(crate) enum Command {
 
     /// Send funds to the given address
     Send(send::Command),
+
+    /// Commands that operate directly on the note commitment trees
+    #[command(subcommand)]
+    Tree(tree::Command),
 }
