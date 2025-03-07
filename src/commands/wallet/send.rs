@@ -21,7 +21,11 @@ use zcash_client_backend::{
 use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_proofs::prover::LocalTxProver;
-use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
+use zcash_protocol::{
+    memo::{Memo, MemoBytes},
+    value::Zatoshis,
+    ShieldedProtocol,
+};
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
@@ -50,6 +54,10 @@ pub(crate) struct Command {
     /// The amount in zatoshis
     #[arg(long)]
     value: u64,
+
+    /// A memo to be sent to the recipient.
+    #[arg(long)]
+    memo: Option<String>,
 
     /// The server to send via (default is \"ecc\")
     #[arg(short, long)]
@@ -122,11 +130,21 @@ impl Command {
         );
         let input_selector = GreedyInputSelector::new();
 
-        let request = TransactionRequest::new(vec![Payment::without_memo(
+        let payment = Payment::new(
             ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
             Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
-        )])
-        .map_err(error::Error::from)?;
+            self.memo
+                .as_ref()
+                .map(|m| Memo::from_str(m))
+                .transpose()
+                .map_err(|_| error::Error::InvalidMemo)?
+                .map(MemoBytes::from),
+            None,
+            None,
+            vec![],
+        )
+        .expect("payment construction is valid");
+        let request = TransactionRequest::new(vec![payment]).map_err(error::Error::from)?;
 
         let proposal = propose_transfer(
             &mut db_data,
