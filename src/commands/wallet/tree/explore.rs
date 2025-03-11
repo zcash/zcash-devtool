@@ -54,7 +54,7 @@ fn parse_address(data: &str) -> Result<Address, String> {
                 .map_err(|_| format!("Unknown address index '{index}'"))?,
         )),
         None => Ok(Address::from_parts(
-            0.into(),
+            Level::ZERO,
             data.parse()
                 .map_err(|_| format!("Unknown address '{data}'"))?,
         )),
@@ -140,24 +140,16 @@ impl App {
             let mut last_pos = 0;
             let max = (scanned_range.end() - scanned_range.start()) as f64;
 
-            let blocks = scanned_range
-                .enumerate()
-                .map(|(i, height)| {
-                    let cur_pos = ((i * 100) as f64 / max) as u8;
-                    if cur_pos > last_pos {
-                        last_pos = cur_pos;
-                        print!(".");
-                        std::io::stdout().flush()?;
-                    }
-
-                    db_data.block_metadata(height.into())
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            println!();
-
             let mut block_boundaries = BTreeMap::new();
-            for block in blocks {
-                if let Some(block) = block {
+            for (i, height) in scanned_range.enumerate() {
+                let cur_pos = ((i * 100) as f64 / max) as u8;
+                if cur_pos > last_pos {
+                    last_pos = cur_pos;
+                    print!(".");
+                    std::io::stdout().flush()?;
+                }
+
+                if let Some(block) = db_data.block_metadata(height.into())? {
                     if let Some(key) = match pool {
                         ShieldedProtocol::Sapling => block.sapling_tree_size(),
                         ShieldedProtocol::Orchard => block.orchard_tree_size(),
@@ -166,6 +158,8 @@ impl App {
                     }
                 }
             }
+            println!();
+
             Some(block_boundaries)
         } else {
             None
