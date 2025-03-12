@@ -440,7 +440,7 @@ struct NodeFetcher<'a, H> {
     store: &'a SqliteShardStore<&'a rusqlite::Transaction<'a>, H, 16>,
 }
 
-impl<'a, H: Clone + HashSer> NodeFetcher<'a, H> {
+impl<H: Clone + HashSer> NodeFetcher<'_, H> {
     fn get(
         &self,
         address: Address,
@@ -503,7 +503,7 @@ impl Node {
     }
 
     fn is_checkpoint(&self) -> bool {
-        self.flags.map_or(false, |flags| flags.is_checkpoint())
+        self.flags.is_some_and(|flags| flags.is_checkpoint())
     }
 
     fn add_block_boundary(&mut self, block_boundaries: &BTreeMap<u32, BlockHeight>) {
@@ -557,9 +557,9 @@ struct Region {
 }
 
 impl Region {
-    fn get<'a, H: Clone + HashSer>(
+    fn get<H: Clone + HashSer>(
         pool: ShieldedProtocol,
-        node_fetcher: NodeFetcher<'a, H>,
+        node_fetcher: NodeFetcher<'_, H>,
         address: Address,
     ) -> Result<Self, ShardTreeError<zcash_client_sqlite::wallet::commitment_tree::Error>> {
         let node = node_fetcher.get(address)?.expect("valid");
@@ -651,7 +651,7 @@ impl Region {
                     .l
                     .as_ref()
                     .or(self.r.as_ref())
-                    .map_or(false, |node| node.address.level() == SHARD_ROOT_LEVEL)
+                    .is_some_and(|node| node.address.level() == SHARD_ROOT_LEVEL)
                 {
                     draw_shard_boundary(ctx, Y_CHILD);
                 } else if let Some(parent) = &self.p {
@@ -660,7 +660,7 @@ impl Region {
                     } else if parent
                         .grandparent
                         .as_ref()
-                        .map_or(false, |node| node.address.level() == SHARD_ROOT_LEVEL)
+                        .is_some_and(|node| node.address.level() == SHARD_ROOT_LEVEL)
                     {
                         draw_shard_boundary(ctx, Y_GRANDPARENT);
                     }
@@ -733,8 +733,8 @@ struct Parent {
 }
 
 impl Parent {
-    fn get<'a, H: Clone + HashSer>(
-        node_fetcher: &NodeFetcher<'a, H>,
+    fn get<H: Clone + HashSer>(
+        node_fetcher: &NodeFetcher<'_, H>,
         is_parent_of_region: bool,
         sibling: Address,
         sibling_is_left_of_region: bool,
@@ -749,12 +749,10 @@ impl Parent {
                     } else {
                         X_NODE + NODE_OFFSET
                     }
+                } else if sibling_is_left_of_region {
+                    X_NODE + NODE_OFFSET - PARENT_GAP
                 } else {
-                    if sibling_is_left_of_region {
-                        X_NODE + NODE_OFFSET - PARENT_GAP
-                    } else {
-                        X_NODE - NODE_OFFSET + PARENT_GAP
-                    }
+                    X_NODE - NODE_OFFSET + PARENT_GAP
                 },
                 y: Y_PARENT,
                 is_parent_of_region,
@@ -819,8 +817,8 @@ struct Sibling {
 }
 
 impl Sibling {
-    fn get<'a, H: Clone + HashSer>(
-        node_fetcher: &NodeFetcher<'a, H>,
+    fn get<H: Clone + HashSer>(
+        node_fetcher: &NodeFetcher<'_, H>,
         address: Address,
         is_left_of_region: bool,
     ) -> Result<Option<Self>, ShardTreeError<zcash_client_sqlite::wallet::commitment_tree::Error>>

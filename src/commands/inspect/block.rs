@@ -189,7 +189,7 @@ impl Block {
                 i += 2;
             }
             j += size;
-            size = (size + 1) / 2;
+            size = size.div_ceil(2);
         }
         (
             merkle_tree
