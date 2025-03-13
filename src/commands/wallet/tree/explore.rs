@@ -291,8 +291,7 @@ impl App {
     }
 
     fn reload_region(&mut self) {
-        let address = self.address;
-        let mut region = match self.pool {
+        let mut get_region = |address| match self.pool {
             ShieldedProtocol::Sapling => self
                 .db_data
                 .with_sapling_tree_mut(move |tree| {
@@ -318,6 +317,24 @@ impl App {
                 })
                 .unwrap(),
         };
+
+        let mut address = self.address;
+        let mut region = get_region(address);
+
+        while region.is_none() {
+            // Find a parent that does exist.
+            address = address.parent();
+            region = get_region(address);
+        }
+        if address != self.address {
+            warn!(
+                "{:?} does not exist, moving to parent {:?}",
+                self.address, address
+            );
+        }
+
+        let mut region = region.expect("subtree roots exist");
+
         if let Some(block_boundaries) = &self.block_boundaries {
             region.add_block_boundaries(block_boundaries);
         }
@@ -561,8 +578,12 @@ impl Region {
         pool: ShieldedProtocol,
         node_fetcher: NodeFetcher<'a, H>,
         address: Address,
-    ) -> Result<Self, ShardTreeError<zcash_client_sqlite::wallet::commitment_tree::Error>> {
-        let node = node_fetcher.get(address)?.expect("valid");
+    ) -> Result<Option<Self>, ShardTreeError<zcash_client_sqlite::wallet::commitment_tree::Error>>
+    {
+        let node = match node_fetcher.get(address)? {
+            Some(node) => node,
+            None => return Ok(None),
+        };
 
         let (l, r) = match address.children() {
             None => (None, None),
@@ -585,14 +606,14 @@ impl Region {
             None => None,
         };
 
-        Ok(Self {
+        Ok(Some(Self {
             pool,
             node,
             l,
             r,
             p,
             op,
-        })
+        }))
     }
 
     fn add_block_boundaries(&mut self, block_boundaries: &BTreeMap<u32, BlockHeight>) {
