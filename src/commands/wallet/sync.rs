@@ -46,7 +46,7 @@ use {
     zcash_protocol::value::Zatoshis,
 };
 
-#[cfg(any(feature = "transparent-inputs", feature = "tui"))]
+#[cfg(feature = "tui")]
 use zcash_protocol::consensus::NetworkUpgrade;
 
 #[cfg(feature = "tui")]
@@ -85,7 +85,7 @@ impl Command {
         let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
         let mut client = self.server.pick(params)?.connect_direct().await?;
 
-        #[cfg(any(feature = "transparent-inputs", feature = "tui"))]
+        #[cfg(feature = "tui")]
         let wallet_birthday = db_data
             .get_wallet_birthday()?
             .unwrap_or_else(|| params.activation_height(NetworkUpgrade::Sapling).unwrap());
@@ -116,7 +116,6 @@ impl Command {
             fsblockdb_root: &Path,
             db_cache: &mut FsBlockDb,
             db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock>,
-            #[cfg(feature = "transparent-inputs")] wallet_birthday: BlockHeight,
             #[cfg(feature = "tui")] tui_handle: Option<&defrag::AppHandle>,
         ) -> Result<bool, anyhow::Error> {
             // 3) Download chain tip metadata from lightwalletd
@@ -127,20 +126,15 @@ impl Command {
                 handle.set_wallet_summary(db_data.get_wallet_summary(10)?);
             }
 
-            // Refresh UTXOs for the accounts in the wallet. We do this before we perform
-            // any shielded scanning, to ensure that we discover any UTXOs between the old
-            // fully-scanned height and the current chain tip.
+            // Refresh UTXOs for the accounts in the wallet.
             #[cfg(feature = "transparent-inputs")]
             for account_id in db_data.get_account_ids()? {
-                let start_height = db_data
-                    .block_fully_scanned()?
-                    .map(|meta| meta.block_height())
-                    .unwrap_or(wallet_birthday);
                 info!(
                     "Refreshing UTXOs for {:?} from height {}",
-                    account_id, start_height,
+                    account_id,
+                    BlockHeight::from(0),
                 );
-                refresh_utxos(params, client, db_data, account_id, start_height).await?;
+                refresh_utxos(params, client, db_data, account_id, BlockHeight::from(0)).await?;
             }
 
             // 5) Get the suggested scan ranges from the wallet database
@@ -332,8 +326,6 @@ impl Command {
             fsblockdb_root,
             &mut db_cache,
             &mut db_data,
-            #[cfg(feature = "transparent-inputs")]
-            wallet_birthday,
             #[cfg(feature = "tui")]
             tui_handle.as_ref(),
         )
