@@ -152,6 +152,7 @@ fn main() -> Result<(), anyhow::Error> {
                     commands::wallet::tree::Command::Explore(command) => {
                         command.run(shutdown, wallet_dir, tui).await
                     }
+                    commands::wallet::tree::Command::Fix(command) => command.run(wallet_dir).await,
                 },
             },
             Some(Command::Pczt(commands::Pczt {
