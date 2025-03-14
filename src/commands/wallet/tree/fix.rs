@@ -26,6 +26,8 @@ impl Command {
             db_data.queue_rescans(corrupt_ranges, ScanPriority::FoundNote)?;
 
             eprintln!("Updated {} scan ranges", corrupt_ranges_len);
+        } else {
+            eprintln!("No corrupt witnesses found in the tree");
         }
 
         Ok(())
