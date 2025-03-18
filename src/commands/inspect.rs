@@ -22,11 +22,11 @@ use zcash_protocol::{
 mod context;
 use context::{Context, ZUint256};
 
-mod address;
-mod block;
-mod keys;
-mod lookup;
-mod transaction;
+pub(crate) mod address;
+pub(crate) mod block;
+pub(crate) mod keys;
+pub(crate) mod lookup;
+pub(crate) mod transaction;
 
 lazy_static! {
     static ref GROTH16_PARAMS: ZcashParameters = {
