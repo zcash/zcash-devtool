@@ -56,6 +56,16 @@ impl WalletConfig {
             .transpose()
     }
 
+    pub(crate) fn decrypt_mnemonic<'a>(
+        &mut self,
+        identities: impl Iterator<Item = &'a dyn age::Identity>,
+    ) -> Result<Option<SecretVec<u8>>, anyhow::Error> {
+        self.seed_ciphertext
+            .as_ref()
+            .map(|ciphertext| decrypt_mnemonic(identities, ciphertext))
+            .transpose()
+    }
+
     pub(crate) fn network(&self) -> consensus::Network {
         self.network
     }
@@ -160,20 +170,22 @@ fn encrypt_mnemonic<'a>(
     Ok(String::from_utf8(ciphertext).expect("armor is valid UTF-8"))
 }
 
+fn decrypt_mnemonic<'a>(
+    identities: impl Iterator<Item = &'a dyn age::Identity>,
+    ciphertext: &str,
+) -> Result<SecretVec<u8>, anyhow::Error> {
+    let decryptor = age::Decryptor::new(age::armor::ArmoredReader::new(ciphertext.as_bytes()))?;
+    let mut buf = vec![];
+    decryptor.decrypt(identities)?.read_to_end(&mut buf)?;
+    // Ensure anything we read gets zeroized even on error.
+    Ok(SecretVec::new(buf))
+}
+
 fn decrypt_seed<'a>(
     identities: impl Iterator<Item = &'a dyn age::Identity>,
     ciphertext: &str,
 ) -> Result<SecretVec<u8>, anyhow::Error> {
-    let mnemonic_bytes = {
-        let decryptor = age::Decryptor::new(age::armor::ArmoredReader::new(ciphertext.as_bytes()))?;
-        let mut buf = vec![];
-        let res = decryptor.decrypt(identities)?.read_to_end(&mut buf);
-        // Ensure anything we read gets zeroized even on error.
-        let ret = SecretVec::new(buf);
-        res?;
-        ret
-    };
-
+    let mnemonic_bytes = decrypt_mnemonic(identities, ciphertext)?;
     let mnemonic = std::str::from_utf8(mnemonic_bytes.expose_secret())?;
 
     let mut seed_bytes = <Mnemonic<English>>::from_phrase(mnemonic)?.to_seed("");
