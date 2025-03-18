@@ -2,9 +2,13 @@ use clap::Args;
 use uuid::Uuid;
 use zcash_client_backend::data_api::{Account, WalletWrite};
 use zcash_client_sqlite::{util::SystemClock, WalletDb};
-use zcash_keys::keys::UnifiedAddressRequest;
+use zcash_keys::{address::Address, keys::UnifiedAddressRequest};
 
-use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths};
+use crate::{
+    commands::{inspect::address::inspect, select_account},
+    config::get_wallet_network,
+    data::get_db_paths,
+};
 
 #[cfg(feature = "qr")]
 use qrcode::{render::unicode, QrCode};
@@ -35,6 +39,9 @@ impl Command {
             .unwrap();
         let ua_str = ua.encode(&params);
         println!("     Address: {}", ua_str);
+
+        let zaddr = Address::from(ua).to_zcash_address(&params);
+        inspect(zaddr);
 
         #[cfg(feature = "qr")]
         if self.display_qr {
