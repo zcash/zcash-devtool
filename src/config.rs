@@ -16,14 +16,9 @@ use crate::{
 
 const KEYS_FILE: &str = "keys.toml";
 
-enum WalletSecret<T> {
-    Encrypted(String),
-    Decrypted(T),
-}
-
 pub(crate) struct WalletConfig {
     network: consensus::Network,
-    seed: Option<WalletSecret<SecretVec<u8>>>,
+    seed_ciphertext: Option<String>,
     birthday: BlockHeight,
 }
 
@@ -51,38 +46,18 @@ impl WalletConfig {
         init_wallet_config(wallet_dir, None, birthday, network)
     }
 
-    pub(crate) fn decrypt<'a>(
+    pub(crate) fn decrypt_seed<'a>(
         &mut self,
         identities: impl Iterator<Item = &'a dyn age::Identity>,
-    ) -> Result<(), anyhow::Error> {
-        if let Some(current_seed) = self.seed.take() {
-            match &current_seed {
-                WalletSecret::Encrypted(ciphertext) => match decrypt_seed(identities, ciphertext) {
-                    Ok(seed) => self.seed = Some(WalletSecret::Decrypted(seed)),
-                    Err(e) => {
-                        self.seed = Some(current_seed);
-                        return Err(e);
-                    }
-                },
-                WalletSecret::Decrypted(_) => self.seed = Some(current_seed),
-            }
-        }
-
-        Ok(())
+    ) -> Result<Option<SecretVec<u8>>, anyhow::Error> {
+        self.seed_ciphertext
+            .as_ref()
+            .map(|ciphertext| decrypt_seed(identities, ciphertext))
+            .transpose()
     }
 
     pub(crate) fn network(&self) -> consensus::Network {
         self.network
-    }
-
-    pub(crate) fn seed(&self) -> Option<&SecretVec<u8>> {
-        self.seed.as_ref().and_then(|seed| match seed {
-            WalletSecret::Encrypted(_) => {
-                tracing::error!("Wallet is encrypted");
-                None
-            }
-            WalletSecret::Decrypted(seed) => Some(seed),
-        })
     }
 
     pub(crate) fn birthday(&self) -> BlockHeight {
@@ -140,8 +115,6 @@ impl WalletConfig {
         keys_file.read_to_string(&mut conf_str)?;
         let config: ConfigEncoding = toml::from_str(&conf_str)?;
 
-        let seed = config.mnemonic.map(WalletSecret::Encrypted);
-
         let network = config.network.map_or_else(
             || Ok(consensus::Network::TestNetwork),
             |network_name| {
@@ -159,7 +132,7 @@ impl WalletConfig {
 
         Ok(Self {
             network,
-            seed,
+            seed_ciphertext: config.mnemonic,
             birthday,
         })
     }
@@ -221,9 +194,5 @@ pub(crate) fn get_wallet_seed<'a, P: AsRef<Path>>(
     identities: impl Iterator<Item = &'a dyn age::Identity>,
 ) -> Result<Option<SecretVec<u8>>, anyhow::Error> {
     let mut config = WalletConfig::read(wallet_dir)?;
-    config.decrypt(identities)?;
-    Ok(config.seed.map(|seed| match seed {
-        WalletSecret::Decrypted(seed) => seed,
-        WalletSecret::Encrypted(_) => unreachable!(),
-    }))
+    config.decrypt_seed(identities)
 }

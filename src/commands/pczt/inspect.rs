@@ -44,16 +44,14 @@ impl Command {
             .map(|(config, identity)| {
                 // Decrypt the mnemonic to access the seed.
                 let identities = age::IdentityFile::from_file(identity)?.into_identities()?;
-                config.decrypt(identities.iter().map(|i| i.as_ref() as _))?;
 
                 let seed = config
-                    .seed()
+                    .decrypt_seed(identities.iter().map(|i| i.as_ref() as _))?
                     .ok_or(anyhow!(
                         "Identity provided for a wallet that doesn't have a seed"
-                    ))?
-                    .expose_secret();
+                    ))?;
 
-                SeedFingerprint::from_seed(seed)
+                SeedFingerprint::from_seed(seed.expose_secret())
                     .ok_or_else(|| anyhow!("Invalid seed length"))
                     .map(|seed_fp| {
                         (

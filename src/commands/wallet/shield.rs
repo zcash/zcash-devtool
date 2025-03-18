@@ -73,14 +73,13 @@ impl Command {
 
         // Decrypt the mnemonic to access the seed.
         let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
-        config.decrypt(identities.iter().map(|i| i.as_ref() as _))?;
+        let seed = config
+            .decrypt_seed(identities.iter().map(|i| i.as_ref() as _))?
+            .ok_or(anyhow!("Seed must be present to enable sending"))?;
 
         let usk = UnifiedSpendingKey::from_seed(
             &params,
-            config
-                .seed()
-                .ok_or(anyhow!("Seed must be present to enable sending"))?
-                .expose_secret(),
+            seed.expose_secret(),
             derivation.account_index(),
         )
         .map_err(error::Error::from)?;

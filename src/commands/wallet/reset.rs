@@ -78,16 +78,17 @@ impl Command {
 
         // Decrypt the mnemonic to access the seed.
         let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
-        config.decrypt(identities.iter().map(|i| i.as_ref() as _))?;
+
+        let seed = config
+            .decrypt_seed(identities.iter().map(|i| i.as_ref() as _))?
+            .ok_or(anyhow!("Seed is required for database reset"))?;
 
         // Re-initialize the wallet state.
         super::init::Command::init_dbs(
             params,
             wallet_dir.as_ref(),
             account_name.as_deref().unwrap_or(""),
-            config
-                .seed()
-                .ok_or(anyhow!("Seed is required for database reset"))?,
+            &seed,
             birthday,
             key_source.as_deref(),
         )

@@ -5,7 +5,7 @@ use pczt::{
     Pczt,
 };
 use sapling::ProofGenerationKey;
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretVec};
 use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_proofs::prover::LocalTxProver;
@@ -40,7 +40,7 @@ impl Command {
                 Provided(ProofGenerationKey),
                 Wallet {
                     config: WalletConfig,
-                    seed_fp: SeedFingerprint,
+                    seed: SecretVec<u8>,
                 },
             }
 
@@ -53,9 +53,12 @@ impl Command {
                         PgkSource::Provided(proof_generation_key) => {
                             Ok(proof_generation_key.clone())
                         }
-                        PgkSource::Wallet { config, seed_fp } => {
+                        PgkSource::Wallet { config, seed } => {
                             if let Some((seed_fingerprint, derivation_path)) = derivation {
                                 let params = config.network();
+
+                                let seed_fp = SeedFingerprint::from_seed(seed.expose_secret())
+                                    .ok_or_else(|| anyhow!("Invalid seed length"))?;
 
                                 if seed_fingerprint == seed_fp.to_bytes()
                                     && derivation_path.len() == 3
@@ -72,12 +75,7 @@ impl Command {
 
                                     let usk = UnifiedSpendingKey::from_seed(
                                         &params,
-                                        config
-                                            .seed()
-                                            .ok_or(anyhow!(
-                                                "Seed must be present to enable signing"
-                                            ))?
-                                            .expose_secret(),
+                                        seed.expose_secret(),
                                         account_index,
                                     )?;
 
@@ -121,20 +119,13 @@ impl Command {
 
                     // Decrypt the mnemonic to access the seed.
                     let identities = age::IdentityFile::from_file(identity)?.into_identities()?;
-                    config.decrypt(identities.iter().map(|i| i.as_ref() as _))?;
 
                     // Cache the seed fingerprint for matching.
                     let seed = config
-                        .seed()
-                        .ok_or(anyhow!("Seed must be present to enable signing"))?
-                        .expose_secret();
-                    let seed_fingerprint = SeedFingerprint::from_seed(seed)
-                        .ok_or_else(|| anyhow!("Invalid seed length"))?;
+                        .decrypt_seed(identities.iter().map(|i| i.as_ref() as _))?
+                        .ok_or(anyhow!("Seed must be present to enable signing"))?;
 
-                    Ok(PgkSource::Wallet {
-                        config,
-                        seed_fp: seed_fingerprint,
-                    })
+                    Ok(PgkSource::Wallet { config, seed })
                 }
                 (None, None) => Err(anyhow!(
                     "Cannot create Sapling proofs without a proof generation key"
