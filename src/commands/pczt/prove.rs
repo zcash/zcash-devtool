@@ -170,8 +170,7 @@ impl Command {
             pczt
         };
 
-        let prover =
-            LocalTxProver::with_default_location().ok_or(anyhow!("Missing Sapling parameters"))?;
+        let prover = LocalTxProver::bundled();
 
         let pczt = Prover::new(pczt)
             .create_orchard_proof(&orchard::circuit::ProvingKey::build())

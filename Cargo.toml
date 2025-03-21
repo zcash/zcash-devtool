@@ -37,7 +37,7 @@ zcash_client_backend = { version = "0.17", features = ["lightwalletd-tonic-tls-w
 zcash_client_sqlite = { version = "0.15", features = ["unstable", "orchard", "serde"] }
 zcash_keys = { version = "0.7", features = ["unstable", "orchard"] }
 zcash_primitives = "0.22"
-zcash_proofs = "0.22"
+zcash_proofs = { version = "0.22", features = ["bundled-prover"] }
 zcash_protocol = { version = "0.5", features = ["local-consensus"] }
 zip32 = "0.2"
 zip321 = "0.3"

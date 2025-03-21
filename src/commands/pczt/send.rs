@@ -49,8 +49,7 @@ impl Command {
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 
-        let prover =
-            LocalTxProver::with_default_location().ok_or(anyhow!("Missing Sapling parameters"))?;
+        let prover = LocalTxProver::bundled();
         let (spend_vk, output_vk) = prover.verifying_keys();
 
         let txid = extract_and_store_transaction_from_pczt::<_, ()>(

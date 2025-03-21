@@ -114,8 +114,7 @@ impl Command {
 
         // Create the transaction.
         println!("Creating transaction...");
-        let prover =
-            LocalTxProver::with_default_location().ok_or(error::Error::MissingParameters)?;
+        let prover = LocalTxProver::bundled();
         let change_strategy = MultiOutputChangeStrategy::new(
             StandardFeeRule::Zip317,
             None,
