@@ -1,6 +1,7 @@
 use clap::Subcommand;
 
 pub(crate) mod balance;
+pub(crate) mod display_mnemonic;
 pub(crate) mod enhance;
 pub(crate) mod gen_addr;
 pub(crate) mod import_ufvk;
@@ -25,6 +26,9 @@ pub(crate) enum Command {
 
     /// Initialise a new view-only light wallet
     InitFvk(init_fvk::Command),
+
+    /// Decrypt and display the wallet's mnemonic recovery phrase, if any.
+    DisplayMnemonic(display_mnemonic::Command),
 
     /// Reset an existing light wallet (does not preserve imported UFVKs)
     Reset(reset::Command),

@@ -36,14 +36,12 @@ impl Command {
 
         // Decrypt the mnemonic to access the seed.
         let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
-        config.decrypt(identities.iter().map(|i| i.as_ref() as _))?;
 
         let seed = config
-            .seed()
-            .ok_or(anyhow!("Seed must be present to enable signing"))?
-            .expose_secret();
-        let seed_fp =
-            SeedFingerprint::from_seed(seed).ok_or_else(|| anyhow!("Invalid seed length"))?;
+            .decrypt_seed(identities.iter().map(|i| i.as_ref() as _))?
+            .ok_or(anyhow!("Seed must be present to enable signing"))?;
+        let seed_fp = SeedFingerprint::from_seed(seed.expose_secret())
+            .ok_or_else(|| anyhow!("Invalid seed length"))?;
 
         // Find all the spends matching our seed.
         enum KeyRef {
@@ -130,7 +128,7 @@ impl Command {
         let mut signer =
             Signer::new(pczt).map_err(|e| anyhow!("Failed to initialize Signer: {:?}", e))?;
         for (account_index, spends) in keys {
-            let usk = UnifiedSpendingKey::from_seed(&params, seed, account_index)?;
+            let usk = UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account_index)?;
             for keyref in spends {
                 match keyref {
                     KeyRef::Orchard { index } => {

@@ -16,14 +16,9 @@ use crate::{
 
 const KEYS_FILE: &str = "keys.toml";
 
-enum WalletSecret<T> {
-    Encrypted(String),
-    Decrypted(T),
-}
-
 pub(crate) struct WalletConfig {
     network: consensus::Network,
-    seed: Option<WalletSecret<SecretVec<u8>>>,
+    seed_ciphertext: Option<String>,
     birthday: BlockHeight,
 }
 
@@ -51,38 +46,28 @@ impl WalletConfig {
         init_wallet_config(wallet_dir, None, birthday, network)
     }
 
-    pub(crate) fn decrypt<'a>(
+    pub(crate) fn decrypt_seed<'a>(
         &mut self,
         identities: impl Iterator<Item = &'a dyn age::Identity>,
-    ) -> Result<(), anyhow::Error> {
-        if let Some(current_seed) = self.seed.take() {
-            match &current_seed {
-                WalletSecret::Encrypted(ciphertext) => match decrypt_seed(identities, ciphertext) {
-                    Ok(seed) => self.seed = Some(WalletSecret::Decrypted(seed)),
-                    Err(e) => {
-                        self.seed = Some(current_seed);
-                        return Err(e);
-                    }
-                },
-                WalletSecret::Decrypted(_) => self.seed = Some(current_seed),
-            }
-        }
+    ) -> Result<Option<SecretVec<u8>>, anyhow::Error> {
+        self.seed_ciphertext
+            .as_ref()
+            .map(|ciphertext| decrypt_seed(identities, ciphertext))
+            .transpose()
+    }
 
-        Ok(())
+    pub(crate) fn decrypt_mnemonic<'a>(
+        &mut self,
+        identities: impl Iterator<Item = &'a dyn age::Identity>,
+    ) -> Result<Option<SecretVec<u8>>, anyhow::Error> {
+        self.seed_ciphertext
+            .as_ref()
+            .map(|ciphertext| decrypt_mnemonic(identities, ciphertext))
+            .transpose()
     }
 
     pub(crate) fn network(&self) -> consensus::Network {
         self.network
-    }
-
-    pub(crate) fn seed(&self) -> Option<&SecretVec<u8>> {
-        self.seed.as_ref().and_then(|seed| match seed {
-            WalletSecret::Encrypted(_) => {
-                tracing::error!("Wallet is encrypted");
-                None
-            }
-            WalletSecret::Decrypted(seed) => Some(seed),
-        })
     }
 
     pub(crate) fn birthday(&self) -> BlockHeight {
@@ -140,8 +125,6 @@ impl WalletConfig {
         keys_file.read_to_string(&mut conf_str)?;
         let config: ConfigEncoding = toml::from_str(&conf_str)?;
 
-        let seed = config.mnemonic.map(WalletSecret::Encrypted);
-
         let network = config.network.map_or_else(
             || Ok(consensus::Network::TestNetwork),
             |network_name| {
@@ -159,7 +142,7 @@ impl WalletConfig {
 
         Ok(Self {
             network,
-            seed,
+            seed_ciphertext: config.mnemonic,
             birthday,
         })
     }
@@ -187,20 +170,28 @@ fn encrypt_mnemonic<'a>(
     Ok(String::from_utf8(ciphertext).expect("armor is valid UTF-8"))
 }
 
+fn decrypt_mnemonic<'a>(
+    identities: impl Iterator<Item = &'a dyn age::Identity>,
+    ciphertext: &str,
+) -> Result<SecretVec<u8>, anyhow::Error> {
+    let decryptor = age::Decryptor::new(age::armor::ArmoredReader::new(ciphertext.as_bytes()))?;
+    let mut buf = vec![];
+    // We intentionally do not use `?` on the result of the following expression because doing so
+    // in the case of a partial failure could result in part of the secret data being read into
+    // `buf`, which would not then be properly zeroized. Instead, we take ownership of the buffer
+    // in construction of a `SecretVec` to ensure that the memory is zeroed out when we raise
+    // the error on the following line.
+    let ret = decryptor.decrypt(identities)?.read_to_end(&mut buf);
+    let res = SecretVec::new(buf);
+    ret?;
+    Ok(res)
+}
+
 fn decrypt_seed<'a>(
     identities: impl Iterator<Item = &'a dyn age::Identity>,
     ciphertext: &str,
 ) -> Result<SecretVec<u8>, anyhow::Error> {
-    let mnemonic_bytes = {
-        let decryptor = age::Decryptor::new(age::armor::ArmoredReader::new(ciphertext.as_bytes()))?;
-        let mut buf = vec![];
-        let res = decryptor.decrypt(identities)?.read_to_end(&mut buf);
-        // Ensure anything we read gets zeroized even on error.
-        let ret = SecretVec::new(buf);
-        res?;
-        ret
-    };
-
+    let mnemonic_bytes = decrypt_mnemonic(identities, ciphertext)?;
     let mnemonic = std::str::from_utf8(mnemonic_bytes.expose_secret())?;
 
     let mut seed_bytes = <Mnemonic<English>>::from_phrase(mnemonic)?.to_seed("");
@@ -221,9 +212,5 @@ pub(crate) fn get_wallet_seed<'a, P: AsRef<Path>>(
     identities: impl Iterator<Item = &'a dyn age::Identity>,
 ) -> Result<Option<SecretVec<u8>>, anyhow::Error> {
     let mut config = WalletConfig::read(wallet_dir)?;
-    config.decrypt(identities)?;
-    Ok(config.seed.map(|seed| match seed {
-        WalletSecret::Decrypted(seed) => seed,
-        WalletSecret::Encrypted(_) => unreachable!(),
-    }))
+    config.decrypt_seed(identities)
 }
