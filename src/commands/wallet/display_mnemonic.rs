@@ -3,7 +3,7 @@ use clap::Args;
 use crate::config::WalletConfig;
 use secrecy::ExposeSecret;
 
-// Options accepted for the `list-addresses` command
+// Options accepted for the `display-mnemonic` command
 #[derive(Debug, Args)]
 pub(crate) struct Command {
     /// age identity file to decrypt the mnemonic phrase with
@@ -30,7 +30,7 @@ impl Command {
             }
         } else {
             println!(
-                "WARNING: This command is disabled by default because it print your unencrypted \
+                "WARNING: This command is disabled by default because it prints your unencrypted \
                  mnemonic recovery phrase to `stdout`, which may result it being logged in your \
                  terminal history. Call this command with the `--enable` flag set to accept this \
                  risk and display the mnemonic."
