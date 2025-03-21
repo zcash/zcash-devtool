@@ -176,9 +176,15 @@ fn decrypt_mnemonic<'a>(
 ) -> Result<SecretVec<u8>, anyhow::Error> {
     let decryptor = age::Decryptor::new(age::armor::ArmoredReader::new(ciphertext.as_bytes()))?;
     let mut buf = vec![];
-    decryptor.decrypt(identities)?.read_to_end(&mut buf)?;
-    // Ensure anything we read gets zeroized even on error.
-    Ok(SecretVec::new(buf))
+    // We intentionally do not use `?` on the result of the following expression because doing so
+    // in the case of a partial failure could result in part of the secret data being read into
+    // `buf`, which would not then be properly zeroized. Instead, we take ownership of the buffer
+    // in construction of a `SecretVec` to ensure that the memory is zeroed out when we raise
+    // the error on the following line.
+    let ret = decryptor.decrypt(identities)?.read_to_end(&mut buf);
+    let res = SecretVec::new(buf);
+    ret?;
+    Ok(res)
 }
 
 fn decrypt_seed<'a>(
