@@ -25,7 +25,7 @@ impl Command {
     pub(crate) fn run(self, wallet_dir: Option<String>) -> anyhow::Result<()> {
         let params = get_wallet_network(wallet_dir.as_ref())?;
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let db_data = WalletDb::for_path(db_data, params, ())?;
+        let db_data = WalletDb::for_path(db_data, params, (), ())?;
 
         let account = select_account(&db_data, self.account_id)?;
 

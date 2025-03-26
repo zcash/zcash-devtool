@@ -85,7 +85,7 @@ impl Command {
     ) -> anyhow::Result<()> {
         let params = get_wallet_network(wallet_dir.as_ref())?;
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let db_data = WalletDb::for_path(db_data, params, ())?;
+        let db_data = WalletDb::for_path(db_data, params, (), ())?;
 
         let mut app = App::new(
             shutdown.tui_quit_signal(),
@@ -105,7 +105,7 @@ impl Command {
 pub(super) struct App {
     should_quit: bool,
     notify_shutdown: Option<oneshot::Sender<()>>,
-    db_data: WalletDb<rusqlite::Connection, Network, ()>,
+    db_data: WalletDb<rusqlite::Connection, Network, (), ()>,
     pool: ShieldedProtocol,
     address: Address,
     action_tx: mpsc::UnboundedSender<Action>,
@@ -117,7 +117,7 @@ pub(super) struct App {
 impl App {
     pub(super) fn new(
         notify_shutdown: oneshot::Sender<()>,
-        db_data: WalletDb<rusqlite::Connection, Network, ()>,
+        db_data: WalletDb<rusqlite::Connection, Network, (), ()>,
         pool: ShieldedProtocol,
         address: Option<Address>,
         show_block_boundaries: bool,

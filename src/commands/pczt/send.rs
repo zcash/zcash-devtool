@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use clap::Args;
 use pczt::Pczt;
+use rand::rngs::OsRng;
 use tokio::io::{stdin, AsyncReadExt};
 use zcash_client_backend::{
     data_api::{wallet::extract_and_store_transaction_from_pczt, WalletRead},
@@ -35,7 +36,7 @@ impl Command {
         let params = config.network();
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
 
         let server = self.server.pick(params)?;
         let mut client = if self.disable_tor {
