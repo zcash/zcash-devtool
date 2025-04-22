@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use clap::Args;
+use rand::rngs::OsRng;
 use zcash_client_backend::{
     data_api::{Account, WalletRead},
     proto::service,
@@ -55,7 +56,7 @@ impl Command {
         // Get the account name and key source to preserve them.
         let (account_name, key_source) = {
             let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-            let db_data = WalletDb::for_path(db_data, params, SystemClock)?;
+            let db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
 
             let account_id = *db_data
                 .get_account_ids()?

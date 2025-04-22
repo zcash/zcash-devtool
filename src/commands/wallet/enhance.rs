@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use anyhow::anyhow;
 use clap::Args;
 use futures_util::StreamExt;
+use rand::rngs::OsRng;
 use tonic::{transport::Channel, Code};
 use tracing::info;
 use zcash_client_backend::{
@@ -87,7 +88,7 @@ impl Command {
         let params = get_wallet_network(wallet_dir.as_ref())?;
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
 
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
         let chain_tip = db_data.chain_height()?.ok_or_else(|| {
             anyhow!("Chain height must be available to perform transaction enhancement.")
         })?;
@@ -151,10 +152,11 @@ impl Command {
                             }
                         }
                     }
-                    TransactionDataRequest::SpendsFromAddress {
+                    TransactionDataRequest::TransactionsInvolvingAddress {
                         address,
                         block_range_start,
                         block_range_end,
+                        ..
                     } => {
                         let address = address.encode(&params);
                         let request = service::TransparentAddressBlockFilter {

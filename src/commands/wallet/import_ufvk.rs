@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use clap::Args;
 
+use rand::rngs::OsRng;
 use zcash_address::unified::{self, Encoding};
 use zcash_client_backend::{
     data_api::{AccountBirthday, AccountPurpose, WalletWrite, Zip32Derivation},
@@ -63,7 +64,7 @@ impl Command {
         }?;
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
 
         // Construct an `AccountBirthday` for the account's birthday.
         let birthday = {

@@ -2,6 +2,7 @@ use std::{num::NonZeroUsize, str::FromStr};
 
 use anyhow::anyhow;
 use clap::Args;
+use rand::rngs::OsRng;
 use uuid::Uuid;
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
@@ -50,7 +51,7 @@ impl Command {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
         let account = select_account(&db_data, self.account_id)?;
 
         let change_strategy = MultiOutputChangeStrategy::new(
