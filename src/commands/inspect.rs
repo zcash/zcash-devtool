@@ -28,6 +28,7 @@ use crate::ui::format_zec;
 
 pub(crate) mod address;
 pub(crate) mod block;
+pub(crate) mod foreign_address;
 pub(crate) mod keys;
 pub(crate) mod lookup;
 pub(crate) mod script;
@@ -70,6 +71,8 @@ impl Command {
             inspect_bytes(bytes, opts.context, opts.lookup).await;
         } else if let Ok(addr) = ZcashAddress::try_from_encoded(&opts.data) {
             address::inspect(addr);
+        } else if let Some(addr) = foreign_address::detect(&opts.data) {
+            foreign_address::inspect(addr);
         } else if let Ok((network, uivk)) = unified::Uivk::decode(&opts.data) {
             keys::view::inspect_uivk(uivk, network);
         } else if let Ok((network, ufvk)) = unified::Ufvk::decode(&opts.data) {
