@@ -281,7 +281,7 @@ impl Command {
                 println!("TxID: {txid}");
                 println!("Version: {:?}", tx_data.version());
 
-                if matches!(tx_data.version(), TxVersion::Zip225) {
+                if matches!(tx_data.version(), TxVersion::V5) {
                     if tx_data.sapling_bundle().is_some() || tx_data.orchard_bundle().is_some() {
                         let shielded_sighash =
                             v5_signature_hash(&tx_data, &SignableInput::Shielded, &txid_parts);
