@@ -76,7 +76,7 @@ image = { version = "0.25", optional = true }
 minicbor = { version = "0.19", optional = true }
 nokhwa = { version = "0.10", optional = true, features = ["input-native"] }
 qrcode = { version = "0.14", optional = true, default-features = false }
-rqrr = { version = "0.8", optional = true }
+rqrr = { version = "0.9", optional = true }
 ur = { version = "0.4", optional = true }
 
 # Tree exploration
