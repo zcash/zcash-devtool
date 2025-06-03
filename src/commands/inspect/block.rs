@@ -1,5 +1,6 @@
 // To silence lints in the `uint::construct_uint!` macro.
 #![allow(clippy::assign_op_pattern)]
+#![allow(clippy::manual_div_ceil)]
 #![allow(clippy::ptr_offset_with_cast)]
 
 use sha2::{Digest, Sha256};
