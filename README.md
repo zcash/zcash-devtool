@@ -24,9 +24,9 @@ To obtain the help docs:
 ```
 cargo run --release -- --help
 ```
-To obtain the help for a specific command (in this case, `init`)
+To obtain the help for a specific command (in this case, ` wallet init`)
 ```
-cargo run --release -- --help init
+cargo run --release -- wallet init --help
 ```
 
 To create a new empty testnet wallet:
