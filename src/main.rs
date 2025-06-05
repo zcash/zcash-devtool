@@ -71,7 +71,7 @@ fn main() -> Result<(), anyhow::Error> {
             ..
         })) => {
             tui_logger::init_logger(level_filter.parse().unwrap())?;
-            Some(tui_logger::tracing_subscriber_layer())
+            Some(tui_logger::TuiTracingSubscriberLayer)
         }
         #[cfg(feature = "pczt-qr")]
         Some(Command::Pczt(commands::Pczt {
@@ -79,7 +79,7 @@ fn main() -> Result<(), anyhow::Error> {
             ..
         })) => {
             tui_logger::init_logger(level_filter.parse().unwrap())?;
-            Some(tui_logger::tracing_subscriber_layer())
+            Some(tui_logger::TuiTracingSubscriberLayer)
         }
         _ => None,
     };

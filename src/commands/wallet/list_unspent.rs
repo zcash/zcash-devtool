@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use clap::Args;
 use uuid::Uuid;
-use zcash_client_backend::data_api::{Account as _, InputSource, WalletRead};
+use zcash_client_backend::data_api::{Account as _, InputSource, TargetValue, WalletRead};
 use zcash_client_sqlite::WalletDb;
 use zcash_protocol::{
     value::{Zatoshis, MAX_MONEY},
@@ -37,7 +37,7 @@ impl Command {
 
         let notes = db_data.select_spendable_notes(
             account.id(),
-            Zatoshis::const_from_u64(MAX_MONEY),
+            TargetValue::AtLeast(Zatoshis::const_from_u64(MAX_MONEY)),
             &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard],
             anchor_height,
             &[],
