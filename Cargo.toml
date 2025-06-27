@@ -41,6 +41,7 @@ zcash_proofs = { version = "0.23", features = ["bundled-prover"] }
 zcash_protocol = { version = "0.5", features = ["local-consensus"] }
 zip32 = "0.2"
 zip321 = "0.4"
+bs58 = "0.5.1"
 
 # CLI
 clap = { version = "4.5", features = ["derive", "string", "unstable-styles"] }
