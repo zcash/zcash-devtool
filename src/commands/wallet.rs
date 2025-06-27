@@ -3,6 +3,7 @@ use clap::Subcommand;
 pub(crate) mod balance;
 pub(crate) mod display_mnemonic;
 pub(crate) mod enhance;
+pub(crate) mod gen_account;
 pub(crate) mod gen_addr;
 pub(crate) mod import_ufvk;
 pub(crate) mod init;
@@ -53,6 +54,9 @@ pub(crate) enum Command {
 
     /// Generate a new address for an account in the wallet
     GenerateAddress(gen_addr::Command),
+
+    /// Generate a new account in the wallet
+    GenerateAccount(gen_account::Command),
 
     /// List the addresses for an account in the wallet
     ListAddresses(list_addresses::Command),
