@@ -5,6 +5,7 @@ use zcash_client_backend::data_api::WalletRead;
 use zcash_client_sqlite::AccountUuid;
 
 pub(crate) mod inspect;
+pub(crate) mod multisig_address;
 pub(crate) mod pczt;
 pub(crate) mod wallet;
 
@@ -40,6 +41,12 @@ pub(crate) struct Keystone {
 
     #[command(subcommand)]
     pub(crate) command: keystone::Command,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct MultisigAddress {
+    #[command(subcommand)]
+    pub(crate) command: multisig_address::Command,
 }
 
 pub(crate) fn select_account<DbT: WalletRead<AccountId = AccountUuid>>(

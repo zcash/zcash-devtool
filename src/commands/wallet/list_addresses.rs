@@ -19,6 +19,10 @@ pub(crate) struct Command {
     #[cfg(feature = "qr")]
     #[arg(long, default_value = "true")]
     display_qr: bool,
+
+    /// A flag indicating whether the keys for the address should be displayed.
+    #[clap(long)]
+    show_keys: bool,
 }
 
 impl Command {

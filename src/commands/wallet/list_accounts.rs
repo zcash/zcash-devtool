@@ -1,4 +1,6 @@
 use clap::Args;
+
+use transparent::keys::IncomingViewingKey;
 use zcash_client_backend::data_api::{Account, WalletRead};
 use zcash_client_sqlite::WalletDb;
 
@@ -16,6 +18,11 @@ impl Command {
 
         for account_id in db_data.get_account_ids()?.iter() {
             let account = db_data.get_account(*account_id)?.unwrap();
+
+            if let Some(pub_key) = account.uivk().transparent() {
+                let serialized_pub_key = pub_key.serialize()[32..].to_vec();
+                println!("Serialized Public Key: {}", hex::encode(serialized_pub_key));
+            }
 
             println!("Account {}", account_id.expose_uuid());
             if let Some(name) = account.name() {
