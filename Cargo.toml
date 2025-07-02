@@ -16,6 +16,7 @@ jubjub = "0.10"
 nonempty = { version = "0.11", default-features = false }
 prost = "0.13"
 rayon = "1.7"
+ripemd = "0.1"
 rusqlite = { version = "0.32", features = ["time"] }
 schemerz = "0.2"
 secrecy = "0.8"
