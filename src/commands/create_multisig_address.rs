@@ -13,10 +13,13 @@ use clap::Args;
 use secp256k1::PublicKey;
 use sha2::{Digest, Sha256};
 
-use ::transparent::address::Script;
 use transparent::address::TransparentAddress;
 use zcash_keys::encoding::AddressCodec;
 use zcash_protocol::consensus::Network;
+use zcash_script::{
+    pattern::check_multisig,
+    script::{self, Evaluable},
+};
 
 /// Maximum size of a script element in bytes
 // TODO: Move this constant to `zcash_transparent` if it's needed.
@@ -29,7 +32,7 @@ pub(crate) struct Command {
 
     /// A threshold `k` value indicating the number of signatures required to spend from the address
     #[clap(short, long, required = true)]
-    threshold: u32,
+    threshold: u8,
 
     /// A list of comma-separated hex-encoded public keys.
     /// Must contain at least the threshold number of keys.
@@ -53,28 +56,21 @@ impl Command {
         let (multisig_script, addr) = multisig_script(threshold, pub_keys)?;
         let addr = addr.encode(&Network::from(network));
         println!("Created multisig address: {addr}");
-        println!("Redeem script: {}", hex::encode(multisig_script.0));
+        println!("Redeem script: {}", hex::encode(multisig_script.to_bytes()));
 
         Ok(())
     }
 }
 
 fn multisig_script(
-    threshold: u32,
+    threshold: u8,
     pub_keys: Vec<PublicKey>,
-) -> anyhow::Result<(Script, TransparentAddress)> {
+) -> anyhow::Result<(script::PubKey, TransparentAddress)> {
     validate_args(threshold, &pub_keys)?;
 
-    // TODO: Make `Opcode` public and use the enum variants instead of raw opcodes.
-    let multisig_redeem_script = Script(
-        std::iter::once(0x50 + threshold as u8) // Push the number of required signatures (OP_1 to OP_16)
-            .chain(pub_keys.iter().flat_map(|pk| {
-                let bytes = pk.serialize();
-                [&[bytes.len() as u8], bytes.as_slice()].concat()
-            })) // Push each public key
-            .chain([0x50 + pub_keys.len() as u8, 0xAE]) // Push the number of keys (OP_1 to OP_16) followed by OP_CHECKMULTISIG.
-            .collect(),
-    );
+    let pks = pub_keys.iter().map(|pk| pk.serialize()).collect::<Vec<_>>();
+    let pks = pks.iter().map(|pk| pk.as_slice()).collect::<Vec<_>>();
+    let multisig_redeem_script = script::Component(check_multisig(threshold, &pks, false)?);
 
     if multisig_redeem_script.0.len() > MAX_SCRIPT_ELEMENT_SIZE {
         return Err(anyhow::anyhow!(
@@ -82,13 +78,13 @@ fn multisig_script(
         ));
     }
 
-    let script_id = ripemd::Ripemd160::digest(Sha256::digest(&multisig_redeem_script.0));
+    let script_id = ripemd::Ripemd160::digest(Sha256::digest(multisig_redeem_script.to_bytes()));
     let address = TransparentAddress::ScriptHash(script_id.into());
 
     Ok((multisig_redeem_script, address))
 }
 
-fn validate_args(threshold: u32, pub_keys: &[PublicKey]) -> anyhow::Result<()> {
+fn validate_args(threshold: u8, pub_keys: &[PublicKey]) -> anyhow::Result<()> {
     if threshold < 1 {
         return Err(anyhow::anyhow!("a multisignature address must require at least one key to redeem, threshold must be at least 1"));
     }

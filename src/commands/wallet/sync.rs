@@ -45,6 +45,7 @@ use {
     zcash_client_sqlite::AccountUuid,
     zcash_keys::encoding::AddressCodec,
     zcash_protocol::value::Zatoshis,
+    zcash_script::script,
 };
 
 #[cfg(feature = "tui")]
@@ -640,7 +641,7 @@ async fn refresh_utxos<P: Parameters>(
     start_height: BlockHeight,
 ) -> Result<(), anyhow::Error> {
     let addresses = db_data
-        .get_transparent_receivers(account_id, true)?
+        .get_transparent_receivers(account_id, true, true)?
         .into_keys()
         .map(|addr| addr.encode(params))
         .collect::<Vec<_>>();
@@ -668,7 +669,7 @@ async fn refresh_utxos<P: Parameters>(
                     OutPoint::new(reply.txid[..].try_into()?, reply.index.try_into()?),
                     TxOut::new(
                         Zatoshis::from_nonnegative_i64(reply.value_zat)?,
-                        Script(reply.script),
+                        Script(script::Code(reply.script)),
                     ),
                     Some(BlockHeight::from(u32::try_from(reply.height)?)),
                 )

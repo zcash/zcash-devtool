@@ -31,6 +31,7 @@ use zcash_protocol::{
     memo::{Memo, MemoBytes},
     value::Zatoshis,
 };
+use zcash_script::{op::PushValue, script, solver};
 
 use super::{
     context::{Context, ZTxOut},
@@ -44,43 +45,19 @@ pub fn is_coinbase(tx: &Transaction) -> bool {
 }
 
 pub fn extract_height_from_coinbase(tx: &Transaction) -> Option<BlockHeight> {
-    const OP_0: u8 = 0x00;
-    const OP_1NEGATE: u8 = 0x4f;
-    const OP_1: u8 = 0x51;
-    const OP_16: u8 = 0x60;
-
     tx.transparent_bundle()
         .and_then(|bundle| bundle.vin.first())
-        .and_then(|input| match input.script_sig().0.first().copied() {
-            // {0, -1} will never occur as the first byte of a coinbase scriptSig.
-            Some(OP_0 | OP_1NEGATE) => None,
-            // Blocks 1 to 16.
-            Some(h @ OP_1..=OP_16) => Some(BlockHeight::from_u32((h - OP_1 + 1).into())),
-            // All other heights use CScriptNum encoding, which will never be longer
-            // than 5 bytes for Zcash heights. These have the format
-            // `[len(encoding)] || encoding`.
-            Some(h @ 1..=5) => {
-                let rest = &input.script_sig().0[1..];
-                let encoding_len = h as usize;
-                if rest.len() < encoding_len {
-                    None
-                } else {
-                    // Parse the encoding.
-                    let encoding = &rest[..encoding_len];
-                    if encoding.last().unwrap() & 0x80 != 0 {
-                        // Height is never negative.
-                        None
-                    } else {
-                        let mut height: u64 = 0;
-                        for (i, b) in encoding.iter().enumerate() {
-                            height |= (*b as u64) << (8 * i);
-                        }
-                        height.try_into().ok()
-                    }
-                }
-            }
-            // Anything else is an invalid height encoding.
-            _ => None,
+        .and_then(|input| script::Sig::parse(&input.script_sig().0).ok())
+        .as_ref()
+        .and_then(|script_sig| script_sig.0.first())
+        .and_then(|opcode| match opcode {
+            PushValue::SmallValue(v) => match v.to_num() {
+                // Blocks 1 to 16.
+                h @ 1..=16 => Some(BlockHeight::from_u32(u32::from(h as u8))),
+                // {0, -1} will never occur as the first byte of a coinbase scriptSig.
+                _ => None,
+            },
+            PushValue::LargeValue(v) => v.to_num().ok().and_then(|v| v.try_into().ok()),
         })
 }
 
@@ -242,42 +219,34 @@ pub(crate) fn inspect(
                         TxId::from_bytes(*txin.prevout().hash()),
                         txin.prevout().n()
                     );
-                    match coin.recipient_address() {
-                        Some(addr @ TransparentAddress::PublicKeyHash(_)) => {
-                            // Format is [sig_and_type_len] || sig || [hash_type] || [pubkey_len] || pubkey
+                    match script::PubKey::parse(&coin.script_pubkey().0)
+                        .ok()
+                        .as_ref()
+                        .and_then(solver::standard)
+                    {
+                        Some(solver::ScriptKind::PubKeyHash { hash }) => {
+                            let addr = TransparentAddress::PublicKeyHash(hash);
+                            // Format is PushData(sig || [hash_type]) || PushData(pubkey)
                             // where [x] encodes a single byte.
-                            let sig_and_type_len = txin.script_sig().0.first().map(|l| *l as usize);
-                            let pubkey_len = sig_and_type_len
-                                .and_then(|sig_len| txin.script_sig().0.get(1 + sig_len))
-                                .map(|l| *l as usize);
-                            let script_len = sig_and_type_len.zip(pubkey_len).map(
-                                |(sig_and_type_len, pubkey_len)| {
-                                    1 + sig_and_type_len + 1 + pubkey_len
-                                },
-                            );
+                            let (sig_and_type, pubkey) = script::Sig::parse(&txin.script_sig().0)
+                                .ok()
+                                .as_ref()
+                                .and_then(|script_sig| match script_sig.0.as_slice() {
+                                    [sig_and_type, pubkey] => {
+                                        Some((sig_and_type.value(), pubkey.value()))
+                                    }
+                                    _ => None,
+                                })
+                                .unzip();
 
-                            if Some(txin.script_sig().0.len()) != script_len {
-                                eprintln!(
-                                    "    ⚠️  \"transparentcoins\" {} is P2PKH; txin {} scriptSig has length {} but data {}",
-                                    i,
-                                    i,
-                                    txin.script_sig().0.len(),
-                                    if let Some(l) = script_len {
-                                        format!("implies length {l}.")
-                                    } else {
-                                        "would cause an out-of-bounds read.".to_owned()
-                                    },
-                                );
-                            } else {
-                                let sig_len = sig_and_type_len.unwrap() - 1;
-
-                                let sig = secp256k1::ecdsa::Signature::from_der(
-                                    &txin.script_sig().0[1..1 + sig_len],
-                                );
-                                let hash_type =
-                                    SighashType::parse(txin.script_sig().0[1 + sig_len]);
-                                let pubkey_bytes = &txin.script_sig().0[1 + sig_len + 2..];
-                                let pubkey = secp256k1::PublicKey::from_slice(pubkey_bytes);
+                            if let Some(((&hash_type, sig), pubkey_bytes)) = sig_and_type
+                                .as_ref()
+                                .and_then(|b| b.split_last())
+                                .zip(pubkey)
+                            {
+                                let sig = secp256k1::ecdsa::Signature::from_der(sig);
+                                let hash_type = SighashType::parse(hash_type);
+                                let pubkey = secp256k1::PublicKey::from_slice(&pubkey_bytes);
 
                                 if let Err(e) = sig {
                                     eprintln!(
@@ -327,8 +296,17 @@ pub(crate) fn inspect(
                             }
                         }
                         // TODO: Check P2SH structure.
-                        Some(TransparentAddress::ScriptHash(_)) => {
+                        Some(solver::ScriptKind::ScriptHash { .. }) => {
                             eprintln!("  🔎 \"transparentcoins\"[{i}] is a P2SH coin.");
+                        }
+                        Some(solver::ScriptKind::MultiSig { required, pubkeys }) => {
+                            eprintln!("  🔎 \"transparentcoins\"[{i}] is a direct (non-P2SH) {required}-of-{} multi-sig coin.", pubkeys.len());
+                        }
+                        Some(solver::ScriptKind::NullData { data }) => {
+                            eprintln!("  🔎 \"transparentcoins\"[{i}] is a null data output with {} PushDatas.", data.len());
+                        }
+                        Some(solver::ScriptKind::PubKey { .. }) => {
+                            eprintln!("  🔎 \"transparentcoins\"[{i}] is a P2PK (not P2PKH) coin.");
                         }
                         // TODO: Check arbitrary scripts.
                         None => {

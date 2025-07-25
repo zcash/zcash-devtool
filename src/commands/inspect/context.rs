@@ -7,11 +7,15 @@ use serde::{
     Deserialize, Serialize, Serializer,
 };
 
-use ::transparent::{address::Script, bundle as transparent, bundle::TxOut};
+use ::transparent::{
+    address::Script,
+    bundle::{self as transparent, TxOut},
+};
 use zcash_protocol::{
     consensus::{Network, NetworkType},
     value::Zatoshis,
 };
+use zcash_script::script;
 use zip32::AccountId;
 
 #[derive(Clone, Copy, Debug)]
@@ -243,7 +247,7 @@ impl Visitor<'_> for ZScriptVisitor {
                 serde::de::Error::invalid_length(v.len(), &"a 64-character string")
             }
         })?;
-        Ok(ZScript(Script(data)))
+        Ok(ZScript(Script(script::Code(data))))
     }
 }
 
@@ -258,7 +262,7 @@ impl<'de> Deserialize<'de> for ZScript {
 
 impl Serialize for ZScript {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&hex::encode(&self.0 .0))
+        serializer.serialize_str(&hex::encode(&self.0 .0 .0))
     }
 }
 
