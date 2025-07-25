@@ -116,9 +116,9 @@ impl Command {
                 }
 
                 info!("Fetching data for request {:?}", data_request);
-                match data_request {
+                match &data_request {
                     TransactionDataRequest::GetStatus(txid) => {
-                        let status = fetch_transaction(&mut client, &params, chain_tip, txid)
+                        let status = fetch_transaction(&mut client, &params, chain_tip, *txid)
                             .await?
                             .map_or(TransactionStatus::TxidNotRecognized, |(_, mined_height)| {
                                 mined_height.map_or(
@@ -127,14 +127,14 @@ impl Command {
                                 )
                             });
                         info!("Got status {:?}", status);
-                        db_data.set_transaction_status(txid, status)?;
+                        db_data.set_transaction_status(*txid, status)?;
                     }
                     TransactionDataRequest::Enhancement(txid) => {
-                        match fetch_transaction(&mut client, &params, chain_tip, txid).await? {
+                        match fetch_transaction(&mut client, &params, chain_tip, *txid).await? {
                             None => {
                                 info!("Txid not recognized {:?}", txid);
                                 db_data.set_transaction_status(
-                                    txid,
+                                    *txid,
                                     TransactionStatus::TxidNotRecognized,
                                 )?;
                             }
@@ -152,21 +152,16 @@ impl Command {
                             }
                         }
                     }
-                    TransactionDataRequest::TransactionsInvolvingAddress {
-                        address,
-                        block_range_start,
-                        block_range_end,
-                        ..
-                    } => {
-                        let address = address.encode(&params);
+                    TransactionDataRequest::TransactionsInvolvingAddress(tia) => {
+                        let address = tia.address().encode(&params);
                         let request = service::TransparentAddressBlockFilter {
                             address: address.clone(),
                             range: Some(BlockRange {
                                 start: Some(service::BlockId {
-                                    height: u64::from(block_range_start),
+                                    height: u64::from(tia.block_range_start()),
                                     ..Default::default()
                                 }),
-                                end: block_range_end.map(|h| service::BlockId {
+                                end: tia.block_range_end().map(|h| service::BlockId {
                                     height: u64::from(h - 1), // `BlockRange` end is inclusive.
                                     ..Default::default()
                                 }),

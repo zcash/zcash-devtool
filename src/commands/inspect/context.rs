@@ -7,11 +7,12 @@ use serde::{
     Deserialize, Serialize, Serializer,
 };
 
-use ::transparent::{address::Script, bundle as transparent, bundle::TxOut};
+use ::transparent::{bundle as transparent, bundle::TxOut};
 use zcash_protocol::{
     consensus::{Network, NetworkType},
     value::Zatoshis,
 };
+use zcash_script::script::{self, Parsable};
 use zip32::AccountId;
 
 #[derive(Clone, Copy, Debug)]
@@ -217,7 +218,7 @@ impl Serialize for ZOutputValue {
 }
 
 #[derive(Clone, Debug)]
-struct ZScript(Script);
+struct ZScript(script::PubKey);
 
 struct ZScriptVisitor;
 
@@ -243,7 +244,9 @@ impl Visitor<'_> for ZScriptVisitor {
                 serde::de::Error::invalid_length(v.len(), &"a 64-character string")
             }
         })?;
-        Ok(ZScript(Script(data)))
+        script::PubKey::from_bytes(&data)
+            .map_err(|e| serde::de::Error::custom(format!("{e:?}")))
+            .map(|(script_pubkey, _)| ZScript(script_pubkey))
     }
 }
 
@@ -258,7 +261,7 @@ impl<'de> Deserialize<'de> for ZScript {
 
 impl Serialize for ZScript {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&hex::encode(&self.0 .0))
+        serializer.serialize_str(&hex::encode(&self.0.to_bytes()))
     }
 }
 
