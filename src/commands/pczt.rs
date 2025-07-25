@@ -2,6 +2,7 @@ use clap::Subcommand;
 
 pub(crate) mod combine;
 pub(crate) mod create;
+pub(crate) mod create_manual;
 pub(crate) mod inspect;
 pub(crate) mod prove;
 pub(crate) mod redact;
@@ -18,6 +19,8 @@ pub(crate) enum Command {
     Create(create::Command),
     /// Create a shielding PCZT
     Shield(shield::Command),
+    /// Create a PCZT from manually-provided transparent inputs
+    CreateManual(create_manual::Command),
     /// Inspect a PCZT
     Inspect(inspect::Command),
     /// Redact a PCZT
