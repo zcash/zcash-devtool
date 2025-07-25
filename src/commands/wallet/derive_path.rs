@@ -2,12 +2,9 @@ use anyhow::anyhow;
 use bip32::PublicKey;
 use clap::Args;
 use secrecy::ExposeSecret;
-use sha2::{Digest, Sha256};
-use zcash_address::{ToAddress, ZcashAddress};
-use zcash_protocol::{
-    consensus::{NetworkConstants, Parameters},
-    PoolType,
-};
+use transparent::address::TransparentAddress;
+use zcash_keys::encoding::AddressCodec;
+use zcash_protocol::{consensus::NetworkConstants, PoolType};
 
 use crate::config::WalletConfig;
 
@@ -133,11 +130,7 @@ impl Command {
                 if show_address {
                     println!(
                         " - P2PKH address: {}",
-                        ZcashAddress::from_transparent_p2pkh(
-                            params.network_type(),
-                            ripemd::Ripemd160::digest(Sha256::digest(xpub.public_key().to_bytes()))
-                                .into(),
-                        ),
+                        TransparentAddress::from_pubkey(xpub.public_key()).encode(&params),
                     );
                 }
             }
