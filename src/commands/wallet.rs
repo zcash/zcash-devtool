@@ -1,8 +1,10 @@
 use clap::Subcommand;
 
 pub(crate) mod balance;
+pub(crate) mod derive_path;
 pub(crate) mod display_mnemonic;
 pub(crate) mod enhance;
+pub(crate) mod gen_account;
 pub(crate) mod gen_addr;
 pub(crate) mod import_ufvk;
 pub(crate) mod init;
@@ -48,6 +50,9 @@ pub(crate) enum Command {
     /// Get the balance in the wallet
     Balance(balance::Command),
 
+    /// Generate a new account in the wallet
+    GenerateAccount(gen_account::Command),
+
     /// List the accounts in the wallet
     ListAccounts(list_accounts::Command),
 
@@ -56,6 +61,9 @@ pub(crate) enum Command {
 
     /// List the addresses for an account in the wallet
     ListAddresses(list_addresses::Command),
+
+    /// Derive key material at a particular path below the wallet seed
+    DerivePath(derive_path::Command),
 
     /// List the transactions in the wallet
     ListTx(list_tx::Command),

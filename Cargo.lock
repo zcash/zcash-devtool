@@ -7915,6 +7915,7 @@ dependencies = [
  "rand",
  "ratatui",
  "rayon",
+ "ripemd 0.1.3",
  "roaring",
  "rqrr",
  "rusqlite",

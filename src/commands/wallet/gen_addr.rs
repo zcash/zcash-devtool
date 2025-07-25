@@ -14,7 +14,7 @@ use crate::{
 #[cfg(feature = "qr")]
 use qrcode::{render::unicode, QrCode};
 
-// Options accepted for the `list-addresses` command
+// Options accepted for the `generate-address` command
 #[derive(Debug, Args)]
 pub(crate) struct Command {
     /// The UUID of the account to list addresses for

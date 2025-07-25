@@ -52,6 +52,8 @@ pub(crate) enum Command {
     /// Emulate a Keystone device
     #[cfg(feature = "pczt-qr")]
     Keystone(commands::Keystone),
+
+    CreateMultisigAddress(commands::create_multisig_address::Command),
 }
 
 fn main() -> Result<(), anyhow::Error> {
@@ -116,12 +118,16 @@ fn main() -> Result<(), anyhow::Error> {
 
         let shutdown = ShutdownListener::new();
 
-        match opts.command {
-            Some(Command::Inspect(command)) => command.run().await,
-            Some(Command::Wallet(commands::Wallet {
+        let Some(cmd) = opts.command else {
+            return Ok(());
+        };
+
+        match cmd {
+            Command::Inspect(command) => command.run().await,
+            Command::Wallet(commands::Wallet {
                 wallet_dir,
                 command,
-            })) => match command {
+            }) => match command {
                 commands::wallet::Command::Init(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::InitFvk(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::DisplayMnemonic(command) => command.run(wallet_dir),
@@ -140,9 +146,13 @@ fn main() -> Result<(), anyhow::Error> {
                 }
                 commands::wallet::Command::Enhance(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::Balance(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::GenerateAccount(command) => {
+                    command.run(wallet_dir).await
+                }
                 commands::wallet::Command::ListAccounts(command) => command.run(wallet_dir),
                 commands::wallet::Command::GenerateAddress(command) => command.run(wallet_dir),
                 commands::wallet::Command::ListAddresses(command) => command.run(wallet_dir),
+                commands::wallet::Command::DerivePath(command) => command.run(wallet_dir),
                 commands::wallet::Command::ListTx(command) => command.run(wallet_dir),
                 commands::wallet::Command::ListUnspent(command) => command.run(wallet_dir),
                 commands::wallet::Command::Shield(command) => command.run(wallet_dir).await,
@@ -156,10 +166,10 @@ fn main() -> Result<(), anyhow::Error> {
                     commands::wallet::tree::Command::Fix(command) => command.run(wallet_dir).await,
                 },
             },
-            Some(Command::Pczt(commands::Pczt {
+            Command::Pczt(commands::Pczt {
                 wallet_dir,
                 command,
-            })) => match command {
+            }) => match command {
                 commands::pczt::Command::Create(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Shield(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Inspect(command) => command.run(wallet_dir).await,
@@ -182,15 +192,16 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::pczt::Command::FromQr(command) => command.run(shutdown).await,
             },
             #[cfg(feature = "pczt-qr")]
-            Some(Command::Keystone(commands::Keystone {
+            Command::Keystone(commands::Keystone {
                 wallet_dir,
                 command,
-            })) => match command {
+            }) => match command {
                 commands::keystone::Command::Enroll(command) => {
                     command.run(shutdown, wallet_dir).await
                 }
             },
-            None => Ok(()),
+
+            Command::CreateMultisigAddress(command) => command.run(),
         }
     })
 }
