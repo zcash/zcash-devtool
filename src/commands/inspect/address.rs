@@ -146,7 +146,7 @@ pub(crate) fn inspect(addr: ZcashAddress) {
                             }
                             unified::Receiver::Unknown { typecode, data } => {
                                 eprintln!("   - Unknown");
-                                eprintln!("     - Typecode: {}", typecode);
+                                eprintln!("     - Typecode: {typecode}");
                                 eprintln!("     - Payload: {}", hex::encode(data));
                             }
                         }

@@ -85,7 +85,7 @@ impl Command {
         .map_err(error::Error::from)?;
 
         // Display the proposal
-        println!("Proposal: {:#?}", proposal);
+        println!("Proposal: {proposal:#?}");
 
         Ok(())
     }

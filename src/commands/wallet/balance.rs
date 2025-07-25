@@ -57,7 +57,7 @@ impl Command {
                 .get(&account.id())
                 .ok_or_else(|| anyhow!("Missing account 0"))?;
 
-            println!("{:#?}", wallet_summary);
+            println!("{wallet_summary:#?}");
             println!("{}", address.encode(&params));
             println!("     Height: {}", wallet_summary.chain_tip_height());
             let scan_progress = wallet_summary.progress().scan();

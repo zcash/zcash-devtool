@@ -99,7 +99,7 @@ fn main() -> Result<(), anyhow::Error> {
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
     rayon::ThreadPoolBuilder::new()
-        .thread_name(|i| format!("zec-rayon-{}", i))
+        .thread_name(|i| format!("zec-rayon-{i}"))
         .build_global()
         .expect("Only initialized once");
 
@@ -108,7 +108,7 @@ fn main() -> Result<(), anyhow::Error> {
         .thread_name_fn(|| {
             static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
             let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
-            format!("zec-tokio-{}", id)
+            format!("zec-tokio-{id}")
         })
         .build()?;
 

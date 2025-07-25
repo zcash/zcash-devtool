@@ -157,7 +157,7 @@ async fn inspect_possible_hash(bytes: [u8; 32], context: Option<Context>, lookup
 
         let found = async {
             match lookup::Lightwalletd::mainnet().await {
-                Err(e) => eprintln!("Error: Failed to connect to mainnet lightwalletd: {:?}", e),
+                Err(e) => eprintln!("Error: Failed to connect to mainnet lightwalletd: {e:?}"),
                 Ok(mut mainnet) => {
                     if let Some(block) = mainnet.lookup_block_hash(candidate).await {
                         block::inspect_block_hash(&block, "main");
@@ -174,7 +174,7 @@ async fn inspect_possible_hash(bytes: [u8; 32], context: Option<Context>, lookup
             };
 
             match lookup::Lightwalletd::testnet().await {
-                Err(e) => eprintln!("Error: Failed to connect to testnet lightwalletd: {:?}", e),
+                Err(e) => eprintln!("Error: Failed to connect to testnet lightwalletd: {e:?}"),
                 Ok(mut testnet) => {
                     if let Some(block) = testnet.lookup_block_hash(candidate).await {
                         block::inspect_block_hash(&block, "test");

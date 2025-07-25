@@ -39,7 +39,7 @@ impl Command {
             .get_next_available_address(account.id(), UnifiedAddressRequest::AllAvailableKeys)?
             .unwrap();
         let ua_str = ua.encode(&params);
-        println!("     Address: {}", ua_str);
+        println!("     Address: {ua_str}");
 
         let zaddr = Address::from(ua).to_zcash_address(&params);
         inspect(zaddr);

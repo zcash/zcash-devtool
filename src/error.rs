@@ -47,17 +47,17 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Cache(e) => write!(f, "{:?}", e),
-            Error::Derivation(e) => write!(f, "{:?}", e),
+            Error::Cache(e) => write!(f, "{e:?}"),
+            Error::Derivation(e) => write!(f, "{e:?}"),
             Error::InvalidAmount => write!(f, "Invalid amount"),
             Error::InvalidRecipient => write!(f, "Invalid recipient"),
             Error::InvalidMemo => write!(f, "Invalid memo"),
             Error::InvalidKeysFile => write!(f, "Invalid keys file"),
             Error::InvalidTreeState => write!(f, "Invalid TreeState received from server"),
-            Error::SendFailed { code, reason } => write!(f, "Send failed: ({}) {}", code, reason),
+            Error::SendFailed { code, reason } => write!(f, "Send failed: ({code}) {reason}"),
             Error::Shield(e) => e.fmt(f),
             Error::Wallet(e) => e.fmt(f),
-            Error::Zip321(e) => write!(f, "{:?}", e),
+            Error::Zip321(e) => write!(f, "{e:?}"),
         }
     }
 }

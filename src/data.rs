@@ -29,7 +29,7 @@ impl Network {
         match name {
             "main" => Ok(Network::Main),
             "test" => Ok(Network::Test),
-            other => Err(format!("Unsupported network: {}", other)),
+            other => Err(format!("Unsupported network: {other}")),
         }
     }
 
