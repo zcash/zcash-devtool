@@ -3,6 +3,7 @@ use clap::Subcommand;
 pub(crate) mod balance;
 pub(crate) mod display_mnemonic;
 pub(crate) mod enhance;
+pub(crate) mod gen_account;
 pub(crate) mod gen_addr;
 pub(crate) mod import_ufvk;
 pub(crate) mod init;
@@ -47,6 +48,9 @@ pub(crate) enum Command {
 
     /// Get the balance in the wallet
     Balance(balance::Command),
+
+    /// Generate a new account in the wallet
+    GenerateAccount(gen_account::Command),
 
     /// List the accounts in the wallet
     ListAccounts(list_accounts::Command),
