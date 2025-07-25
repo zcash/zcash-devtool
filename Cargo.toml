@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 anyhow = "1"
 bip0039 = { version = "0.12", features = ["std", "all-languages"] }
-bip32 = { version = "=0.6.0-pre.1", default-features = false }
+bip32 = { version = "=0.6.0-pre.1", default-features = false, features = ["secp256k1-ffi"] }
 futures-util = "0.3"
 hex = "0.4"
 jubjub = "0.10"
