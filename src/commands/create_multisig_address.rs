@@ -53,7 +53,7 @@ impl Command {
         let (multisig_script, addr) = multisig_script(threshold, pub_keys)?;
         let addr = addr.encode(&Network::from(network));
         println!("Created multisig address: {addr}");
-        println!("Script: {multisig_script:?}");
+        println!("Redeem script: {}", hex::encode(multisig_script.0));
 
         Ok(())
     }
