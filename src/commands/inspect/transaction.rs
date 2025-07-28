@@ -98,8 +98,8 @@ fn render_memo(memo_bytes: MemoBytes) -> String {
     match Memo::try_from(memo_bytes) {
         Ok(Memo::Empty) => "No memo".to_string(),
         Ok(Memo::Text(memo)) => format!("Text memo: '{}'", String::from(memo)),
-        Ok(memo) => format!("{:?}", memo),
-        Err(e) => format!("Invalid memo: {}", e),
+        Ok(memo) => format!("{memo:?}"),
+        Err(e) => format!("Invalid memo: {e}"),
     }
 }
 
@@ -162,7 +162,7 @@ pub(crate) fn inspect(
     eprintln!("Zcash transaction");
     eprintln!(" - ID: {}", tx.txid());
     if let Some(height) = mined_height {
-        eprintln!(" - Mined in block {}", height);
+        eprintln!(" - Mined in block {height}");
     }
     eprintln!(" - Version: {:?}", tx.version());
     match tx.version() {
@@ -265,7 +265,7 @@ pub(crate) fn inspect(
                                     i,
                                     txin.script_sig.0.len(),
                                     if let Some(l) = script_len {
-                                        format!("implies length {}.", l)
+                                        format!("implies length {l}.")
                                     } else {
                                         "would cause an out-of-bounds read.".to_owned()
                                     },
@@ -282,25 +282,21 @@ pub(crate) fn inspect(
 
                                 if let Err(e) = sig {
                                     eprintln!(
-                                        "    ⚠️  Txin {} has invalid signature encoding: {}",
-                                        i, e
+                                        "    ⚠️  Txin {i} has invalid signature encoding: {e}"
                                     );
                                 }
                                 if hash_type.is_none() {
-                                    eprintln!("    ⚠️  Txin {} has invalid sighash type", i);
+                                    eprintln!("    ⚠️  Txin {i} has invalid sighash type");
                                 }
                                 if let Err(e) = pubkey {
-                                    eprintln!(
-                                        "    ⚠️  Txin {} has invalid pubkey encoding: {}",
-                                        i, e
-                                    );
+                                    eprintln!("    ⚠️  Txin {i} has invalid pubkey encoding: {e}");
                                 }
                                 if let (Ok(sig), Some(hash_type), Ok(pubkey)) =
                                     (sig, hash_type, pubkey)
                                 {
                                     #[allow(deprecated)]
                                     if pubkey_to_address(&pubkey) != addr {
-                                        eprintln!("    ⚠️  Txin {} pubkey does not match coin's script_pubkey", i);
+                                        eprintln!("    ⚠️  Txin {i} pubkey does not match coin's script_pubkey");
                                     }
 
                                     let sighash = signature_hash(
@@ -322,7 +318,7 @@ pub(crate) fn inspect(
                                             .expect("signature_hash() returns correct length");
 
                                     if let Err(e) = ctx.verify_ecdsa(&msg, &sig, &pubkey) {
-                                        eprintln!("    ⚠️  Spend {} is invalid: {}", i, e);
+                                        eprintln!("    ⚠️  Spend {i} is invalid: {e}");
                                         eprintln!(
                                             "     - sighash is {}",
                                             hex::encode(sighash.as_ref())
@@ -334,13 +330,12 @@ pub(crate) fn inspect(
                         }
                         // TODO: Check P2SH structure.
                         Some(TransparentAddress::ScriptHash(_)) => {
-                            eprintln!("  🔎 \"transparentcoins\"[{}] is a P2SH coin.", i);
+                            eprintln!("  🔎 \"transparentcoins\"[{i}] is a P2SH coin.");
                         }
                         // TODO: Check arbitrary scripts.
                         None => {
                             eprintln!(
-                                "  🔎 \"transparentcoins\"[{}] has a script we can't check yet.",
-                                i
+                                "  🔎 \"transparentcoins\"[{i}] has a script we can't check yet."
                             );
                         }
                     }
@@ -376,14 +371,14 @@ pub(crate) fn inspect(
         // TODO: Verify Sprout proofs once we can access the Sprout bundle parts.
 
         match ed25519_zebra::VerificationKey::try_from(bundle.joinsplit_pubkey) {
-            Err(e) => eprintln!("  ⚠️  joinsplitPubkey is invalid: {}", e),
+            Err(e) => eprintln!("  ⚠️  joinsplitPubkey is invalid: {e}"),
             Ok(vk) => {
                 if let Some(sighash) = &common_sighash {
                     if let Err(e) = vk.verify(
                         &ed25519_zebra::Signature::from(bundle.joinsplit_sig),
                         sighash.as_ref(),
                     ) {
-                        eprintln!("  ⚠️  joinsplitSig is invalid: {}", e);
+                        eprintln!("  ⚠️  joinsplitSig is invalid: {e}");
                     }
                 } else {
                     eprintln!(
@@ -414,7 +409,7 @@ pub(crate) fn inspect(
                         groth16::Proof::read(&spend.zkproof()[..]).unwrap(),
                         &GROTH16_PARAMS.spend_vk,
                     ) {
-                        eprintln!("  ⚠️  Spend {} is invalid", i);
+                        eprintln!("  ⚠️  Spend {i} is invalid");
                     }
                 }
             } else {
@@ -443,21 +438,18 @@ pub(crate) fn inspect(
                             output.out_ciphertext(),
                         ) {
                             if note.value().inner() == 0 {
-                                eprintln!("   - Output {} (dummy output):", i);
+                                eprintln!("   - Output {i} (dummy output):");
                             } else {
                                 let zaddr = ZcashAddress::from_sapling(addr_net, addr.to_bytes());
 
-                                eprintln!("   - Output {}:", i);
-                                eprintln!("     - {}", zaddr);
+                                eprintln!("   - Output {i}:");
+                                eprintln!("     - {zaddr}");
                                 eprintln!("     - {}", render_value(note.value().inner()));
                             }
                             let memo = MemoBytes::from_bytes(&memo).expect("correct length");
                             eprintln!("     - {}", render_memo(memo));
                         } else {
-                            eprintln!(
-                                "  ⚠️  Output {} is not recoverable with the all-zeros OVK",
-                                i
-                            );
+                            eprintln!("  ⚠️  Output {i} is not recoverable with the all-zeros OVK");
                         }
                     } else {
                         eprintln!("  🔎 To check Sapling coinbase rules, add \"network\" to context (either \"main\" or \"test\")");
@@ -471,7 +463,7 @@ pub(crate) fn inspect(
                     groth16::Proof::read(&output.zkproof()[..]).unwrap(),
                     &GROTH16_PARAMS.output_vk,
                 ) {
-                    eprintln!("  ⚠️  Output {} is invalid", i);
+                    eprintln!("  ⚠️  Output {i} is invalid");
                 }
             }
         }
@@ -502,7 +494,7 @@ pub(crate) fn inspect(
         }
         for (_, indices) in nullifiers {
             if indices.len() > 1 {
-                eprintln!("⚠️  Nullifier is duplicated between actions {:?}", indices);
+                eprintln!("⚠️  Nullifier is duplicated between actions {indices:?}");
             }
         }
 
@@ -518,9 +510,9 @@ pub(crate) fn inspect(
                     &action.encrypted_note().out_ciphertext,
                 ) {
                     if note.value().inner() == 0 {
-                        eprintln!("   - Output {} (dummy output):", i);
+                        eprintln!("   - Output {i} (dummy output):");
                     } else {
-                        eprintln!("   - Output {}:", i);
+                        eprintln!("   - Output {i}:");
 
                         if let Some(net) = context.as_ref().and_then(|ctx| ctx.addr_network()) {
                             assert_eq!(note.recipient(), addr);
@@ -532,7 +524,7 @@ pub(crate) fn inspect(
                                 )])
                                 .unwrap(),
                             );
-                            eprintln!("     - {}", zaddr);
+                            eprintln!("     - {zaddr}");
                         } else {
                             eprintln!("    🔎 To show recipient address, add \"network\" to context (either \"main\" or \"test\")");
                         }
@@ -544,10 +536,7 @@ pub(crate) fn inspect(
                         render_memo(MemoBytes::from_bytes(&memo).unwrap())
                     );
                 } else {
-                    eprintln!(
-                        "  ⚠️  Output {} is not recoverable with the all-zeros OVK",
-                        i
-                    );
+                    eprintln!("  ⚠️  Output {i} is not recoverable with the all-zeros OVK");
                 }
             }
         }
@@ -555,7 +544,7 @@ pub(crate) fn inspect(
         if let Some(sighash) = &common_sighash {
             for (i, action) in bundle.actions().iter().enumerate() {
                 if let Err(e) = action.rk().verify(sighash.as_ref(), action.authorization()) {
-                    eprintln!("  ⚠️  Action {} spendAuthSig is invalid: {}", i, e);
+                    eprintln!("  ⚠️  Action {i} spendAuthSig is invalid: {e}");
                 }
             }
         } else {
@@ -565,7 +554,7 @@ pub(crate) fn inspect(
         }
 
         if let Err(e) = bundle.verify_proof(&ORCHARD_VK) {
-            eprintln!("⚠️  Orchard proof is invalid: {:?}", e);
+            eprintln!("⚠️  Orchard proof is invalid: {e:?}");
         }
     }
 }

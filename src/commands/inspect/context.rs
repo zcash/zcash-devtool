@@ -67,9 +67,9 @@ impl Visitor<'_> for JsonAccountIdVisitor {
         E: serde::de::Error,
     {
         u32::try_from(v)
-            .map_err(|_| E::custom(format!("u32 out of range: {}", v)))
+            .map_err(|_| E::custom(format!("u32 out of range: {v}")))
             .and_then(|a| {
-                AccountId::try_from(a).map_err(|e| E::custom(format!("AccountId invalid: {}", e)))
+                AccountId::try_from(a).map_err(|e| E::custom(format!("AccountId invalid: {e}")))
             })
             .map(JsonAccountId)
     }
@@ -79,9 +79,9 @@ impl Visitor<'_> for JsonAccountIdVisitor {
         E: serde::de::Error,
     {
         u32::try_from(v)
-            .map_err(|_| E::custom(format!("u32 out of range: {}", v)))
+            .map_err(|_| E::custom(format!("u32 out of range: {v}")))
             .and_then(|a| {
-                AccountId::try_from(a).map_err(|e| E::custom(format!("AccountId invalid: {}", e)))
+                AccountId::try_from(a).map_err(|e| E::custom(format!("AccountId invalid: {e}")))
             })
             .map(JsonAccountId)
     }
@@ -91,9 +91,9 @@ impl Visitor<'_> for JsonAccountIdVisitor {
         E: serde::de::Error,
     {
         u32::try_from(v)
-            .map_err(|_| E::custom(format!("u32 out of range: {}", v)))
+            .map_err(|_| E::custom(format!("u32 out of range: {v}")))
             .and_then(|a| {
-                AccountId::try_from(a).map_err(|e| E::custom(format!("AccountId invalid: {}", e)))
+                AccountId::try_from(a).map_err(|e| E::custom(format!("AccountId invalid: {e}")))
             })
             .map(JsonAccountId)
     }
@@ -103,9 +103,9 @@ impl Visitor<'_> for JsonAccountIdVisitor {
         E: serde::de::Error,
     {
         u32::try_from(v)
-            .map_err(|_| E::custom(format!("u32 out of range: {}", v)))
+            .map_err(|_| E::custom(format!("u32 out of range: {v}")))
             .and_then(|a| {
-                AccountId::try_from(a).map_err(|e| E::custom(format!("AccountId invalid: {}", e)))
+                AccountId::try_from(a).map_err(|e| E::custom(format!("AccountId invalid: {e}")))
             })
             .map(JsonAccountId)
     }

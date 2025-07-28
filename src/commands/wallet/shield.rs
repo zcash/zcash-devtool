@@ -167,7 +167,7 @@ impl Command {
             }
             .into())
         } else {
-            println!("{}", txid);
+            println!("{txid}");
             Ok(())
         }
     }

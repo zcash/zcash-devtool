@@ -104,7 +104,7 @@ fn init_wallet_config<P: AsRef<Path>>(
     let config_str = toml::to_string(&config)
         .map_err::<anyhow::Error, _>(|_| anyhow!("error writing wallet config"))?;
 
-    write!(&mut keys_file, "{}", config_str)?;
+    write!(&mut keys_file, "{config_str}")?;
 
     Ok(())
 }

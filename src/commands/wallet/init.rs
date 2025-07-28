@@ -90,7 +90,7 @@ impl Command {
                 .as_bytes(),
             )
             .await?;
-            f.write_all(format!("# public key: {}\n", recipient).as_bytes())
+            f.write_all(format!("# public key: {recipient}\n").as_bytes())
                 .await?;
             f.write_all(format!("{}\n", identity.to_string().expose_secret()).as_bytes())
                 .await?;

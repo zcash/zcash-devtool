@@ -43,7 +43,7 @@ pub(crate) fn inspect_ufvk(ufvk: unified::Ufvk, network: NetworkType) {
             }
             unified::Fvk::Unknown { typecode, data } => {
                 eprintln!("   - Unknown");
-                eprintln!("     - Typecode: {}", typecode);
+                eprintln!("     - Typecode: {typecode}");
                 eprintln!("     - Payload: {}", hex::encode(data));
             }
         }
@@ -81,7 +81,7 @@ pub(crate) fn inspect_uivk(uivk: unified::Uivk, network: NetworkType) {
             }
             unified::Ivk::Unknown { typecode, data } => {
                 eprintln!("   - Unknown");
-                eprintln!("     - Typecode: {}", typecode);
+                eprintln!("     - Typecode: {typecode}");
                 eprintln!("     - Payload: {}", hex::encode(data));
             }
         }

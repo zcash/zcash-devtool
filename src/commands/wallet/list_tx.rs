@@ -187,19 +187,19 @@ impl WalletTxOutput {
 
         if self.from_account != self.to_account {
             if let Some(account_id) = self.to_account {
-                println!("    Received by account: {}", account_id);
+                println!("    Received by account: {account_id}");
             }
             if let Some(account_id) = self.from_account {
-                println!("    Sent from account: {}", account_id);
+                println!("    Sent from account: {account_id}");
             }
         }
 
         if let Some(addr) = &self.to_address {
-            println!("    To: {}", addr);
+            println!("    To: {addr}");
         }
 
         if let Some(memo) = &self.memo {
-            println!("    Memo: {:?}", memo);
+            println!("    Memo: {memo:?}");
         }
     }
 }
@@ -259,8 +259,8 @@ impl WalletTx {
         println!("{}", self.txid);
         if let Some((height, block_time)) = self.mined_height.zip(self.block_time) {
             match time::OffsetDateTime::from_unix_timestamp(block_time) {
-                Ok(block_time) => println!("     Mined: {} ({})", height, block_time),
-                Err(e) => println!("     Mined: {} (invalid block time: {e})", height),
+                Ok(block_time) => println!("     Mined: {height} ({block_time})"),
+                Err(e) => println!("     Mined: {height} (invalid block time: {e})"),
             }
         } else {
             println!(

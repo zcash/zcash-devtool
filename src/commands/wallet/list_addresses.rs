@@ -34,7 +34,7 @@ impl Command {
             .uivk()
             .default_address(UnifiedAddressRequest::AllAvailableKeys)?;
         let ua_str = ua.encode(&params);
-        println!("     Default Address: {}", ua_str);
+        println!("     Default Address: {ua_str}");
 
         #[cfg(feature = "qr")]
         if self.display_qr {

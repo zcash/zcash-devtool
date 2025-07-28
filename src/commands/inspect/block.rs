@@ -270,11 +270,11 @@ fn inspect_header_inner(header: &BlockHeader, params: Option<Network>) {
     if let Some(params) = params {
         if let Err(e) = check_equihash_solution(header, params) {
             // zcashd: invalid-solution
-            eprintln!("⚠️  Invalid Equihash solution: {}", e);
+            eprintln!("⚠️  Invalid Equihash solution: {e}");
         }
         if let Err(e) = check_proof_of_work(header, params) {
             // zcashd: high-hash
-            eprintln!("⚠️  Invalid Proof-of-Work: {}", e);
+            eprintln!("⚠️  Invalid Proof-of-Work: {e}");
         }
     } else {
         eprintln!("🔎 To check contextual rules, add \"network\" to context (either \"main\" or \"test\")");
@@ -284,7 +284,7 @@ fn inspect_header_inner(header: &BlockHeader, params: Option<Network>) {
 /// Used when a block hash is resolved via lightwalletd.
 pub(crate) fn inspect_block_hash(block: &CompactBlock, network: &'static str) {
     eprintln!("Zcash block hash");
-    eprintln!(" - Network: {}", network);
+    eprintln!(" - Network: {network}");
     eprintln!(" - Height: {}", block.height());
 }
 
@@ -302,7 +302,7 @@ pub(crate) fn inspect(block: &Block, context: Option<Context>) {
             None
         }
         txs => {
-            eprintln!(" - {} transaction(s) including coinbase", txs);
+            eprintln!(" - {txs} transaction(s) including coinbase");
 
             if !is_coinbase(&block.txs[0]) {
                 // zcashd: bad-cb-missing
@@ -311,7 +311,7 @@ pub(crate) fn inspect(block: &Block, context: Option<Context>) {
             } else {
                 let height = block.extract_height();
                 match height {
-                    Some(h) => eprintln!(" - Height: {}", h),
+                    Some(h) => eprintln!(" - Height: {h}"),
                     // zcashd: bad-cb-height
                     None => eprintln!("⚠️  No height in coinbase transaction"),
                 }
@@ -323,7 +323,7 @@ pub(crate) fn inspect(block: &Block, context: Option<Context>) {
     for (i, tx) in block.txs.iter().enumerate().skip(1) {
         if is_coinbase(tx) {
             // zcashd: bad-cb-multiple
-            eprintln!("⚠️  vtx[{}] is a coinbase transaction", i);
+            eprintln!("⚠️  vtx[{i}] is a coinbase transaction");
         }
     }
 
@@ -368,7 +368,7 @@ pub(crate) fn inspect(block: &Block, context: Option<Context>) {
                 eprintln!(
                     "⚠️  [NU5] header.blockcommitments doesn't match ZIP 244 block commitment"
                 );
-                eprintln!("   - chainhistoryroot:        {}", chain_history_root);
+                eprintln!("   - chainhistoryroot:        {chain_history_root}");
                 eprintln!("   - authdataroot:            {}", ZUint256(auth_data_root));
                 eprintln!(
                     "   - blockcommitments (calc): {}",
@@ -394,7 +394,7 @@ pub(crate) fn inspect(block: &Block, context: Option<Context>) {
                 eprintln!(
                 "⚠️  [Heartwood] header.blockcommitments doesn't match provided chain history root"
             );
-                eprintln!("   - chainhistoryroot:        {}", chain_history_root);
+                eprintln!("   - chainhistoryroot:        {chain_history_root}");
                 eprintln!(
                     "   - header.blockcommitments: {}",
                     ZUint256(block.header.final_sapling_root)

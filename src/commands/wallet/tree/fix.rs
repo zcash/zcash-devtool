@@ -18,15 +18,12 @@ impl Command {
         if let Some(corrupt_ranges) = NonEmpty::from_vec(db_data.check_witnesses()?) {
             let corrupt_ranges_len = corrupt_ranges.len();
             for range in corrupt_ranges.iter() {
-                eprintln!(
-                    "Found corrupt witness, requires rescan of range {:?}",
-                    range
-                );
+                eprintln!("Found corrupt witness, requires rescan of range {range:?}");
             }
 
             db_data.queue_rescans(corrupt_ranges, ScanPriority::FoundNote)?;
 
-            eprintln!("Updated {} scan ranges", corrupt_ranges_len);
+            eprintln!("Updated {corrupt_ranges_len} scan ranges");
         } else {
             eprintln!("No corrupt witnesses found in the tree");
         }

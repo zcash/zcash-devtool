@@ -40,10 +40,7 @@ pub(crate) fn inspect_mnemonic(mnemonic: bip0039::Mnemonic, context: Option<Cont
             ) {
                 Ok(sk) => Some(orchard::keys::FullViewingKey::from(&sk)),
                 Err(e) => {
-                    eprintln!(
-                        "  ⚠️  No valid Orchard key for this account under this seed: {}",
-                        e
-                    );
+                    eprintln!("  ⚠️  No valid Orchard key for this account under this seed: {e}");
                     None
                 }
             };
@@ -108,8 +105,7 @@ pub(crate) fn inspect_mnemonic(mnemonic: bip0039::Mnemonic, context: Option<Cont
                             }.encode(),
                         ),
                         Err(e) => eprintln!(
-                            "    ⚠️  No valid transparent default address for this account under this seed: {:?}",
-                            e
+                            "    ⚠️  No valid transparent default address for this account under this seed: {e:?}"
                         ),
                     }
 
@@ -117,8 +113,7 @@ pub(crate) fn inspect_mnemonic(mnemonic: bip0039::Mnemonic, context: Option<Cont
                 }
                 Err(e) => {
                     eprintln!(
-                        "  ⚠️  No valid transparent key for this account under this seed: {:?}",
-                        e
+                        "  ⚠️  No valid transparent key for this account under this seed: {e:?}"
                     );
                     None
                 }

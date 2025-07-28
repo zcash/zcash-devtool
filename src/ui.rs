@@ -17,5 +17,5 @@ pub(crate) fn format_zec(value: impl TryInto<ZatBalance>) -> String {
     } else {
         abs_zec as i64
     };
-    format!("{:3}.{:08} ZEC", zec, frac)
+    format!("{zec:3}.{frac:08} ZEC")
 }
