@@ -176,6 +176,9 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::pczt::Command::Shield(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::CreateManual(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Inspect(command) => command.run(wallet_dir).await,
+                commands::pczt::Command::UpdateWithDerivation(command) => {
+                    command.run(wallet_dir).await
+                }
                 commands::pczt::Command::Redact(command) => command.run().await,
                 commands::pczt::Command::Prove(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Sign(command) => command.run(wallet_dir).await,
