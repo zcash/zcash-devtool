@@ -7,6 +7,7 @@ pub(crate) mod inspect;
 pub(crate) mod prove;
 pub(crate) mod redact;
 pub(crate) mod send;
+pub(crate) mod send_without_storing;
 pub(crate) mod shield;
 pub(crate) mod sign;
 pub(crate) mod update_with_derivation;
@@ -36,6 +37,10 @@ pub(crate) enum Command {
     Combine(combine::Command),
     /// Extract a finished transaction and send it
     Send(send::Command),
+    /// Extract a finished transaction and send it, without storing in the wallet.
+    ///
+    /// This should be used for PCZTs created with `pczt create-manual`.
+    SendWithoutStoring(send_without_storing::Command),
     #[cfg(feature = "pczt-qr")]
     /// Render a PCZT as an animated QR code
     ToQr(qr::Send),
