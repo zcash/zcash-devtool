@@ -7983,6 +7983,7 @@ dependencies = [
  "bip0039",
  "bip32",
  "blake2b_simd",
+ "bs58",
  "chrono",
  "clap",
  "crossterm",

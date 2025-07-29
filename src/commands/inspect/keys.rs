@@ -12,9 +12,12 @@ use zcash_address::{
     unified::{self, Encoding},
     ToAddress, ZcashAddress,
 };
-use zcash_keys::keys::{UnifiedAddressRequest, UnifiedFullViewingKey};
+use zcash_keys::{
+    encoding::AddressCodec,
+    keys::{UnifiedAddressRequest, UnifiedFullViewingKey},
+};
 use zcash_protocol::{
-    consensus::{Network, NetworkConstants, NetworkType},
+    consensus::{self, Network, NetworkConstants, NetworkType},
     local_consensus::LocalNetwork,
 };
 
@@ -221,4 +224,47 @@ pub(crate) fn inspect_sapling_extsk(data: Vec<u8>, network: NetworkType) {
 
     eprintln!();
     eprintln!("WARNING: This spending key is now likely cached in your terminal's history buffer.");
+}
+
+pub(crate) fn inspect_transparent_sk(data: &[u8], network: NetworkType) {
+    let (data, compressed) = match data.split_last() {
+        Some((b, rest)) if *b == 1 => (rest, true),
+        _ => (data, false),
+    };
+
+    match secp256k1::SecretKey::from_slice(data) {
+        Err(_) => {
+            eprintln!("Invalid encoding that claims to be a transparent secret key");
+        }
+        Ok(sk) => {
+            eprintln!("Transparent secret key");
+
+            let pubkey = sk.public_key(&secp256k1::Secp256k1::signing_only());
+            eprintln!(
+                "- Public key: {}",
+                if compressed {
+                    hex::encode(pubkey.serialize())
+                } else {
+                    hex::encode(pubkey.serialize_uncompressed())
+                }
+            );
+
+            if compressed {
+                let params = match network {
+                    NetworkType::Main => consensus::Network::MainNetwork,
+                    NetworkType::Test => consensus::Network::TestNetwork,
+                    NetworkType::Regtest => unreachable!(),
+                };
+
+                // `TransparentAddress::from_pubkey` only supports compressed encodings.
+                eprintln!(
+                    "- P2PKH address: {}",
+                    TransparentAddress::from_pubkey(&pubkey).encode(&params),
+                );
+            }
+        }
+    }
+
+    eprintln!();
+    eprintln!("WARNING: This secret key is now likely cached in your terminal's history buffer.");
 }
