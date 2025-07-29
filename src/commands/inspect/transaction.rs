@@ -157,12 +157,12 @@ impl Authorization for PrecomputedAuth {
 pub(crate) fn inspect(
     tx: Transaction,
     context: Option<Context>,
-    mined_height: Option<BlockHeight>,
+    mined_height: Option<(&'static str, BlockHeight)>,
 ) {
     eprintln!("Zcash transaction");
     eprintln!(" - ID: {}", tx.txid());
-    if let Some(height) = mined_height {
-        eprintln!(" - Mined in block {height}");
+    if let Some((chain, height)) = mined_height {
+        eprintln!(" - Mined in {chain} block {height}");
     }
     eprintln!(" - Version: {:?}", tx.version());
     match tx.version() {

@@ -4,6 +4,7 @@
 //! It is only intended to show the overall light client workflow using this crate.
 
 use std::env;
+use std::io;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -88,7 +89,11 @@ fn main() -> Result<(), anyhow::Error> {
 
     let stdout_logger = if tui_logger.is_none() {
         let filter = tracing_subscriber::EnvFilter::from(level_filter);
-        Some(tracing_subscriber::fmt::layer().with_filter(filter))
+        Some(
+            tracing_subscriber::fmt::layer()
+                .with_writer(io::stderr)
+                .with_filter(filter),
+        )
     } else {
         None
     };

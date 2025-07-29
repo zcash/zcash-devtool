@@ -167,7 +167,7 @@ async fn inspect_possible_hash(bytes: [u8; 32], context: Option<Context>, lookup
                     }
 
                     if let Some((tx, mined_height)) = mainnet.lookup_txid(candidate).await {
-                        transaction::inspect(tx, context, mined_height);
+                        transaction::inspect(tx, context, mined_height.map(|h| ("mainnet", h)));
                         return true;
                     }
                 }
@@ -182,7 +182,7 @@ async fn inspect_possible_hash(bytes: [u8; 32], context: Option<Context>, lookup
                     }
 
                     if let Some((tx, mined_height)) = testnet.lookup_txid(candidate).await {
-                        transaction::inspect(tx, context, mined_height);
+                        transaction::inspect(tx, context, mined_height.map(|h| ("testnet", h)));
                         return true;
                     }
                 }
