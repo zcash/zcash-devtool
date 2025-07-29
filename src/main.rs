@@ -184,6 +184,9 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::pczt::Command::Sign(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Combine(command) => command.run().await,
                 commands::pczt::Command::Send(command) => command.run(wallet_dir).await,
+                commands::pczt::Command::SendWithoutStoring(command) => {
+                    command.run(wallet_dir).await
+                }
                 #[cfg(feature = "pczt-qr")]
                 commands::pczt::Command::ToQr(command) => {
                     command
