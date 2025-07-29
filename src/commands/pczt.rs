@@ -9,6 +9,7 @@ pub(crate) mod redact;
 pub(crate) mod send;
 pub(crate) mod shield;
 pub(crate) mod sign;
+pub(crate) mod update_with_derivation;
 
 #[cfg(feature = "pczt-qr")]
 pub(crate) mod qr;
@@ -23,6 +24,8 @@ pub(crate) enum Command {
     CreateManual(create_manual::Command),
     /// Inspect a PCZT
     Inspect(inspect::Command),
+    /// Adds BIP 44 or ZIP 32 derivations to a PCZT
+    UpdateWithDerivation(update_with_derivation::Command),
     /// Redact a PCZT
     Redact(redact::Command),
     /// Create proofs for a PCZT
