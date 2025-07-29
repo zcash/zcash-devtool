@@ -37,14 +37,12 @@ use crate::{
 
 #[cfg(feature = "transparent-inputs")]
 use {
-    ::transparent::{
-        address::Script,
-        bundle::{OutPoint, TxOut},
-    },
+    ::transparent::bundle::{OutPoint, TxOut},
     zcash_client_backend::wallet::WalletTransparentOutput,
     zcash_client_sqlite::AccountUuid,
     zcash_keys::encoding::AddressCodec,
     zcash_protocol::value::Zatoshis,
+    zcash_script::script::{self, Parsable},
 };
 
 #[cfg(feature = "tui")]
@@ -663,7 +661,9 @@ async fn refresh_utxos<P: Parameters>(
                     OutPoint::new(reply.txid[..].try_into()?, reply.index.try_into()?),
                     TxOut {
                         value: Zatoshis::from_nonnegative_i64(reply.value_zat)?,
-                        script_pubkey: Script(reply.script),
+                        script_pubkey: script::PubKey::from_bytes(&reply.script)
+                            .map_err(|e| anyhow!("{e:?}"))?
+                            .0,
                     },
                     Some(BlockHeight::from(u32::try_from(reply.height)?)),
                 )
