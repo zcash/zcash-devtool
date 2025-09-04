@@ -271,8 +271,8 @@ pub(crate) struct ZTxOut {
 impl From<TxOut> for ZTxOut {
     fn from(out: TxOut) -> Self {
         ZTxOut {
-            value: ZOutputValue(out.value),
-            script_pubkey: ZScript(out.script_pubkey),
+            value: ZOutputValue(out.value()),
+            script_pubkey: ZScript(out.script_pubkey().clone()),
         }
     }
 }
@@ -316,10 +316,7 @@ impl Context {
             coins
                 .iter()
                 .cloned()
-                .map(|coin| transparent::TxOut {
-                    value: coin.value.0,
-                    script_pubkey: coin.script_pubkey.0,
-                })
+                .map(|coin| transparent::TxOut::new(coin.value.0, coin.script_pubkey.0))
                 .collect()
         })
     }

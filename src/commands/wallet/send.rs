@@ -12,6 +12,7 @@ use zcash_client_backend::{
     data_api::{
         wallet::{
             create_proposed_transactions, input_selection::GreedyInputSelector, propose_transfer,
+            ConfirmationsPolicy,
         },
         Account, WalletRead,
     },
@@ -35,7 +36,6 @@ use crate::{
     data::get_db_paths,
     error,
     remote::{tor_client, Servers},
-    MIN_CONFIRMATIONS,
 };
 
 // Options accepted for the `send` command
@@ -152,7 +152,7 @@ impl Command {
             &input_selector,
             &change_strategy,
             request,
-            MIN_CONFIRMATIONS,
+            ConfirmationsPolicy::default(),
         )
         .map_err(error::Error::from)?;
 

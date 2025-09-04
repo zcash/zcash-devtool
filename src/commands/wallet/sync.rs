@@ -48,7 +48,10 @@ use {
 };
 
 #[cfg(feature = "tui")]
-use zcash_protocol::consensus::NetworkUpgrade;
+use {
+    zcash_client_backend::data_api::wallet::ConfirmationsPolicy,
+    zcash_protocol::consensus::NetworkUpgrade,
+};
 
 #[cfg(feature = "tui")]
 use crate::tui::Tui;
@@ -124,7 +127,9 @@ impl Command {
             let _chain_tip = update_chain_tip(client, db_data).await?;
             #[cfg(feature = "tui")]
             if let Some(handle) = tui_handle {
-                handle.set_wallet_summary(db_data.get_wallet_summary(10)?);
+                handle.set_wallet_summary(
+                    db_data.get_wallet_summary(ConfirmationsPolicy::default())?,
+                );
             }
 
             // Refresh UTXOs for the accounts in the wallet.
@@ -534,7 +539,7 @@ fn scan_blocks<P: Parameters + Send + 'static>(
     #[cfg(feature = "tui")]
     if let Some(handle) = tui_handle {
         handle.set_scanning_range(None);
-        handle.set_wallet_summary(db_data.get_wallet_summary(10)?);
+        handle.set_wallet_summary(db_data.get_wallet_summary(ConfirmationsPolicy::default())?);
     }
 
     match scan_result {
@@ -661,10 +666,10 @@ async fn refresh_utxos<P: Parameters>(
             .and_then(|reply| async move {
                 WalletTransparentOutput::from_parts(
                     OutPoint::new(reply.txid[..].try_into()?, reply.index.try_into()?),
-                    TxOut {
-                        value: Zatoshis::from_nonnegative_i64(reply.value_zat)?,
-                        script_pubkey: Script(reply.script),
-                    },
+                    TxOut::new(
+                        Zatoshis::from_nonnegative_i64(reply.value_zat)?,
+                        Script(reply.script),
+                    ),
                     Some(BlockHeight::from(u32::try_from(reply.height)?)),
                 )
                 .ok_or(anyhow!(

@@ -8,8 +8,6 @@ use group::GroupEncoding;
 use sapling::{note_encryption::SaplingDomain, SaplingVerificationContext};
 use secp256k1::{Secp256k1, VerifyOnly};
 
-#[allow(deprecated)]
-use ::transparent::keys::pubkey_to_address;
 use ::transparent::{
     address::{Script, TransparentAddress},
     bundle as transparent,
@@ -53,7 +51,7 @@ pub fn extract_height_from_coinbase(tx: &Transaction) -> Option<BlockHeight> {
 
     tx.transparent_bundle()
         .and_then(|bundle| bundle.vin.first())
-        .and_then(|input| match input.script_sig.0.first().copied() {
+        .and_then(|input| match input.script_sig().0.first().copied() {
             // {0, -1} will never occur as the first byte of a coinbase scriptSig.
             Some(OP_0 | OP_1NEGATE) => None,
             // Blocks 1 to 16.
@@ -62,7 +60,7 @@ pub fn extract_height_from_coinbase(tx: &Transaction) -> Option<BlockHeight> {
             // than 5 bytes for Zcash heights. These have the format
             // `[len(encoding)] || encoding`.
             Some(h @ 1..=5) => {
-                let rest = &input.script_sig.0[1..];
+                let rest = &input.script_sig().0[1..];
                 let encoding_len = h as usize;
                 if rest.len() < encoding_len {
                     None
@@ -116,14 +114,14 @@ impl TransparentAuthorizingContext for TransparentAuth {
     fn input_amounts(&self) -> Vec<Zatoshis> {
         self.all_prev_outputs
             .iter()
-            .map(|prevout| prevout.value)
+            .map(|prevout| prevout.value())
             .collect()
     }
 
     fn input_scriptpubkeys(&self) -> Vec<Script> {
         self.all_prev_outputs
             .iter()
-            .map(|prevout| prevout.script_pubkey.clone())
+            .map(|prevout| prevout.script_pubkey().clone())
             .collect()
     }
 }
@@ -241,16 +239,16 @@ pub(crate) fn inspect(
                 for (i, (txin, coin)) in bundle.vin.iter().zip(coins).enumerate() {
                     eprintln!(
                         "   - prevout: txid {}, index {}",
-                        TxId::from_bytes(*txin.prevout.hash()),
-                        txin.prevout.n()
+                        TxId::from_bytes(*txin.prevout().hash()),
+                        txin.prevout().n()
                     );
                     match coin.recipient_address() {
                         Some(addr @ TransparentAddress::PublicKeyHash(_)) => {
                             // Format is [sig_and_type_len] || sig || [hash_type] || [pubkey_len] || pubkey
                             // where [x] encodes a single byte.
-                            let sig_and_type_len = txin.script_sig.0.first().map(|l| *l as usize);
+                            let sig_and_type_len = txin.script_sig().0.first().map(|l| *l as usize);
                             let pubkey_len = sig_and_type_len
-                                .and_then(|sig_len| txin.script_sig.0.get(1 + sig_len))
+                                .and_then(|sig_len| txin.script_sig().0.get(1 + sig_len))
                                 .map(|l| *l as usize);
                             let script_len = sig_and_type_len.zip(pubkey_len).map(
                                 |(sig_and_type_len, pubkey_len)| {
@@ -258,12 +256,12 @@ pub(crate) fn inspect(
                                 },
                             );
 
-                            if Some(txin.script_sig.0.len()) != script_len {
+                            if Some(txin.script_sig().0.len()) != script_len {
                                 eprintln!(
                                     "    ⚠️  \"transparentcoins\" {} is P2PKH; txin {} scriptSig has length {} but data {}",
                                     i,
                                     i,
-                                    txin.script_sig.0.len(),
+                                    txin.script_sig().0.len(),
                                     if let Some(l) = script_len {
                                         format!("implies length {l}.")
                                     } else {
@@ -274,10 +272,11 @@ pub(crate) fn inspect(
                                 let sig_len = sig_and_type_len.unwrap() - 1;
 
                                 let sig = secp256k1::ecdsa::Signature::from_der(
-                                    &txin.script_sig.0[1..1 + sig_len],
+                                    &txin.script_sig().0[1..1 + sig_len],
                                 );
-                                let hash_type = SighashType::parse(txin.script_sig.0[1 + sig_len]);
-                                let pubkey_bytes = &txin.script_sig.0[1 + sig_len + 2..];
+                                let hash_type =
+                                    SighashType::parse(txin.script_sig().0[1 + sig_len]);
+                                let pubkey_bytes = &txin.script_sig().0[1 + sig_len + 2..];
                                 let pubkey = secp256k1::PublicKey::from_slice(pubkey_bytes);
 
                                 if let Err(e) = sig {
@@ -294,8 +293,7 @@ pub(crate) fn inspect(
                                 if let (Ok(sig), Some(hash_type), Ok(pubkey)) =
                                     (sig, hash_type, pubkey)
                                 {
-                                    #[allow(deprecated)]
-                                    if pubkey_to_address(&pubkey) != addr {
+                                    if TransparentAddress::from_pubkey(&pubkey) != addr {
                                         eprintln!("    ⚠️  Txin {i} pubkey does not match coin's script_pubkey");
                                     }
 
@@ -306,9 +304,9 @@ pub(crate) fn inspect(
                                                 hash_type,
                                                 i,
                                                 // For P2PKH these are the same.
-                                                &coin.script_pubkey,
-                                                &coin.script_pubkey,
-                                                coin.value,
+                                                coin.script_pubkey(),
+                                                coin.script_pubkey(),
+                                                coin.value(),
                                             ),
                                         ),
                                         txid_parts,
@@ -348,8 +346,8 @@ pub(crate) fn inspect(
                 for txin in &bundle.vin {
                     eprintln!(
                         "     - txid {}, index {}",
-                        TxId::from_bytes(*txin.prevout.hash()),
-                        txin.prevout.n()
+                        TxId::from_bytes(*txin.prevout().hash()),
+                        txin.prevout().n()
                     )
                 }
             }

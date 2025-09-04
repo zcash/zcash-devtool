@@ -7,7 +7,7 @@ use uuid::Uuid;
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
-        wallet::{input_selection::GreedyInputSelector, propose_transfer},
+        wallet::{input_selection::GreedyInputSelector, propose_transfer, ConfirmationsPolicy},
         Account as _,
     },
     fees::{zip317::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
@@ -16,10 +16,7 @@ use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
 use zip321::{Payment, TransactionRequest};
 
-use crate::{
-    commands::select_account, config::get_wallet_network, data::get_db_paths, error,
-    MIN_CONFIRMATIONS,
-};
+use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths, error};
 
 // Options accepted for the `propose` command
 #[derive(Debug, Args)]
@@ -80,7 +77,7 @@ impl Command {
             &input_selector,
             &change_strategy,
             request,
-            MIN_CONFIRMATIONS,
+            ConfirmationsPolicy::default(),
         )
         .map_err(error::Error::from)?;
 
