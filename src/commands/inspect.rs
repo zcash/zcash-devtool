@@ -95,6 +95,19 @@ impl Command {
                     process::exit(2);
                 }
             }
+        } else if let Ok(decoded) = bs58::decode(&opts.data).with_check(None).into_vec() {
+            match decoded.as_slice() {
+                // `constants::mainnet::B58_TRANSPARENT_SECRET_KEY_PREFIX`
+                [0x80, data @ ..] => keys::inspect_transparent_sk(data, NetworkType::Main),
+                // `constants::testnet::B58_TRANSPARENT_SECRET_KEY_PREFIX`
+                // (also regtest but we can't distinguish the two)
+                [0xEF, data @ ..] => keys::inspect_transparent_sk(data, NetworkType::Test),
+                _ => {
+                    // Unknown data format.
+                    eprintln!("String does not match known Zcash data formats.");
+                    process::exit(2);
+                }
+            }
         } else {
             // Unknown data format.
             eprintln!("String does not match known Zcash data formats.");
