@@ -5,7 +5,7 @@ use rust_decimal::{prelude::FromPrimitive, Decimal};
 use tracing::{info, warn};
 use uuid::Uuid;
 use zcash_client_backend::{
-    data_api::{Account as _, WalletRead},
+    data_api::{wallet::ConfirmationsPolicy, Account as _, WalletRead},
     tor,
 };
 use zcash_client_sqlite::WalletDb;
@@ -14,7 +14,7 @@ use zcash_protocol::value::{Zatoshis, COIN};
 
 use crate::{
     commands::select_account, config::get_wallet_network, data::get_db_paths, error,
-    parse_currency, remote::tor_client, ui::format_zec, MIN_CONFIRMATIONS,
+    parse_currency, remote::tor_client, ui::format_zec,
 };
 
 // Options accepted for the `balance` command
@@ -51,7 +51,7 @@ impl Command {
             ValuePrinter::ZecOnly
         };
 
-        if let Some(wallet_summary) = db_data.get_wallet_summary(MIN_CONFIRMATIONS.into())? {
+        if let Some(wallet_summary) = db_data.get_wallet_summary(ConfirmationsPolicy::default())? {
             let balance = wallet_summary
                 .account_balances()
                 .get(&account.id())

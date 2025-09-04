@@ -1,12 +1,9 @@
 use anyhow::anyhow;
 use clap::Args;
 use uuid::Uuid;
-use zcash_client_backend::data_api::{Account as _, InputSource, TargetValue, WalletRead};
+use zcash_client_backend::data_api::{Account as _, InputSource, WalletRead};
 use zcash_client_sqlite::WalletDb;
-use zcash_protocol::{
-    value::{Zatoshis, MAX_MONEY},
-    ShieldedProtocol,
-};
+use zcash_protocol::ShieldedProtocol;
 
 use crate::{
     commands::select_account, config::get_wallet_network, data::get_db_paths, error, ui::format_zec,
@@ -27,19 +24,16 @@ impl Command {
         let db_data = WalletDb::for_path(db_data, params, (), ())?;
         let account = select_account(&db_data, self.account_id)?;
 
-        // Use the height of the maximum scanned block as the anchor height, to emulate a
-        // zero-conf transaction in order to select every note in the wallet.
-        let anchor_height = db_data
-            .block_max_scanned()?
+        let chain_height = db_data
+            .chain_height()?
             .ok_or(error::WalletErrorT::ScanRequired)
-            .map_err(|e| anyhow!("{:?}", e))?
-            .block_height();
+            .map_err(|e| anyhow!("{:?}", e))?;
+        let target_height = (chain_height + 1).into();
 
-        let notes = db_data.select_spendable_notes(
+        let notes = db_data.select_unspent_notes(
             account.id(),
-            TargetValue::AtLeast(Zatoshis::const_from_u64(MAX_MONEY)),
             &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard],
-            anchor_height,
+            target_height,
             &[],
         )?;
 

@@ -12,6 +12,7 @@ use zcash_client_backend::{
     data_api::{
         wallet::{
             create_pczt_from_proposal, input_selection::GreedyInputSelector, propose_transfer,
+            ConfirmationsPolicy,
         },
         Account as _,
     },
@@ -26,9 +27,7 @@ use zcash_protocol::{
 };
 use zip321::{Payment, TransactionRequest};
 
-use crate::{
-    commands::select_account, config::WalletConfig, data::get_db_paths, error, MIN_CONFIRMATIONS,
-};
+use crate::{commands::select_account, config::WalletConfig, data::get_db_paths, error};
 
 // Options accepted for the `pczt create` command
 #[derive(Debug, Args)]
@@ -103,7 +102,7 @@ impl Command {
             &input_selector,
             &change_strategy,
             request,
-            MIN_CONFIRMATIONS,
+            ConfirmationsPolicy::default(),
         )
         .map_err(error::Error::from)?;
 

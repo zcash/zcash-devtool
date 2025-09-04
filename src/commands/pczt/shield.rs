@@ -9,6 +9,7 @@ use zcash_client_backend::{
     data_api::{
         wallet::{
             create_pczt_from_proposal, input_selection::GreedyInputSelector, propose_shielding,
+            ConfirmationsPolicy,
         },
         Account as _, WalletRead,
     },
@@ -61,12 +62,14 @@ impl Command {
         let input_selector = GreedyInputSelector::new();
 
         // For this dev tool, shield all funds immediately.
-        let max_height = match db_data.chain_height()? {
-            Some(max_height) => max_height,
+        let target_height = match db_data.chain_height()? {
+            Some(chain_height) => (chain_height + 1).into(),
             // If we haven't scanned anything, there's nothing to do.
             None => return Ok(()),
         };
-        let transparent_balances = db_data.get_transparent_balances(account.id(), max_height)?;
+        let confirmations_policy = ConfirmationsPolicy::MIN;
+        let transparent_balances =
+            db_data.get_transparent_balances(account.id(), target_height, confirmations_policy)?;
         let from_addrs = transparent_balances.into_keys().collect::<Vec<_>>();
 
         let proposal = propose_shielding(
@@ -77,7 +80,7 @@ impl Command {
             Zatoshis::ZERO,
             &from_addrs,
             account.id(),
-            0,
+            confirmations_policy,
         )
         .map_err(error::Error::Shield)?;
 

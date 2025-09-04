@@ -5,7 +5,6 @@
 
 use std::env;
 use std::io;
-use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use clap::{Parser, Subcommand};
@@ -22,8 +21,6 @@ mod ui;
 #[cfg(feature = "tui")]
 #[allow(dead_code)]
 mod tui;
-
-const MIN_CONFIRMATIONS: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(3) };
 
 fn parse_hex(data: &str) -> Result<Vec<u8>, hex::FromHexError> {
     hex::decode(data)
