@@ -1,6 +1,7 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use clap::Args;
 use rusqlite::{named_params, Connection};
+use time::macros::format_description;
 use uuid::Uuid;
 
 use zcash_protocol::{
@@ -18,11 +19,37 @@ pub(crate) struct Command {
     /// The UUID of the account for which to get the list of transactions. If omitted, transactions
     /// transactions from all accounts will be returned.
     account_id: Option<Uuid>,
+
+    /// The output mode to use. Options are "text" and "csv". Using "csv" output will produce a CSV
+    /// with one record per output row. Defaults to "text".
+    #[arg(short, long)]
+    mode: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ListMode {
+    Text,
+    Csv,
+}
+
+impl ListMode {
+    fn parse(value: &str) -> Result<Self, ()> {
+        match value {
+            "text" => Ok(ListMode::Text),
+            "csv" => Ok(ListMode::Csv),
+            _ => Err(()),
+        }
+    }
 }
 
 impl Command {
     pub(crate) fn run(self, wallet_dir: Option<String>) -> anyhow::Result<()> {
         let (_, db_data) = get_db_paths(wallet_dir);
+        let mode = self
+            .mode
+            .as_ref()
+            .map_or(Ok(ListMode::Text), |s| ListMode::parse(s.as_str()))
+            .map_err(|_| anyhow::Error::msg("Invalid printing mode"))?;
 
         let conn = Connection::open(db_data)?;
         rusqlite::vtab::array::load_module(&conn)?;
@@ -58,54 +85,72 @@ impl Command {
                 output_pool,
                 output_index,
                 from_account_uuid,
+                fa.name AS from_account_name,
                 to_account_uuid,
+                ta.name AS to_account_name,
                 to_address,
                 value,
                 is_change,
                 memo
              FROM v_tx_outputs
+             LEFT OUTER JOIN accounts fa ON from_account_uuid = fa.uuid
+             LEFT OUTER JOIN accounts ta ON to_account_uuid = ta.uuid
              WHERE txid = :txid",
         )?;
 
-        println!("Transactions:");
+        match mode {
+            ListMode::Text => {
+                println!("Transactions:");
+            }
+            ListMode::Csv => {
+                println!(
+                    "Date,Action,Symbol,Volume,Currency,Account,Total,Price,Fee,FeeCurrency,Memo"
+                );
+            }
+        }
         for row in stmt_txs.query_and_then(
             named_params! {":account_uuid": self.account_id },
             |row| -> anyhow::Result<_> {
-                let txid = row.get::<_, Vec<u8>>(1)?;
+                let txid = row.get::<_, Vec<u8>>("txid")?;
 
                 let tx_outputs = stmt_outputs
                     .query_and_then(named_params![":txid": txid], |out_row| {
+                        let from_account_name: Option<String> = out_row.get("from_account_name")?;
+                        let to_account_name: Option<String> = out_row.get("to_account_name")?;
                         WalletTxOutput::new(
-                            out_row.get(0)?,
-                            out_row.get(1)?,
-                            out_row.get(2)?,
-                            out_row.get(3)?,
-                            out_row.get(4)?,
-                            out_row.get(5)?,
-                            out_row.get(6)?,
-                            out_row.get(7)?,
+                            out_row.get("output_pool")?,
+                            out_row.get("output_index")?,
+                            out_row
+                                .get::<_, Option<Uuid>>("from_account_uuid")?
+                                .map(|uuid| (uuid, from_account_name)),
+                            out_row
+                                .get::<_, Option<Uuid>>("to_account_uuid")?
+                                .map(|uuid| (uuid, to_account_name)),
+                            out_row.get("to_address")?,
+                            out_row.get("value")?,
+                            out_row.get("is_change")?,
+                            out_row.get("memo")?,
                         )
                     })?
                     .collect::<Result<Vec<_>, _>>()?;
 
                 WalletTx::from_parts(
-                    row.get(0)?,
+                    row.get("mined_height")?,
                     txid,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                    row.get(7)?,
-                    row.get(8)?,
-                    row.get(9)?,
+                    row.get("expiry_height")?,
+                    row.get("account_balance_delta")?,
+                    row.get("fee_paid")?,
+                    row.get("sent_note_count")?,
+                    row.get("received_note_count")?,
+                    row.get("memo_count")?,
+                    row.get("block_time")?,
+                    row.get("expired_unmined")?,
                     tx_outputs,
                 )
             },
         )? {
             let tx = row?;
-            println!();
-            tx.print();
+            tx.print(mode)?;
         }
 
         Ok(())
@@ -115,8 +160,8 @@ impl Command {
 struct WalletTxOutput {
     pool: PoolType,
     output_index: u32,
-    from_account: Option<Uuid>,
-    to_account: Option<Uuid>,
+    from_account: Option<(Uuid, Option<String>)>,
+    to_account: Option<(Uuid, Option<String>)>,
     to_address: Option<String>,
     value: Zatoshis,
     is_change: bool,
@@ -137,8 +182,8 @@ impl WalletTxOutput {
     fn new(
         pool_code: i64,
         output_index: u32,
-        from_account: Option<Uuid>,
-        to_account: Option<Uuid>,
+        from_account: Option<(Uuid, Option<String>)>,
+        to_account: Option<(Uuid, Option<String>)>,
         to_address: Option<String>,
         value: i64,
         is_change: bool,
@@ -161,7 +206,7 @@ impl WalletTxOutput {
         })
     }
 
-    fn print(&self) {
+    fn print_text(&self) {
         println!("  Output {} ({})", self.output_index, self.pool);
         println!(
             "    Value: {}{}",
@@ -176,11 +221,17 @@ impl WalletTxOutput {
         );
 
         if self.from_account != self.to_account {
-            if let Some(account_id) = self.to_account {
-                println!("    Received by account: {account_id}");
+            if let Some((account_id, account_name)) = &self.to_account {
+                let name = account_name
+                    .as_ref()
+                    .map_or("".to_string(), |n| format!(" ({n})"));
+                println!("    Received by account: {account_id}{name}");
             }
-            if let Some(account_id) = self.from_account {
-                println!("    Sent from account: {account_id}");
+            if let Some((account_id, account_name)) = &self.from_account {
+                let name = account_name
+                    .as_ref()
+                    .map_or("".to_string(), |n| format!(" ({n})"));
+                println!("    Sent from account: {account_id}{name}");
             }
         }
 
@@ -191,6 +242,56 @@ impl WalletTxOutput {
         if let Some(memo) = &self.memo {
             println!("    Memo: {memo:?}");
         }
+    }
+
+    fn print_csv(&self, context: &WalletTx) -> Result<(), anyhow::Error> {
+        if self.is_change {
+            //neither send nor receive, skip
+            return Ok(());
+        }
+
+        let format = format_description!(
+            "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory]:[offset_minute]:[offset_second]"
+        );
+
+        if let Some(action) = match (&self.from_account, &self.to_account) {
+            (Some(_), Some(_)) => None, // wallet-internal transfer, skip
+            (None, None) => {
+                bail!("we should not encounter a state where neither source nor destination are known");
+            }
+            (None, Some(_)) => Some("RECEIVE"),
+            (Some(_), None) => Some("SEND"),
+        } {
+            let date = context
+                .block_time
+                .map(time::OffsetDateTime::from_unix_timestamp)
+                .transpose()?
+                .map_or(Ok("".to_string()), |t| t.format(format))?;
+            let symbol = "ZEC";
+            let volume = format_zec(self.value);
+            let currency = "USD";
+            let (account_id, account_name) = self
+                .to_account
+                .as_ref()
+                .or(self.from_account.as_ref())
+                .unwrap();
+            let aname_str = account_name
+                .as_ref()
+                .map_or("".to_string(), |n| format!(" ({n})"));
+            let total = "";
+            let price = "";
+            let fee = context.fee_paid.map(format_zec).unwrap_or("".to_string());
+            let fee_currency = "ZEC";
+            let memo = self.memo.as_ref().map_or("".to_string(), |m| match m {
+                Memo::Empty => "".to_string(),
+                Memo::Text(text_memo) => text_memo.to_string(),
+                Memo::Future(_) => "".to_string(),
+                Memo::Arbitrary(_) => "".to_string(),
+            });
+            println!("{date},{action},{symbol},{volume},{currency},{account_id}{aname_str},{total},{price},{fee},{fee_currency},{memo}");
+        }
+
+        Ok(())
     }
 }
 
@@ -241,7 +342,17 @@ impl WalletTx {
         })
     }
 
-    fn print(&self) {
+    fn print(&self, mode: ListMode) -> Result<(), anyhow::Error> {
+        match mode {
+            ListMode::Text => {
+                self.print_text();
+                Ok(())
+            }
+            ListMode::Csv => self.print_csv(),
+        }
+    }
+
+    fn print_text(&self) {
         let height_to_str = |height: Option<BlockHeight>, def: &str| {
             height.map(|h| h.to_string()).unwrap_or(def.to_owned())
         };
@@ -276,7 +387,15 @@ impl WalletTx {
             self.sent_note_count, self.received_note_count, self.memo_count,
         );
         for output in &self.outputs {
-            output.print()
+            output.print_text()
         }
+    }
+
+    fn print_csv(&self) -> Result<(), anyhow::Error> {
+        for output in &self.outputs {
+            output.print_csv(self)?;
+        }
+
+        Ok(())
     }
 }

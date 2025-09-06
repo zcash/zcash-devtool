@@ -241,7 +241,7 @@ impl App {
         if let Some(block_count) = self
             .scan_ranges
             .last_key_value()
-            .map(|(&last, _)| (last - self.wallet_birthday))
+            .map(|(&last, _)| last - self.wallet_birthday)
         {
             // Determine the density of blocks we will be rendering. Use ceiling division
             // to ensure we don't require more cells than we have (which would cause the
