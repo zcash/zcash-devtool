@@ -14,7 +14,11 @@ use crate::{data::get_db_paths, ui::format_zec};
 
 // Options accepted for the `list-tx` command
 #[derive(Debug, Args)]
-pub(crate) struct Command {}
+pub(crate) struct Command {
+    /// The UUID of the account for which to get the list of transactions. If omitted, transactions
+    /// transactions from all accounts will be returned.
+    account_id: Option<Uuid>,
+}
 
 impl Command {
     pub(crate) fn run(self, wallet_dir: Option<String>) -> anyhow::Result<()> {
@@ -22,16 +26,6 @@ impl Command {
 
         let conn = Connection::open(db_data)?;
         rusqlite::vtab::array::load_module(&conn)?;
-
-        // Show the first account in the database.
-        let account_uuid = conn.query_row(
-            "SELECT uuid
-            FROM accounts
-            ORDER BY id
-            LIMIT 1",
-            named_params! {},
-            |row| row.get::<_, Uuid>(0),
-        )?;
 
         let mut stmt_txs = conn.prepare(
             "SELECT mined_height,
@@ -55,12 +49,8 @@ impl Command {
                     -- in history). We represent this with NULL.
                 ) AS sort_height
             FROM v_transactions
-            WHERE account_uuid = :account_uuid
-            ORDER BY
-                -- By default, integer ordering places NULL before all values. Flip this
-                -- around so that transactions in the mempool are shown as most recent.
-                CASE WHEN sort_height IS NULL THEN 1 ELSE 0 END,
-                sort_height",
+            WHERE (:account_uuid IS NULL OR account_uuid = :account_uuid)
+            ORDER BY sort_height ASC NULLS LAST",
         )?;
 
         let mut stmt_outputs = conn.prepare(
@@ -79,7 +69,7 @@ impl Command {
 
         println!("Transactions:");
         for row in stmt_txs.query_and_then(
-            named_params! {":account_uuid": account_uuid},
+            named_params! {":account_uuid": self.account_id },
             |row| -> anyhow::Result<_> {
                 let txid = row.get::<_, Vec<u8>>(1)?;
 
