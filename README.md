@@ -31,27 +31,29 @@ cargo run --release -- --help init
 
 To create a new empty testnet wallet:
 ```
-cargo run --release -- -w <wallet_dir> init
-cargo run --release -- -w <wallet_dir> sync
+cargo run --release -- wallet -w <wallet_dir> init --name "<account_name>" -i <identity_file> -n test
+cargo run --release -- wallet -w <wallet_dir> sync
 ```
+
+Note: The `-i` (identity) parameter specifies an age identity file for encrypting the mnemonic phrase. The file will be generated if it doesn't exist.
 
 See the help docs for `init` for additional information, including for how to
 initialize a mainnet wallet. Initializing a mainnet wallet will require
 specifying a mainnet lightwallet server, e.g.
 ```
-cargo run --release -- -w <wallet_dir> init -n "main" -s "zecrocks"
-cargo run --release -- -w <wallet_dir> sync -s "zecrocks"
+cargo run --release -- wallet -w <wallet_dir> init --name "<account_name>" -i <identity_file> -n main -s zecrocks
+cargo run --release -- wallet -w <wallet_dir> sync -s zecrocks
 ```
 
 Whenever you update the `zcash_client_sqlite` dependency, in order to run
 necessary migrations:
 ```
-cargo run --release -- -w <wallet_dir> upgrade
+cargo run --release -- wallet -w <wallet_dir> upgrade
 ```
 
 If you want to run with debug or trace logging:
 ```
-RUST_LOG=debug cargo run --release -- -w <wallet_dir> <command>
+RUST_LOG=debug cargo run --release -- wallet -w <wallet_dir> <command>
 ```
 ### Video tutorial of Zcash Devtool
 Kris Nuttycombe (@nuttycom) presented this tool during ZconVI. The session is available
