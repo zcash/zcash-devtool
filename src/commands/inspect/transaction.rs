@@ -31,7 +31,7 @@ use zcash_protocol::{
     memo::{Memo, MemoBytes},
     value::Zatoshis,
 };
-use zcash_script::{op::PushValue, script, solver};
+use zcash_script::{script, solver};
 
 use super::{
     context::{Context, ZTxOut},
@@ -50,14 +50,12 @@ pub fn extract_height_from_coinbase(tx: &Transaction) -> Option<BlockHeight> {
         .and_then(|input| script::Sig::parse(&input.script_sig().0).ok())
         .as_ref()
         .and_then(|script_sig| script_sig.0.first())
-        .and_then(|opcode| match opcode {
-            PushValue::SmallValue(v) => match v.to_num() {
-                // Blocks 1 to 16.
-                h @ 1..=16 => Some(BlockHeight::from_u32(u32::from(h as u8))),
-                // {0, -1} will never occur as the first byte of a coinbase scriptSig.
-                _ => None,
-            },
-            PushValue::LargeValue(v) => v.to_num().ok().and_then(|v| v.try_into().ok()),
+        .and_then(|opcode| {
+            opcode.to_num().ok().and_then(|v| match v {
+                // 0 will never occur as the first byte of a coinbase scriptSig.
+                0 => None,
+                v => v.try_into().ok(),
+            })
         })
 }
 
