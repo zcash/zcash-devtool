@@ -12,7 +12,7 @@ use zcash_client_backend::{
     data_api::{
         wallet::{
             create_proposed_transactions, input_selection::GreedyInputSelector, propose_transfer,
-            ConfirmationsPolicy,
+            ConfirmationsPolicy, SpendingKeys,
         },
         Account, WalletRead,
     },
@@ -161,7 +161,7 @@ impl Command {
             &params,
             &prover,
             &prover,
-            &usk,
+            &SpendingKeys::from_unified_spending_key(usk),
             OvkPolicy::Sender,
             &proposal,
         )

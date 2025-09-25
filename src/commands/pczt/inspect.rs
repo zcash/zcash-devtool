@@ -302,8 +302,8 @@ impl Command {
                                     transparent::sighash::SignableInput::from_parts(
                                         hash_type,
                                         index,
-                                        redeem_script.as_ref().unwrap_or(&script_pubkey), // for p2pkh, always the same as script_pubkey
-                                        &script_pubkey,
+                                        &redeem_script.as_ref().unwrap_or(&script_pubkey).into(), // for p2pkh, always the same as script_pubkey
+                                        &script_pubkey.into(),
                                         value,
                                     ),
                                 ),
