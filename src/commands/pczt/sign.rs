@@ -9,7 +9,10 @@ use pczt::{
 use secrecy::ExposeSecret;
 use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
 
-use ::transparent::keys::{NonHardenedChildIndex, TransparentKeyScope};
+use ::transparent::{
+    keys::{NonHardenedChildIndex, TransparentKeyScope},
+    zip48,
+};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_protocol::consensus::{NetworkConstants, Parameters};
 use zip32::fingerprint::SeedFingerprint;
@@ -56,6 +59,11 @@ impl Command {
                 scope: TransparentKeyScope,
                 address_index: NonHardenedChildIndex,
             },
+            TransparentMultisig {
+                index: usize,
+                scope: zip32::Scope,
+                address_index: NonHardenedChildIndex,
+            },
         }
         let mut keys = BTreeMap::<zip32::AccountId, Vec<KeyRef>>::new();
         let pczt = Verifier::new(pczt)
@@ -99,16 +107,13 @@ impl Command {
             })
             .map_err(|e| anyhow!("Invalid PCZT: {:?}", e))?
             .with_transparent::<Infallible, _>(|bundle| {
+                let expected_coin_type = bip32::ChildNumber(
+                    params.network_type().coin_type() | bip32::ChildNumber::HARDENED_FLAG,
+                );
                 for (index, input) in bundle.inputs().iter().enumerate() {
                     for derivation in input.bip32_derivation().values() {
-                        if let Some((account_index, scope, address_index)) = derivation
-                            .extract_bip_44_fields(
-                                &seed_fp,
-                                bip32::ChildNumber(
-                                    params.network_type().coin_type()
-                                        | bip32::ChildNumber::HARDENED_FLAG,
-                                ),
-                            )
+                        if let Some((account_index, scope, address_index)) =
+                            derivation.extract_bip_44_fields(&seed_fp, expected_coin_type)
                         {
                             keys.entry(account_index)
                                 .or_default()
@@ -117,6 +122,16 @@ impl Command {
                                     scope,
                                     address_index,
                                 });
+                        } else if let Some((account_index, scope, address_index)) =
+                            derivation.extract_zip_48_fields(&seed_fp, expected_coin_type)
+                        {
+                            keys.entry(account_index).or_default().push(
+                                KeyRef::TransparentMultisig {
+                                    index,
+                                    scope,
+                                    address_index,
+                                },
+                            );
                         }
                     }
                 }
@@ -129,6 +144,9 @@ impl Command {
             Signer::new(pczt).map_err(|e| anyhow!("Failed to initialize Signer: {:?}", e))?;
         for (account_index, spends) in keys {
             let usk = UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account_index)?;
+            let msk =
+                zip48::AccountPrivKey::from_seed(&params, seed.expose_secret(), account_index)
+                    .map_err(|e| anyhow!("Failed to derive ZIP 48 account private key: {e:?}"))?;
             for keyref in spends {
                 match keyref {
                     KeyRef::Orchard { index } => {
@@ -166,6 +184,15 @@ impl Command {
                                     )
                                 })?,
                         )
+                        .map_err(|e| {
+                            anyhow!("Failed to sign transparent input {index}: {:?}", e)
+                        })?,
+                    KeyRef::TransparentMultisig {
+                        index,
+                        scope,
+                        address_index,
+                    } => signer
+                        .sign_transparent(index, &msk.derive_signing_key(scope, address_index))
                         .map_err(|e| {
                             anyhow!("Failed to sign transparent input {index}: {:?}", e)
                         })?,
