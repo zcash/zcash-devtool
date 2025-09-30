@@ -44,6 +44,9 @@ pub(crate) enum Command {
     /// Manipulate a local wallet backed by `zcash_client_sqlite`
     Wallet(commands::Wallet),
 
+    /// Manipulate multisig accounts
+    Zip48(commands::Zip48),
+
     /// Send funds using PCZTs
     Pczt(commands::Pczt),
 
@@ -167,6 +170,14 @@ fn main() -> Result<(), anyhow::Error> {
                     }
                     commands::wallet::tree::Command::Fix(command) => command.run(wallet_dir).await,
                 },
+            },
+            Command::Zip48(commands::Zip48 {
+                wallet_dir,
+                command,
+            }) => match command {
+                commands::zip48::Command::Init(command) => command.run(wallet_dir),
+                commands::zip48::Command::DeriveAccount(command) => command.run(wallet_dir),
+                commands::zip48::Command::DeriveAddress(command) => command.run(wallet_dir),
             },
             Command::Pczt(commands::Pczt {
                 wallet_dir,

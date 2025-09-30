@@ -3,8 +3,12 @@ use bip32::PublicKey;
 use clap::Args;
 use secrecy::ExposeSecret;
 use transparent::address::TransparentAddress;
-use zcash_keys::encoding::AddressCodec;
-use zcash_protocol::{consensus::NetworkConstants, PoolType};
+use zcash_address::{ToAddress, ZcashAddress};
+use zcash_keys::{address::UnifiedAddress, encoding::AddressCodec};
+use zcash_protocol::{
+    consensus::{NetworkConstants, Parameters},
+    PoolType,
+};
 
 use crate::config::WalletConfig;
 
@@ -135,10 +139,139 @@ impl Command {
                 }
             }
             PoolType::SAPLING => {
-                println!("TODO: Sapling support for whatever might be relevant and useful")
+                // Print out Orchard information.
+                println!("Orchard derivation at {}:", self.path);
+                let address = match path.as_slice() {
+                    [(32, true), subpath @ ..] => {
+                        println!(" - ZIP 32 derivation path");
+                        match subpath {
+                            [] => {
+                                println!("  ⚠️  Missing coin type");
+                                None
+                            }
+                            [_] => {
+                                println!("  ⚠️  Missing account");
+                                None
+                            }
+                            [(coin_type, coin_type_hardened), (account, account_hardened), subpath @ ..] =>
+                            {
+                                if !*coin_type_hardened {
+                                    println!("  ⚠️  Coin type is not hardened");
+                                }
+                                let network_match = *coin_type == params.coin_type();
+                                if !network_match {
+                                    println!(
+                                        "  ⚠️  Coin type ({}) does not match the wallet's network ({})",
+                                        coin_type,
+                                        params.coin_type(),
+                                    );
+                                }
+                                println!("   - Account: {account}");
+                                if !*account_hardened {
+                                    println!("  ⚠️  Account is not hardened");
+                                }
+                                match subpath {
+                                    [] => {
+                                        // Only encode as an address if the network
+                                        // matches the wallet.
+                                        network_match.then(|| {
+                                            sapling::zip32::ExtendedSpendingKey::master(
+                                                seed.expose_secret(),
+                                            )
+                                            .derive_child(zip32::ChildIndex::hardened(32))
+                                            .derive_child(zip32::ChildIndex::hardened(*coin_type))
+                                            .derive_child(zip32::ChildIndex::hardened(*account))
+                                            .default_address()
+                                            .1
+                                        })
+                                    }
+                                    _ => None,
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        println!("⚠️  Not a ZIP 32 derivation path");
+                        None
+                    }
+                };
+                if let Some(addr) = address {
+                    println!(
+                        " - Default address: {}",
+                        ZcashAddress::from_sapling(params.network_type(), addr.to_bytes())
+                    );
+                }
             }
             PoolType::ORCHARD => {
-                println!("TODO: Orchard support for whatever might be relevant and useful")
+                // Print out Orchard information.
+                println!("Orchard derivation at {}:", self.path);
+                let address = match path.as_slice() {
+                    [(32, true), subpath @ ..] => {
+                        println!(" - ZIP 32 derivation path");
+                        match subpath {
+                            [] => {
+                                println!("  ⚠️  Missing coin type");
+                                None
+                            }
+                            [_] => {
+                                println!("  ⚠️  Missing account");
+                                None
+                            }
+                            [(coin_type, coin_type_hardened), (account, account_hardened), subpath @ ..] =>
+                            {
+                                if !*coin_type_hardened {
+                                    println!("  ⚠️  Coin type is not hardened");
+                                }
+                                let network_match = *coin_type == params.coin_type();
+                                if !network_match {
+                                    println!(
+                                        "  ⚠️  Coin type ({}) does not match the wallet's network ({})",
+                                        coin_type,
+                                        params.coin_type(),
+                                    );
+                                }
+                                println!("   - Account: {account}");
+                                if !*account_hardened {
+                                    println!("  ⚠️  Account is not hardened");
+                                }
+                                match subpath {
+                                    [] => {
+                                        // Only encode as an address if the network
+                                        // matches the wallet.
+                                        network_match
+                                            .then(|| {
+                                                orchard::keys::SpendingKey::from_zip32_seed(
+                                                    seed.expose_secret(),
+                                                    *coin_type,
+                                                    zip32::AccountId::try_from(*account)
+                                                        .expect("in range"),
+                                                )
+                                                .ok()
+                                            })
+                                            .flatten()
+                                            .map(|sk| {
+                                                let fvk = orchard::keys::FullViewingKey::from(&sk);
+                                                fvk.address_at(0u32, zip32::Scope::External)
+                                            })
+                                    }
+                                    _ => None,
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        println!("⚠️  Not a ZIP 32 derivation path");
+                        None
+                    }
+                };
+                if let Some(addr) = address {
+                    println!(
+                        " - Default address: {}",
+                        UnifiedAddress::from_receivers(Some(addr), None, None)
+                            .expect("valid")
+                            .encode(&params),
+                    );
+                }
             }
         }
 

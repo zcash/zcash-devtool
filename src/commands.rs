@@ -8,6 +8,7 @@ pub(crate) mod create_multisig_address;
 pub(crate) mod inspect;
 pub(crate) mod pczt;
 pub(crate) mod wallet;
+pub(crate) mod zip48;
 
 #[cfg(feature = "pczt-qr")]
 pub(crate) mod keystone;
@@ -20,6 +21,16 @@ pub(crate) struct Wallet {
 
     #[command(subcommand)]
     pub(crate) command: wallet::Command,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct Zip48 {
+    /// Path to the wallet directory
+    #[arg(short, long)]
+    pub(crate) wallet_dir: Option<String>,
+
+    #[command(subcommand)]
+    pub(crate) command: zip48::Command,
 }
 
 #[derive(Debug, Args)]
