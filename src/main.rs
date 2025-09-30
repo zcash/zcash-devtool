@@ -174,12 +174,19 @@ fn main() -> Result<(), anyhow::Error> {
             }) => match command {
                 commands::pczt::Command::Create(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Shield(command) => command.run(wallet_dir).await,
+                commands::pczt::Command::CreateManual(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Inspect(command) => command.run(wallet_dir).await,
+                commands::pczt::Command::UpdateWithDerivation(command) => {
+                    command.run(wallet_dir).await
+                }
                 commands::pczt::Command::Redact(command) => command.run().await,
                 commands::pczt::Command::Prove(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Sign(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Combine(command) => command.run().await,
                 commands::pczt::Command::Send(command) => command.run(wallet_dir).await,
+                commands::pczt::Command::SendWithoutStoring(command) => {
+                    command.run(wallet_dir).await
+                }
                 #[cfg(feature = "pczt-qr")]
                 commands::pczt::Command::ToQr(command) => {
                     command

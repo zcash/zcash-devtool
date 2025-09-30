@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use anyhow::anyhow;
 use clap::Args;
 use pczt::{roles::verifier::Verifier, Pczt};
@@ -5,6 +7,8 @@ use secrecy::ExposeSecret;
 use tokio::io::{stdin, AsyncReadExt};
 
 use ::transparent::sighash::SighashType;
+use transparent::address::TransparentAddress;
+use zcash_keys::encoding::AddressCodec;
 use zcash_primitives::transaction::{
     sighash::SignableInput,
     sighash_v5::v5_signature_hash,
@@ -12,6 +16,7 @@ use zcash_primitives::transaction::{
     TxVersion,
 };
 use zcash_protocol::consensus::{NetworkConstants, Parameters};
+use zcash_script::solver;
 use zip32::fingerprint::SeedFingerprint;
 
 use crate::config::WalletConfig;
@@ -81,6 +86,20 @@ impl Command {
                             input.redeem_script().clone(),
                             input.script_pubkey().clone(),
                             *input.value(),
+                            input
+                                .bip32_derivation()
+                                .iter()
+                                .map(|(pubkey, derivation)| {
+                                    (
+                                        *pubkey,
+                                        (
+                                            *derivation.seed_fingerprint(),
+                                            derivation.derivation_path().clone(),
+                                        ),
+                                    )
+                                })
+                                .collect::<BTreeMap<_, _>>(),
+                            input.partial_signatures().clone(),
                         )
                     })
                     .collect();
@@ -141,10 +160,39 @@ impl Command {
 
         if !pczt.transparent().inputs().is_empty() {
             println!("{} transparent inputs", pczt.transparent().inputs().len());
-            for (index, (hash_type, _, _, value)) in transparent_inputs.iter().enumerate() {
+            for (
+                index,
+                (
+                    hash_type,
+                    redeem_script,
+                    script_pubkey,
+                    value,
+                    bip32_derivation,
+                    partial_signatures,
+                ),
+            ) in transparent_inputs.iter().enumerate()
+            {
                 println!(
-                    "- {index}: {} zatoshis, {}",
+                    "- {index}: {} zatoshis{}, {}",
                     value.into_u64(),
+                    match (
+                        &config,
+                        script_pubkey
+                            .refine()
+                            .ok()
+                            .as_ref()
+                            .and_then(solver::standard)
+                    ) {
+                        (Some(config), Some(solver::ScriptKind::PubKeyHash { hash })) => format!(
+                            " from {}",
+                            TransparentAddress::PublicKeyHash(hash).encode(&config.network())
+                        ),
+                        (Some(config), Some(solver::ScriptKind::ScriptHash { hash })) => format!(
+                            " from {}",
+                            TransparentAddress::ScriptHash(hash).encode(&config.network())
+                        ),
+                        _ => "".into(),
+                    },
                     if hash_type == &SighashType::ALL {
                         "SIGHASH_ALL"
                     } else if hash_type == &SighashType::ALL_ANYONECANPAY {
@@ -161,6 +209,54 @@ impl Command {
                         unreachable!()
                     },
                 );
+                println!("  Signatures present: {}", partial_signatures.len());
+                match redeem_script
+                    .as_ref()
+                    .unwrap_or(script_pubkey)
+                    .refine()
+                    .ok()
+                    .as_ref()
+                    .and_then(solver::standard)
+                {
+                    Some(script) => match script {
+                        solver::ScriptKind::PubKeyHash { .. } => {
+                            println!("  Pay-to-PubKey-Hash (P2PKH)");
+                        }
+                        solver::ScriptKind::ScriptHash { .. } => {
+                            // This case should never occur; `redeem_script` is only
+                            // omitted from P2PKH inputs of PCZTs, and P2SH-in-P2SH does
+                            // not make sense.
+                            println!("  Pay-to-Script-Hash (weird P2SH-in-P2SH)");
+                        }
+                        solver::ScriptKind::MultiSig { required, pubkeys } => {
+                            println!("  {required}-of-{} Pay-to-MultiSig (P2MS)", pubkeys.len());
+                            for pubkey in pubkeys {
+                                println!("  - {}", hex::encode(&pubkey));
+                                if let Ok(pubkey) = <[u8; 33]>::try_from(pubkey.as_slice()) {
+                                    if let Some((_, derivation_path)) =
+                                        bip32_derivation.get(&pubkey)
+                                    {
+                                        print!("    m");
+                                        for i in derivation_path {
+                                            print!(
+                                                "/{}{}",
+                                                i.index(),
+                                                if i.is_hardened() { "'" } else { "" },
+                                            );
+                                        }
+                                        println!();
+                                    }
+                                    if let Some(sig) = partial_signatures.get(&pubkey) {
+                                        println!("    Signature: {}", hex::encode(sig));
+                                    }
+                                }
+                            }
+                        }
+                        solver::ScriptKind::NullData { .. } => println!("  Null data (OP_RETURN)"),
+                        solver::ScriptKind::PubKey { .. } => println!("  Pay-to-PubKey (P2PK)"),
+                    },
+                    None => println!("  Non-standard script"),
+                }
             }
         }
 
@@ -293,7 +389,7 @@ impl Command {
 
                     if tx_data.transparent_bundle().is_some() {
                         println!("Sighashes for each transparent input:");
-                        for (index, (hash_type, redeem_script, script_pubkey, value)) in
+                        for (index, (hash_type, redeem_script, script_pubkey, value, _, _)) in
                             transparent_inputs.into_iter().enumerate()
                         {
                             let sighash = v5_signature_hash(
