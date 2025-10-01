@@ -4,6 +4,7 @@ pub(crate) mod combine;
 pub(crate) mod create;
 pub(crate) mod create_manual;
 pub(crate) mod create_max;
+pub(crate) mod extract;
 pub(crate) mod inspect;
 pub(crate) mod pay_manual;
 pub(crate) mod prove;
@@ -13,6 +14,7 @@ pub(crate) mod send_without_storing;
 pub(crate) mod shield;
 pub(crate) mod sign;
 pub(crate) mod update_with_derivation;
+pub(crate) mod update_with_signature;
 
 #[cfg(feature = "pczt-qr")]
 pub(crate) mod qr;
@@ -40,8 +42,12 @@ pub(crate) enum Command {
     Prove(prove::Command),
     /// Apply signatures to a PCZT
     Sign(sign::Command),
+    /// Adds an externally-created signature to a PCZT
+    UpdateWithSignature(update_with_signature::Command),
     /// Combine two PCZTs
     Combine(combine::Command),
+    /// Extract a finished transaction from a PCZT
+    Extract(extract::Command),
     /// Extract a finished transaction and send it
     Send(send::Command),
     /// Extract a finished transaction and send it, without storing in the wallet.
