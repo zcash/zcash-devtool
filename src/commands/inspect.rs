@@ -144,8 +144,8 @@ async fn inspect_bytes(bytes: Vec<u8>, context: Option<Context>, lookup: bool) {
         // TODO: Take the branch ID used above from the context if present.
         // https://github.com/zcash/zcash/issues/6831
         transaction::inspect(tx, context, None);
-    } else if let Some(script) =
-        zcash_script::script::FromChain::parse(&zcash_script::script::Code(bytes.clone())).ok()
+    } else if let Ok(script) =
+        zcash_script::script::FromChain::parse(&zcash_script::script::Code(bytes.clone()))
     {
         script::inspect(script);
     } else {
