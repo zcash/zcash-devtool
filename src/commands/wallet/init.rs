@@ -1,7 +1,7 @@
 use age::secrecy::ExposeSecret;
 use bip0039::{Count, English, Mnemonic};
 use clap::Args;
-use secrecy::{SecretVec, Zeroize};
+use secrecy::{ExposeSecret as _, SecretString, SecretVec, Zeroize};
 use tokio::io::AsyncWriteExt;
 use tonic::transport::Channel;
 
@@ -28,10 +28,6 @@ pub(crate) struct Command {
     /// age identity file to encrypt the mnemonic phrase to (generated if it doesn't exist)
     #[arg(short, long)]
     identity: String,
-
-    /// Mnemonic phrase to initialise the wallet with (default is new phrase)
-    #[arg(long)]
-    phrase: Option<String>,
 
     /// The wallet's birthday (default is current chain height)
     #[arg(long)]
@@ -100,9 +96,12 @@ impl Command {
         };
 
         // Parse or create the wallet's mnemonic phrase.
-        let (mnemonic, recover_until) = if let Some(phrase) = opts.phrase {
+        let phrase = SecretString::new(rpassword::prompt_password(
+            "Enter mnemonic (or just press Enter to generate a new one):",
+        )?);
+        let (mnemonic, recover_until) = if !phrase.expose_secret().is_empty() {
             (
-                <Mnemonic<English>>::from_phrase(phrase)?,
+                <Mnemonic<English>>::from_phrase(phrase.expose_secret())?,
                 Some(chain_tip.into()),
             )
         } else {
