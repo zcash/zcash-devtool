@@ -1,9 +1,11 @@
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 
 use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
 use tokio::io::{stdout, AsyncWriteExt};
+use transparent::address::TransparentAddress;
 use uuid::Uuid;
 use zcash_client_backend::{
     data_api::{
@@ -17,6 +19,7 @@ use zcash_client_backend::{
     wallet::OvkPolicy,
 };
 use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_keys::encoding::AddressCodec;
 use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
 
 use crate::{commands::select_account, config::WalletConfig, data::get_db_paths, error};
@@ -26,6 +29,10 @@ use crate::{commands::select_account, config::WalletConfig, data::get_db_paths, 
 pub(crate) struct Command {
     /// The UUID of the account to shield funds in
     account_id: Option<Uuid>,
+
+    /// The addresses for which to shield funds.
+    #[arg(short, long, action = clap::ArgAction::Append)]
+    address: Vec<String>,
 
     /// Note management: the number of notes to maintain in the wallet
     #[arg(long)]
@@ -46,6 +53,12 @@ impl Command {
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
         let account = select_account(&db_data, self.account_id)?;
+
+        let addresses = self
+            .address
+            .into_iter()
+            .map(|address| TransparentAddress::decode(&params, &address))
+            .collect::<Result<HashSet<_>, _>>()?;
 
         // Create the PCZT.
         let change_strategy = MultiOutputChangeStrategy::new(
@@ -70,7 +83,10 @@ impl Command {
         let confirmations_policy = ConfirmationsPolicy::MIN;
         let transparent_balances =
             db_data.get_transparent_balances(account.id(), target_height, confirmations_policy)?;
-        let from_addrs = transparent_balances.into_keys().collect::<Vec<_>>();
+        let from_addrs = transparent_balances
+            .into_keys()
+            .filter(|a| addresses.is_empty() || addresses.contains(a))
+            .collect::<Vec<_>>();
 
         let proposal = propose_shielding(
             &mut db_data,

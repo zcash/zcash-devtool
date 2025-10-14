@@ -1,9 +1,11 @@
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 
 use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
 use secrecy::ExposeSecret;
+use transparent::address::TransparentAddress;
 use uuid::Uuid;
 
 use zcash_client_backend::{
@@ -19,7 +21,7 @@ use zcash_client_backend::{
     wallet::OvkPolicy,
 };
 use zcash_client_sqlite::{util::SystemClock, WalletDb};
-use zcash_keys::keys::UnifiedSpendingKey;
+use zcash_keys::{encoding::AddressCodec, keys::UnifiedSpendingKey};
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
 
@@ -36,6 +38,10 @@ use crate::{
 pub(crate) struct Command {
     /// The UUID of the account to shield funds in
     account_id: Option<Uuid>,
+
+    /// The addresses for which to shield funds.
+    #[arg(short, long, action = clap::ArgAction::Append)]
+    address: Vec<String>,
 
     /// age identity file to decrypt the mnemonic phrase with
     #[arg(short, long)]
@@ -72,6 +78,12 @@ impl Command {
         let derivation = account.source().key_derivation().ok_or(anyhow!(
             "Cannot spend from view-only accounts; did you mean to use `pczt shield` instead?"
         ))?;
+
+        let addresses = self
+            .address
+            .into_iter()
+            .map(|address| TransparentAddress::decode(&params, &address))
+            .collect::<Result<HashSet<_>, _>>()?;
 
         // Decrypt the mnemonic to access the seed.
         let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
@@ -118,7 +130,10 @@ impl Command {
         let confirmations_policy = ConfirmationsPolicy::MIN;
         let transparent_balances =
             db_data.get_transparent_balances(account.id(), target_height, confirmations_policy)?;
-        let from_addrs = transparent_balances.into_keys().collect::<Vec<_>>();
+        let from_addrs = transparent_balances
+            .into_keys()
+            .filter(|a| addresses.is_empty() || addresses.contains(a))
+            .collect::<Vec<_>>();
 
         let proposal = propose_shielding(
             &mut db_data,
