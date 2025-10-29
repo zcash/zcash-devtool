@@ -139,8 +139,8 @@ impl Command {
                 }
             }
             PoolType::SAPLING => {
-                // Print out Orchard information.
-                println!("Orchard derivation at {}:", self.path);
+                // Print out Sapling information.
+                println!("Sapling derivation at {}:", self.path);
                 let address = match path.as_slice() {
                     [(32, true), subpath @ ..] => {
                         println!(" - ZIP 32 derivation path");
