@@ -26,6 +26,7 @@ pub(crate) mod address;
 pub(crate) mod block;
 pub(crate) mod keys;
 pub(crate) mod lookup;
+pub(crate) mod script;
 pub(crate) mod transaction;
 
 lazy_static! {
@@ -143,6 +144,10 @@ async fn inspect_bytes(bytes: Vec<u8>, context: Option<Context>, lookup: bool) {
         // TODO: Take the branch ID used above from the context if present.
         // https://github.com/zcash/zcash/issues/6831
         transaction::inspect(tx, context, None);
+    } else if let Ok(script) =
+        zcash_script::script::FromChain::parse(&zcash_script::script::Code(bytes.clone()))
+    {
+        script::inspect(script);
     } else {
         // It's not a known variable-length format. check fixed-length data formats.
         match bytes.len() {

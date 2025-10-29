@@ -1,12 +1,16 @@
 use anyhow::anyhow;
+use bip32::Prefix;
 use clap::Args;
 use pczt::{roles::updater::Updater, Pczt};
 use sapling::zip32::DiversifiableFullViewingKey;
 use secrecy::ExposeSecret;
 use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
-use transparent::{address::TransparentAddress, pczt::Bip32Derivation};
+use transparent::{address::TransparentAddress, pczt::Bip32Derivation, zip48};
 use zcash_keys::keys::UnifiedSpendingKey;
-use zcash_protocol::{consensus::NetworkConstants, PoolType};
+use zcash_protocol::{
+    consensus::{self, NetworkConstants, Parameters},
+    PoolType,
+};
 use zcash_script::solver;
 use zip32::fingerprint::SeedFingerprint;
 
@@ -57,22 +61,55 @@ impl Command {
                 let derivation = Bip32Derivation::parse(seed_fp.to_bytes(), path)
                     .map_err(|e| anyhow!("Invalid BIP 32 derivation: {e:?}"))?;
 
-                let (account, scope, address_index) = derivation
-                    .extract_bip_44_fields(
-                        &seed_fp,
-                        bip32::ChildNumber(params.coin_type() | bip32::ChildNumber::HARDENED_FLAG),
-                    )
-                    .ok_or_else(|| {
-                        anyhow!("Path is not a valid BIP 44 path for this wallet's network")
-                    })?;
+                let expected_coin_type =
+                    bip32::ChildNumber(params.coin_type() | bip32::ChildNumber::HARDENED_FLAG);
 
-                let pubkey = UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account)?
-                    .transparent()
-                    .to_account_pubkey()
-                    .derive_address_pubkey(scope, address_index)
-                    .map_err(|e| anyhow!("{e}"))?;
+                if let Some((account, scope, address_index)) =
+                    derivation.extract_bip_44_fields(&seed_fp, expected_coin_type)
+                {
+                    let pubkey =
+                        UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account)?
+                            .transparent()
+                            .to_account_pubkey()
+                            .derive_address_pubkey(scope, address_index)
+                            .map_err(|e| anyhow!("{e}"))?;
 
-                add_transparent(updater, pubkey, derivation)
+                    add_transparent(updater, pubkey, derivation)
+                } else if let Some((account, scope, address_index)) =
+                    derivation.extract_zip_48_fields(&seed_fp, expected_coin_type)
+                {
+                    let prefix = match params.network_type() {
+                        consensus::NetworkType::Main => Prefix::XPUB,
+                        consensus::NetworkType::Test => Prefix::TPUB,
+                        consensus::NetworkType::Regtest => Prefix::TPUB,
+                    };
+
+                    let key =
+                        zip48::AccountPrivKey::from_seed(&params, seed.expose_secret(), account)
+                            .map_err(|e| anyhow!("{e}"))?
+                            .to_account_pubkey()
+                            .key_expression_for_address(prefix, scope, address_index);
+
+                    // TODO: Add helper method to `zcash_script`.
+                    let pubkey = match key.into_parts().1 {
+                        zcash_script::descriptor::Key::Public { key, .. } => key,
+                        zcash_script::descriptor::Key::Xpub { key, child, .. } => {
+                            let mut curr_key = key;
+                            for child_number in child {
+                                curr_key = curr_key
+                                    .derive_child(child_number)
+                                    .map_err(|e| anyhow!("{e}"))?;
+                            }
+                            *curr_key.public_key()
+                        }
+                    };
+
+                    add_transparent(updater, pubkey, derivation)
+                } else {
+                    Err(anyhow!(
+                        "Path is not a valid BIP 44 path for this wallet's network"
+                    ))
+                }
             }
             PoolType::SAPLING => {
                 let derivation = sapling::pczt::Zip32Derivation::parse(seed_fp.to_bytes(), path)
