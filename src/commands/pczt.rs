@@ -3,6 +3,7 @@ use clap::Subcommand;
 pub(crate) mod combine;
 pub(crate) mod create;
 pub(crate) mod create_manual;
+pub(crate) mod decrypt;
 pub(crate) mod inspect;
 pub(crate) mod prove;
 pub(crate) mod redact;
@@ -25,6 +26,8 @@ pub(crate) enum Command {
     CreateManual(create_manual::Command),
     /// Inspect a PCZT
     Inspect(inspect::Command),
+    /// Decrypt Orchard notes in a PCZT
+    Decrypt(decrypt::Command),
     /// Adds BIP 44 or ZIP 32 derivations to a PCZT
     UpdateWithDerivation(update_with_derivation::Command),
     /// Redact a PCZT
