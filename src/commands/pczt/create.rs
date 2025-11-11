@@ -92,7 +92,7 @@ impl Command {
             None,
             vec![],
         )
-        .ok_or_else(|| anyhow!("Invalid memo"))?])
+        .map_err(error::Error::from)?])
         .map_err(error::Error::from)?;
 
         let proposal = propose_transfer(
