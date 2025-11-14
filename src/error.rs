@@ -57,7 +57,7 @@ impl fmt::Display for Error {
             Error::SendFailed { code, reason } => write!(f, "Send failed: ({code}) {reason}"),
             Error::Shield(e) => e.fmt(f),
             Error::Wallet(e) => e.fmt(f),
-            Error::Zip321(e) => write!(f, "{e:?}"),
+            Error::Zip321(e) => e.fmt(f),
         }
     }
 }
