@@ -142,7 +142,7 @@ impl Command {
             None,
             vec![],
         )
-        .expect("payment construction is valid");
+        .ok_or_else(|| error::Error::TransparentMemo(0))?;
         let request = TransactionRequest::new(vec![payment]).map_err(error::Error::from)?;
 
         let proposal = propose_transfer(

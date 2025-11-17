@@ -40,6 +40,7 @@ pub enum Error {
     InvalidTreeState,
     SendFailed { code: i32, reason: String },
     Shield(ShieldErrorT),
+    TransparentMemo(usize),
     Wallet(WalletErrorT),
     Zip321(Zip321Error),
 }
@@ -55,6 +56,9 @@ impl fmt::Display for Error {
             Error::InvalidKeysFile => write!(f, "Invalid keys file"),
             Error::InvalidTreeState => write!(f, "Invalid TreeState received from server"),
             Error::SendFailed { code, reason } => write!(f, "Send failed: ({code}) {reason}"),
+            Error::TransparentMemo(idx) => {
+                write!(f, "Payment {idx} invalid: can't send memo to a t-address")
+            }
             Error::Shield(e) => e.fmt(f),
             Error::Wallet(e) => e.fmt(f),
             Error::Zip321(e) => write!(f, "{e:?}"),
