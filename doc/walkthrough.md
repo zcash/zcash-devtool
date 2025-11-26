@@ -39,10 +39,13 @@ This results in output like the following:
 Usage: zcash-devtool [COMMAND]
 
 Commands:
-  inspect  Inspect Zcash-related data
-  wallet   Manipulate a local wallet backed by `zcash_client_sqlite`
-  pczt     Send funds using PCZTs
-  help     Print this message or the help of the given subcommand(s)
+  inspect                  Inspect Zcash-related data
+  wallet                   Manipulate a local wallet backed by `zcash_client_sqlite`
+  zip48                    Manipulate multisig accounts
+  pczt                     Send funds using PCZTs
+  keystone                 Emulate a Keystone device
+  create-multisig-address  Commands for managing multisig addresses
+  help                     Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help  Print help
@@ -251,6 +254,7 @@ crates will be immediately usable in the devtool.
 ```
 [patch.crates-io]
 equihash = { path = "../librustzcash/components/equihash/" }
+f4jumble = { path = "../librustzcash/components/f4jumble/" }
 pczt = { path = "../librustzcash/pczt/" }
 transparent = { package = "zcash_transparent", path = "../librustzcash/zcash_transparent/" }
 zcash_address = { path = "../librustzcash/components/zcash_address/" }
