@@ -45,6 +45,10 @@ pub(crate) struct Command {
     #[arg(long)]
     #[arg(default_value_t = 10000000)]
     min_split_output_value: u64,
+
+    /// Do not require confirmation after inspection of the generated proposal
+    #[arg(long)]
+    disable_confirmation: bool,
 }
 
 impl PaymentContext for Command {
@@ -71,6 +75,10 @@ impl PaymentContext for Command {
 
     fn min_split_output_value(&self) -> u64 {
         self.min_split_output_value
+    }
+
+    fn require_confirmation(&self) -> bool {
+        !self.disable_confirmation
     }
 }
 
