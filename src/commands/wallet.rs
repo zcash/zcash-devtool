@@ -13,6 +13,7 @@ pub(crate) mod list_accounts;
 pub(crate) mod list_addresses;
 pub(crate) mod list_tx;
 pub(crate) mod list_unspent;
+pub(crate) mod pay;
 pub(crate) mod propose;
 pub(crate) mod reset;
 pub(crate) mod send;
@@ -79,6 +80,9 @@ pub(crate) enum Command {
 
     /// Send funds to the given address
     Send(send::Command),
+
+    /// Create a transaction fulfilling a payment request
+    Pay(pay::Command),
 
     /// Commands that operate directly on the note commitment trees
     #[command(subcommand)]
