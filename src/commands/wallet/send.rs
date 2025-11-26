@@ -88,6 +88,7 @@ pub(crate) trait PaymentContext {
     fn disable_tor(&self) -> bool;
     fn target_note_count(&self) -> usize;
     fn min_split_output_value(&self) -> u64;
+    fn require_confirmation(&self) -> bool;
 }
 
 impl PaymentContext for Command {
@@ -114,6 +115,10 @@ impl PaymentContext for Command {
 
     fn min_split_output_value(&self) -> u64 {
         self.min_split_output_value
+    }
+
+    fn require_confirmation(&self) -> bool {
+        false
     }
 }
 
@@ -199,45 +204,59 @@ pub(crate) async fn pay<C: PaymentContext>(
     )
     .map_err(error::Error::from)?;
 
-    let txids = create_proposed_transactions(
-        &mut db_data,
-        &params,
-        &prover,
-        &prover,
-        &SpendingKeys::from_unified_spending_key(usk),
-        OvkPolicy::Sender,
-        &proposal,
-    )
-    .map_err(error::Error::from)?;
+    println!("Proposed transfer: {proposal:#?}");
+    let confirmed = !context.require_confirmation() || {
+        print!("Continue? [y/n]: ");
+        let stdin = std::io::stdin();
+        let mut buffer = String::new();
+        stdin.read_line(&mut buffer)?;
+        buffer.trim() == "y"
+    };
 
-    if txids.len() > 1 {
-        return Err(anyhow!(
-            "Multi-transaction proposals are not yet supported."
-        ));
-    }
+    if confirmed {
+        let txids = create_proposed_transactions(
+            &mut db_data,
+            &params,
+            &prover,
+            &prover,
+            &SpendingKeys::from_unified_spending_key(usk),
+            OvkPolicy::Sender,
+            &proposal,
+        )
+        .map_err(error::Error::from)?;
 
-    let txid = *txids.first();
-
-    // Send the transaction.
-    println!("Sending transaction...");
-    let (txid, raw_tx) = db_data
-        .get_transaction(txid)?
-        .map(|tx| {
-            let mut raw_tx = service::RawTransaction::default();
-            tx.write(&mut raw_tx.data).unwrap();
-            (tx.txid(), raw_tx)
-        })
-        .ok_or(anyhow!("Transaction not found for id {:?}", txid))?;
-    let response = client.send_transaction(raw_tx).await?.into_inner();
-
-    if response.error_code != 0 {
-        Err(error::Error::SendFailed {
-            code: response.error_code,
-            reason: response.error_message,
+        if txids.len() > 1 {
+            return Err(anyhow!(
+                "Multi-transaction proposals are not yet supported."
+            ));
         }
-        .into())
+
+        let txid = *txids.first();
+
+        // Send the transaction.
+        println!("Sending transaction...");
+        let (txid, raw_tx) = db_data
+            .get_transaction(txid)?
+            .map(|tx| {
+                let mut raw_tx = service::RawTransaction::default();
+                tx.write(&mut raw_tx.data).unwrap();
+                (tx.txid(), raw_tx)
+            })
+            .ok_or(anyhow!("Transaction not found for id {:?}", txid))?;
+        let response = client.send_transaction(raw_tx).await?.into_inner();
+
+        if response.error_code != 0 {
+            return Err(error::Error::SendFailed {
+                code: response.error_code,
+                reason: response.error_message,
+            }
+            .into());
+        } else {
+            println!("{txid}");
+        }
     } else {
-        println!("{txid}");
-        Ok(())
+        println!("Proposal rejected, aborting.");
     }
+
+    Ok(())
 }
