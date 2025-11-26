@@ -1,6 +1,7 @@
 #![allow(deprecated)]
 use std::{num::NonZeroUsize, str::FromStr};
 
+use age::Identity;
 use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
@@ -80,55 +81,44 @@ pub(crate) struct Command {
     min_split_output_value: u64,
 }
 
+pub(crate) trait PaymentContext {
+    fn spending_account(&self) -> Option<Uuid>;
+    fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity>>>;
+    fn servers(&self) -> &Servers;
+    fn disable_tor(&self) -> bool;
+    fn target_note_count(&self) -> usize;
+    fn min_split_output_value(&self) -> u64;
+}
+
+impl PaymentContext for Command {
+    fn spending_account(&self) -> Option<Uuid> {
+        self.account_id
+    }
+
+    fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity>>> {
+        let identities = age::IdentityFile::from_file(self.identity.clone())?.into_identities()?;
+        Ok(identities)
+    }
+
+    fn servers(&self) -> &Servers {
+        &self.server
+    }
+
+    fn disable_tor(&self) -> bool {
+        self.disable_tor
+    }
+
+    fn target_note_count(&self) -> usize {
+        self.target_note_count
+    }
+
+    fn min_split_output_value(&self) -> u64 {
+        self.min_split_output_value
+    }
+}
+
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
-        let mut config = WalletConfig::read(wallet_dir.as_ref())?;
-        let params = config.network();
-
-        let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
-        let account = select_account(&db_data, self.account_id)?;
-        let derivation = account
-            .source()
-            .key_derivation()
-            .ok_or(anyhow!("Cannot spend from view-only accounts"))?;
-
-        // Decrypt the mnemonic to access the seed.
-        let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
-        let seed = config
-            .decrypt_seed(identities.iter().map(|i| i.as_ref() as _))?
-            .ok_or(anyhow!("Seed must be present to enable sending"))?;
-
-        let usk = UnifiedSpendingKey::from_seed(
-            &params,
-            seed.expose_secret(),
-            derivation.account_index(),
-        )
-        .map_err(error::Error::from)?;
-
-        let server = self.server.pick(params)?;
-        let mut client = if self.disable_tor {
-            server.connect_direct().await?
-        } else {
-            server.connect(|| tor_client(wallet_dir.as_ref())).await?
-        };
-
-        // Create the transaction.
-        println!("Creating transaction...");
-        let prover = LocalTxProver::bundled();
-        let change_strategy = MultiOutputChangeStrategy::new(
-            StandardFeeRule::Zip317,
-            None,
-            ShieldedProtocol::Orchard,
-            DustOutputPolicy::default(),
-            SplitPolicy::with_min_output_value(
-                NonZeroUsize::new(self.target_note_count)
-                    .ok_or(anyhow!("target note count must be nonzero"))?,
-                Zatoshis::from_u64(self.min_split_output_value)?,
-            ),
-        );
-        let input_selector = GreedyInputSelector::new();
-
         let payment = Payment::new(
             ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
             Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
@@ -145,57 +135,109 @@ impl Command {
         .ok_or_else(|| error::Error::TransparentMemo(0))?;
         let request = TransactionRequest::new(vec![payment]).map_err(error::Error::from)?;
 
-        let proposal = propose_transfer(
-            &mut db_data,
-            &params,
-            account.id(),
-            &input_selector,
-            &change_strategy,
-            request,
-            ConfirmationsPolicy::default(),
-        )
-        .map_err(error::Error::from)?;
+        pay(wallet_dir, self, request).await
+    }
+}
 
-        let txids = create_proposed_transactions(
-            &mut db_data,
-            &params,
-            &prover,
-            &prover,
-            &SpendingKeys::from_unified_spending_key(usk),
-            OvkPolicy::Sender,
-            &proposal,
-        )
-        .map_err(error::Error::from)?;
+pub(crate) async fn pay<C: PaymentContext>(
+    wallet_dir: Option<String>,
+    context: C,
+    request: TransactionRequest,
+) -> Result<(), anyhow::Error> {
+    let mut config = WalletConfig::read(wallet_dir.as_ref())?;
+    let params = config.network();
 
-        if txids.len() > 1 {
-            return Err(anyhow!(
-                "Multi-transaction proposals are not yet supported."
-            ));
+    let (_, db_data) = get_db_paths(wallet_dir.as_ref());
+    let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+    let account = select_account(&db_data, context.spending_account())?;
+    let derivation = account
+        .source()
+        .key_derivation()
+        .ok_or(anyhow!("Cannot spend from view-only accounts"))?;
+
+    // Decrypt the mnemonic to access the seed.
+    let identities = context.age_identities()?;
+    let seed = config
+        .decrypt_seed(identities.iter().map(|i| i.as_ref() as _))?
+        .ok_or(anyhow!("Seed must be present to enable sending"))?;
+
+    let usk =
+        UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), derivation.account_index())
+            .map_err(error::Error::from)?;
+
+    let server = context.servers().pick(params)?;
+    let mut client = if context.disable_tor() {
+        server.connect_direct().await?
+    } else {
+        server.connect(|| tor_client(wallet_dir.as_ref())).await?
+    };
+
+    // Create the transaction.
+    println!("Creating transaction...");
+    let prover = LocalTxProver::bundled();
+    let change_strategy = MultiOutputChangeStrategy::new(
+        StandardFeeRule::Zip317,
+        None,
+        ShieldedProtocol::Orchard,
+        DustOutputPolicy::default(),
+        SplitPolicy::with_min_output_value(
+            NonZeroUsize::new(context.target_note_count())
+                .ok_or(anyhow!("target note count must be nonzero"))?,
+            Zatoshis::from_u64(context.min_split_output_value())?,
+        ),
+    );
+    let input_selector = GreedyInputSelector::new();
+
+    let proposal = propose_transfer(
+        &mut db_data,
+        &params,
+        account.id(),
+        &input_selector,
+        &change_strategy,
+        request,
+        ConfirmationsPolicy::default(),
+    )
+    .map_err(error::Error::from)?;
+
+    let txids = create_proposed_transactions(
+        &mut db_data,
+        &params,
+        &prover,
+        &prover,
+        &SpendingKeys::from_unified_spending_key(usk),
+        OvkPolicy::Sender,
+        &proposal,
+    )
+    .map_err(error::Error::from)?;
+
+    if txids.len() > 1 {
+        return Err(anyhow!(
+            "Multi-transaction proposals are not yet supported."
+        ));
+    }
+
+    let txid = *txids.first();
+
+    // Send the transaction.
+    println!("Sending transaction...");
+    let (txid, raw_tx) = db_data
+        .get_transaction(txid)?
+        .map(|tx| {
+            let mut raw_tx = service::RawTransaction::default();
+            tx.write(&mut raw_tx.data).unwrap();
+            (tx.txid(), raw_tx)
+        })
+        .ok_or(anyhow!("Transaction not found for id {:?}", txid))?;
+    let response = client.send_transaction(raw_tx).await?.into_inner();
+
+    if response.error_code != 0 {
+        Err(error::Error::SendFailed {
+            code: response.error_code,
+            reason: response.error_message,
         }
-
-        let txid = *txids.first();
-
-        // Send the transaction.
-        println!("Sending transaction...");
-        let (txid, raw_tx) = db_data
-            .get_transaction(txid)?
-            .map(|tx| {
-                let mut raw_tx = service::RawTransaction::default();
-                tx.write(&mut raw_tx.data).unwrap();
-                (tx.txid(), raw_tx)
-            })
-            .ok_or(anyhow!("Transaction not found for id {:?}", txid))?;
-        let response = client.send_transaction(raw_tx).await?.into_inner();
-
-        if response.error_code != 0 {
-            Err(error::Error::SendFailed {
-                code: response.error_code,
-                reason: response.error_message,
-            }
-            .into())
-        } else {
-            println!("{txid}");
-            Ok(())
-        }
+        .into())
+    } else {
+        println!("{txid}");
+        Ok(())
     }
 }
