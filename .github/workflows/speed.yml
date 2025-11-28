@@ -13,8 +13,25 @@ on:
         type: boolean
 
 jobs:
+  build-binary:
+    name: Build binary for testing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Build binary
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zcash-devtool
+          path: |
+            target/release/zcash-devtool
+
   wallet-sync:
     name: Wallet syncing last ${{ matrix.days }} days of blocks
+    needs:
+      - build-binary
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -24,17 +41,12 @@ jobs:
           - 30
 
     steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
       - uses: bencherdev/bencher@main
 
-      - name: Build binary
-        run: >
-          cargo install
-          --path .
-          --all-features
+      - uses: actions/download-artifact@v4
+        with:
+          name: zcash-devtool
+      - run: chmod +x zcash-devtool
 
       - name: Determine sync range
         id: sync-range
