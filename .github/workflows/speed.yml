@@ -1,0 +1,95 @@
+name: Performance measurements
+
+on:
+  schedule:
+    # Daily at 10:37am UTC, 4:37am CST
+    - cron: '37 10 * * *'
+  workflow_dispatch:
+    inputs:
+      store:
+        description: 'Store the wallet state in the cache'
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  wallet-sync:
+    name: Wallet syncing last ${{ matrix.days }} days of blocks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        days:
+          - 1
+          - 7
+          - 30
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: bencherdev/bencher@main
+
+      - name: Build binary
+        run: >
+          cargo install
+          --path .
+          --all-features
+
+      - name: Determine sync range
+        id: sync-range
+        run: |
+          echo "START_DATE=$(date --date='${{ matrix.days }} days ago' '+%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+          echo "END_DATE=$(date '+%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Download previous wallet state
+        id: load-state
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            sync-perf
+            identity.txt
+          key: "wallet-sync-${{ steps.sync-range.outputs.START_DATE }}"
+
+      - name: Initialize the wallet state
+        if: steps.load-state.outputs.cache-hit != 'true' && matrix.days == 1
+        # mnemonic: wine gesture someone salmon deposit fit depart marble seed chat sick wood illegal trim coast scheme sword enter shiver disagree marble short blind carry
+        run: >
+          zcash-devtool wallet -w sync-perf
+          init-fvk
+          --name "sync-perf"
+          --fvk uview10u46dw3u9qttf9p9wg67524gjxafsgjv4fq3qmznlllg765uxyyc2sc5j4gfu99ly97gd3ekugamewpqvfyd6yjlztl7dclf550uvat6vzyrnlrx2jrjl26s9aj9v24f8vpmgq2qvu4v00trz85gws0cwduqhd2efyh2vclycrvfa9prtczp5le6fh5yfm7m6ehlzc8670ujkn627n33fea8xvp9hsxzt9p6ag6k7spw7k22nzngynf25r989zftn9lvvyq75z963kaz6pddmhu4pzlvh5a27zeptsx4c0q9qdtlrsw98h5suqhugjm27lgetzfsqfm9gmgph52r0mks4l9sazlphyqcgwdvz4x4t5lpqkcyt58qgfjcxx6f4nw73z6lz8w8kre26uhnvekajr9yquagq8vte5ej9y80et6hhmpjldhz50z5w8uf8t2q7f9dchl4ma0fy2d7tvtn76ejy2dc79kq4aaz4a46tfsjcvpqas48
+          --seed-fingerprint 80cad1d6c369d3f694e611735598cb929f65eb3e00a3914b94e40fdb332023c2
+          --hd-account-index 0
+          --server zecrocks
+          --disable-tor
+
+      - name: Run any necessary upgrades on the wallet
+        if: steps.load-state.outputs.cache-hit == 'true'
+        run: zcash-devtool wallet -w sync-perf upgrade
+
+      - name: Sync the wallet
+        if: steps.load-state.outputs.cache-hit != 'true' && matrix.days == 1
+        run: zcash-devtool wallet -w sync-perf sync -s zecrocks
+
+      - name: Benchmark syncing the wallet
+        if: steps.load-state.outputs.cache-hit == 'true'
+        run: >
+          bencher run
+          --project 27b60148-f256-4c77-bc8c-046a2d9efd74
+          --token '${{ secrets.BENCHER_API_TOKEN }}'
+          --branch 'zcash-devtool/${{ github.ref_name }}'
+          --testbed ubuntu-latest
+          --adapter json
+          --file results.json
+          time -f '{"wallet-sync-${{ matrix.days }}d":{"run-time":{"value": %e}}}' -o results.json
+          zcash-devtool wallet -w sync-perf sync -s zecrocks
+
+      - name: Store the updated wallet state for next time
+        if: matrix.days == 1 && (github.event_name != 'workflow_dispatch' || inputs.store)
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            sync-perf
+            identity.txt
+          key: "wallet-sync-${{ steps.sync-range.outputs.END_DATE }}"
