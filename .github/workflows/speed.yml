@@ -67,7 +67,7 @@ jobs:
         if: steps.load-state.outputs.cache-hit != 'true' && matrix.days == 1
         # mnemonic: wine gesture someone salmon deposit fit depart marble seed chat sick wood illegal trim coast scheme sword enter shiver disagree marble short blind carry
         run: >
-          zcash-devtool wallet -w sync-perf
+          ./zcash-devtool wallet -w sync-perf
           init-fvk
           --name "sync-perf"
           --fvk uview10u46dw3u9qttf9p9wg67524gjxafsgjv4fq3qmznlllg765uxyyc2sc5j4gfu99ly97gd3ekugamewpqvfyd6yjlztl7dclf550uvat6vzyrnlrx2jrjl26s9aj9v24f8vpmgq2qvu4v00trz85gws0cwduqhd2efyh2vclycrvfa9prtczp5le6fh5yfm7m6ehlzc8670ujkn627n33fea8xvp9hsxzt9p6ag6k7spw7k22nzngynf25r989zftn9lvvyq75z963kaz6pddmhu4pzlvh5a27zeptsx4c0q9qdtlrsw98h5suqhugjm27lgetzfsqfm9gmgph52r0mks4l9sazlphyqcgwdvz4x4t5lpqkcyt58qgfjcxx6f4nw73z6lz8w8kre26uhnvekajr9yquagq8vte5ej9y80et6hhmpjldhz50z5w8uf8t2q7f9dchl4ma0fy2d7tvtn76ejy2dc79kq4aaz4a46tfsjcvpqas48
@@ -78,11 +78,11 @@ jobs:
 
       - name: Run any necessary upgrades on the wallet
         if: steps.load-state.outputs.cache-hit == 'true'
-        run: zcash-devtool wallet -w sync-perf upgrade
+        run: ./zcash-devtool wallet -w sync-perf upgrade
 
       - name: Sync the wallet
         if: steps.load-state.outputs.cache-hit != 'true' && matrix.days == 1
-        run: zcash-devtool wallet -w sync-perf sync -s zecrocks
+        run: ./zcash-devtool wallet -w sync-perf sync -s zecrocks
 
       - name: Benchmark syncing the wallet
         if: steps.load-state.outputs.cache-hit == 'true'
@@ -95,7 +95,7 @@ jobs:
           --adapter json
           --file results.json
           time -f '{"wallet-sync-${{ matrix.days }}d":{"run-time":{"value": %e}}}' -o results.json
-          zcash-devtool wallet -w sync-perf sync -s zecrocks
+          ./zcash-devtool wallet -w sync-perf sync -s zecrocks
 
       - name: Store the updated wallet state for next time
         if: matrix.days == 1 && (github.event_name != 'workflow_dispatch' || inputs.store)
