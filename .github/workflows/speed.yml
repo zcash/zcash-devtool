@@ -91,6 +91,7 @@ jobs:
           --project 27b60148-f256-4c77-bc8c-046a2d9efd74
           --token '${{ secrets.BENCHER_API_TOKEN }}'
           --branch 'zcash-devtool/${{ github.ref_name }}'
+          --hash '${{ github.sha }}'
           --testbed ubuntu-latest
           --adapter json
           --file results.json
