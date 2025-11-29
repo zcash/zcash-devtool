@@ -1,0 +1,34 @@
+name: Cache preservation
+
+on:
+  schedule:
+    # Daily at 2:42pm UTC
+    - cron: '42 14 * * *'
+
+jobs:
+  wallet-sync:
+    name: Refresh cached wallet state from ${{ matrix.days }} days ago
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        days:
+          - 6
+          - 12
+          - 18
+          - 24
+          # This is sufficient to keep the cache alive for the 30-day test in
+          # the `speed.yml` matrix; after that we allow the cache to be pruned.
+
+    steps:
+      - name: Determine cache date
+        id: sync-range
+        run: |
+          echo "CACHE_DATE=$(date --date='${{ matrix.days }} days ago' '+%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Download cached wallet state
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            sync-perf
+            identity.txt
+          key: "wallet-sync-${{ steps.sync-range.outputs.CACHE_DATE }}"
