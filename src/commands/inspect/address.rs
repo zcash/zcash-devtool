@@ -1,3 +1,4 @@
+use group::GroupEncoding;
 use zcash_address::{
     unified::{self, Container, Encoding},
     ConversionError, ToAddress, ZcashAddress,
@@ -112,6 +113,7 @@ pub(crate) fn inspect(addr: ZcashAddress) {
             );
 
             match addr.kind {
+                AddressKind::Sapling(bytes) => check_sapling_receiver(bytes, "  "),
                 AddressKind::Unified(ua) => {
                     eprintln!(" - Receivers:");
                     for receiver in ua.items() {
@@ -131,6 +133,7 @@ pub(crate) fn inspect(addr: ZcashAddress) {
                                     "   - Sapling ({})",
                                     ZcashAddress::from_sapling(addr.net, data)
                                 );
+                                check_sapling_receiver(data, "    ");
                             }
                             unified::Receiver::P2pkh(data) => {
                                 eprintln!(
@@ -166,6 +169,63 @@ pub(crate) fn inspect(addr: ZcashAddress) {
                 }
                 _ => (),
             }
+        }
+    }
+}
+
+fn check_sapling_receiver(mut bytes: [u8; 43], indent: &str) {
+    if sapling::PaymentAddress::from_bytes(&bytes).is_none() {
+        let diversifier = sapling::Diversifier(bytes[..11].try_into().unwrap());
+        if diversifier.g_d().is_none() {
+            eprintln!(
+                "{indent} WARNING: Invalid diversifier! {}",
+                hex::encode(diversifier.0),
+            );
+        }
+
+        let mut pk_d = bytes[11..].try_into().unwrap();
+        if jubjub::SubgroupPoint::from_bytes(&pk_d).is_none().into() {
+            eprintln!(
+                "{indent} WARNING: Invalid pk_d encoding! {}",
+                hex::encode(pk_d),
+            );
+            // Try reversing the pk_d bytes.
+            pk_d.reverse();
+            if jubjub::SubgroupPoint::from_bytes(&pk_d).is_some().into() {
+                eprintln!("{indent} Byte-reversed pk_d is valid; check the address encoder.");
+                return;
+            }
+        }
+
+        // Try reversing all of the bytes.
+        let mut reversed_bytes = bytes;
+        reversed_bytes.reverse();
+        if sapling::PaymentAddress::from_bytes(&reversed_bytes).is_some() {
+            eprintln!("{indent} Parsing as `rev(bytes)` works; check the address encoder.");
+            return;
+        }
+
+        // Try reversing `d` and `pk_d`.
+        let mut swapped_bytes = [0; 43];
+        swapped_bytes[..11].copy_from_slice(&bytes[32..]);
+        swapped_bytes[11..].copy_from_slice(&bytes[..32]);
+        if sapling::PaymentAddress::from_bytes(&swapped_bytes).is_some() {
+            eprintln!("{indent} Parsing as `pk_d || d` works; check the address encoder.");
+            return;
+        } else {
+            // Try reversing the diversifier bytes in the swapped encoding.
+            swapped_bytes[..11].reverse();
+            if sapling::PaymentAddress::from_bytes(&swapped_bytes).is_some() {
+                eprintln!("{indent} Parsing as `pk_d || rev(d)` works; check the address encoder.");
+                return;
+            }
+        }
+
+        // Try reversing the diversifier bytes. Check this last because 50% of
+        // diversifiers are valid, and this could be a false positive.
+        bytes[..11].reverse();
+        if sapling::PaymentAddress::from_bytes(&swapped_bytes).is_some() {
+            eprintln!("{indent} Byte-reversed diversifier is valid; check the address encoder.");
         }
     }
 }
