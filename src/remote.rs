@@ -144,6 +144,7 @@ impl Server<'_> {
         let channel = if self.use_tls() {
             let tls = ClientTlsConfig::new()
                 .domain_name(self.host.to_string())
+                .assume_http2(true)
                 .with_webpki_roots();
             channel.tls_config(tls)?
         } else {
