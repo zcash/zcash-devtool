@@ -178,6 +178,7 @@ fn main() -> Result<(), anyhow::Error> {
             }) => match command {
                 commands::zip48::Command::Init(command) => command.run(wallet_dir),
                 commands::zip48::Command::DeriveAccount(command) => command.run(wallet_dir),
+                commands::zip48::Command::VerifyAccount(command) => command.run(wallet_dir),
                 commands::zip48::Command::DeriveAddress(command) => command.run(wallet_dir),
             },
             Command::Pczt(commands::Pczt {
