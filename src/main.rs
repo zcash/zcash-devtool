@@ -15,6 +15,7 @@ mod commands;
 mod config;
 mod data;
 mod error;
+mod helpers;
 mod remote;
 mod ui;
 
