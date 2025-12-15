@@ -165,6 +165,7 @@ impl Command {
                                     height: u64::from(h - 1), // `BlockRange` end is inclusive.
                                     ..Default::default()
                                 }),
+                                pool_types: Default::default(),
                             }),
                         };
 

@@ -294,7 +294,7 @@ impl Command {
                     Ok(builder.add_orchard_output::<zip317::FeeError>(
                         None,
                         recipient,
-                        value.into_u64(),
+                        value,
                         memo.unwrap_or(MemoBytes::empty()),
                     )?)
                 },
