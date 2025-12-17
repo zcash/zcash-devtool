@@ -95,6 +95,11 @@ roaring = { version = "0.11", optional = true }
 tokio-util = { version = "0.7", optional = true }
 tui-logger = { version = "0.17", optional = true, features = ["tracing-support"] }
 
+# FROST
+# Currently pointing to https://github.com/ZcashFoundation/frost-tools/pull/576
+frost-client = { git = "https://github.com/ZcashFoundation/frost-tools.git", rev = "7ae6954e45d5bb5f2c28cf13aabeee3fbff37e21" }
+url = "2.5.7"
+
 [features]
 default = ["transparent-inputs"]
 qr = ["dep:qrcode"]

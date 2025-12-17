@@ -194,6 +194,7 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::pczt::Command::Redact(command) => command.run().await,
                 commands::pczt::Command::Prove(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Sign(command) => command.run(wallet_dir).await,
+                commands::pczt::Command::FrostSign(command) => command.run().await,
                 commands::pczt::Command::Combine(command) => command.run().await,
                 commands::pczt::Command::Send(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::SendWithoutStoring(command) => {

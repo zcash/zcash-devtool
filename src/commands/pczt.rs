@@ -3,6 +3,7 @@ use clap::Subcommand;
 pub(crate) mod combine;
 pub(crate) mod create;
 pub(crate) mod create_manual;
+pub(crate) mod frost_sign;
 pub(crate) mod inspect;
 pub(crate) mod prove;
 pub(crate) mod redact;
@@ -33,6 +34,8 @@ pub(crate) enum Command {
     Prove(prove::Command),
     /// Apply signatures to a PCZT
     Sign(sign::Command),
+    /// Apply FROST-generated signatures to a PCZT
+    FrostSign(frost_sign::Command),
     /// Combine two PCZTs
     Combine(combine::Command),
     /// Extract a finished transaction and send it
