@@ -427,6 +427,7 @@ async fn download_blocks(
     let range = service::BlockRange {
         start: Some(start),
         end: Some(end),
+        pool_types: Default::default(),
     };
     let block_meta_stream = client
         .get_block_range(range)

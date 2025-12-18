@@ -126,7 +126,7 @@ impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
         let payment = Payment::new(
             ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
-            Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
+            Some(Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?),
             self.memo
                 .as_ref()
                 .map(|m| Memo::from_str(m))

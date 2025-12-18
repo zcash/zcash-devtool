@@ -83,7 +83,7 @@ impl Command {
 
         let request = TransactionRequest::new(vec![Payment::new(
             ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
-            Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?,
+            Some(Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?),
             self.memo
                 .map(|memo| Memo::from_str(&memo))
                 .transpose()?
