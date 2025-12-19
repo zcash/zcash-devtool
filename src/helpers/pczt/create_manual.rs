@@ -2,11 +2,12 @@ use anyhow::anyhow;
 use serde::Deserialize;
 use transparent::{
     address::{Script, TransparentAddress},
+    builder::{SpendInfo, TransparentInputInfo},
     bundle::{OutPoint, TxOut},
 };
 use zcash_keys::address::{Address, Receiver};
 use zcash_primitives::transaction::{builder::Builder, fees::zip317};
-use zcash_protocol::{consensus, memo::MemoBytes, value::Zatoshis};
+use zcash_protocol::{consensus, memo::MemoBytes, value::Zatoshis, PoolType};
 use zcash_script::script;
 
 use crate::error;
@@ -68,12 +69,6 @@ impl Coin {
     }
 }
 
-#[derive(Clone)]
-pub(crate) enum SpendInfo {
-    P2pkh { pubkey: secp256k1::PublicKey },
-    P2sh { redeem_script: script::FromChain },
-}
-
 pub(crate) fn handle_recipient<C, T>(
     recipient: Address,
     ctx: C,
@@ -104,17 +99,10 @@ pub(crate) fn handle_recipient<C, T>(
 
 pub(crate) fn add_inputs<P: consensus::Parameters, U: sapling::builder::ProverProgress>(
     builder: &mut Builder<'_, P, U>,
-    transparent_inputs: Vec<(OutPoint, TxOut, SpendInfo)>,
+    transparent_inputs: Vec<TransparentInputInfo>,
 ) -> anyhow::Result<()> {
-    for (utxo, coin, spend_info) in transparent_inputs {
-        match spend_info {
-            SpendInfo::P2pkh { pubkey } => builder
-                .add_transparent_input(pubkey, utxo, coin)
-                .map_err(|e| anyhow!("{e}"))?,
-            SpendInfo::P2sh { redeem_script } => builder
-                .add_transparent_p2sh_input(redeem_script, utxo, coin)
-                .map_err(|e| anyhow!("{e}"))?,
-        }
+    for input in transparent_inputs.into_iter() {
+        builder.add_transparent_input(input);
     }
     Ok(())
 }
@@ -124,31 +112,33 @@ pub(crate) fn add_recipient<P: consensus::Parameters, U: sapling::builder::Prove
     recipient: Address,
     value: Zatoshis,
     memo: Option<MemoBytes>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<PoolType> {
     handle_recipient(
         recipient,
         (builder, memo),
         |to, (builder, _)| {
             builder
                 .add_transparent_output(&to, value)
-                .map_err(|e| anyhow!("{e}"))
+                .map_err(|e| anyhow!("{e}"))?;
+            Ok(PoolType::Transparent)
         },
         |to, (builder, memo)| {
-            Ok(builder.add_sapling_output::<zip317::FeeError>(
+            builder.add_sapling_output::<zip317::FeeError>(
                 None,
                 to,
                 value,
                 memo.unwrap_or(MemoBytes::empty()),
-            )?)
+            )?;
+            Ok(PoolType::SAPLING)
         },
         |recipient, (builder, memo)| {
-            Ok(builder.add_orchard_output::<zip317::FeeError>(
+            builder.add_orchard_output::<zip317::FeeError>(
                 None,
                 recipient,
                 value,
                 memo.unwrap_or(MemoBytes::empty()),
-            )?)
+            )?;
+            Ok(PoolType::ORCHARD)
         },
-    )?;
-    Ok(())
+    )
 }

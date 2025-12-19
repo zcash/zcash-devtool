@@ -6,7 +6,7 @@ use clap::Args;
 use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer, updater::Updater};
 use rand::rngs::OsRng;
 use tokio::io::{stdout, AsyncWriteExt};
-use transparent::bundle::{OutPoint, TxOut};
+use transparent::builder::TransparentInputInfo;
 
 use zcash_address::ZcashAddress;
 use zcash_client_backend::proto::service::{ChainSpec, TxFilter};
@@ -26,9 +26,7 @@ use crate::{
     config::WalletConfig,
     data::Network,
     error,
-    helpers::pczt::create_manual::{
-        add_inputs, add_recipient, handle_recipient, parse_coins, SpendInfo,
-    },
+    helpers::pczt::create_manual::{add_inputs, add_recipient, handle_recipient, parse_coins},
     remote::{tor_client, Servers},
 };
 
@@ -153,10 +151,12 @@ impl Command {
             };
 
             value_in = (value_in + coin.value).ok_or_else(|| anyhow!("Balance overflow"))?;
-            transparent_inputs.push((utxo, coin, spend_info));
+            let input = TransparentInputInfo::from_parts(utxo, coin, spend_info)
+                .map_err(|e| anyhow!("Invalid transparent input data: {}", e))?;
+            transparent_inputs.push(input);
         }
 
-        let prepare_builder = |transparent_inputs: Vec<(OutPoint, TxOut, SpendInfo)>,
+        let prepare_builder = |transparent_inputs: Vec<TransparentInputInfo>,
                                recipient: Address,
                                value: Zatoshis,
                                memo: Option<MemoBytes>|

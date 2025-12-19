@@ -4,6 +4,7 @@ pub(crate) mod combine;
 pub(crate) mod create;
 pub(crate) mod create_manual;
 pub(crate) mod inspect;
+pub(crate) mod pay_manual;
 pub(crate) mod prove;
 pub(crate) mod redact;
 pub(crate) mod send;
@@ -23,6 +24,9 @@ pub(crate) enum Command {
     Shield(shield::Command),
     /// Create a PCZT from manually-provided transparent inputs
     CreateManual(create_manual::Command),
+    /// Create a PCZT to satisfy a payment request by spending manually-provided transparent
+    /// inputs.
+    PayManual(pay_manual::Command),
     /// Inspect a PCZT
     Inspect(inspect::Command),
     /// Adds BIP 44 or ZIP 32 derivations to a PCZT
