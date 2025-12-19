@@ -9,11 +9,11 @@ use zcash_client_backend::{
     data_api::{AccountBirthday, WalletWrite},
     proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
 };
-use zcash_protocol::consensus::{self, BlockHeight, Parameters};
+use zcash_protocol::{consensus::{self, BlockHeight, Parameters}, local_consensus::LocalNetwork};
 
 use crate::{
     config::WalletConfig,
-    data::{init_dbs, Network},
+    data::{init_dbs, Network, NetworkParams},
     error,
     remote::{tor_client, Servers},
 };
@@ -51,9 +51,26 @@ pub(crate) struct Command {
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
         let opts = self;
-        let params = consensus::Network::from(opts.network);
+        let params = match opts.network {
+            Network::Main => NetworkParams::Consensus(consensus::Network::MainNetwork),
+            Network::Test => NetworkParams::Consensus(consensus::Network::TestNetwork),
+            Network::Regtest => {
+                // Create a LocalNetwork with all upgrades at height 1
+                let height_1 = Some(BlockHeight::from_u32(1));
+                NetworkParams::Local(LocalNetwork {
+                    overwinter: height_1,
+                    sapling: height_1,
+                    blossom: height_1,
+                    heartwood: height_1,
+                    canopy: height_1,
+                    nu5: height_1,
+                    nu6: height_1,
+                    nu6_1: None,
+                })
+            }
+        };
 
-        let server = opts.server.pick(params)?;
+        let server = opts.server.pick(&params)?;
         let mut client = if opts.disable_tor {
             server.connect_direct().await?
         } else {
@@ -123,7 +140,7 @@ impl Command {
             recipients.iter().map(|r| r.as_ref() as _),
             &mnemonic,
             birthday.height(),
-            opts.network.into(),
+            &params,
         )?;
 
         let seed = {

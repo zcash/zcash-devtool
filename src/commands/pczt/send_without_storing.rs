@@ -32,7 +32,7 @@ impl Command {
         let config = WalletConfig::read(wallet_dir.as_ref())?;
         let params = config.network();
 
-        let server = self.server.pick(params)?;
+        let server = self.server.pick(&params)?;
         let mut client = if self.disable_tor {
             server.connect_direct().await?
         } else {

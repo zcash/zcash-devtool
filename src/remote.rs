@@ -9,7 +9,7 @@ use zcash_client_backend::{
 };
 use zcash_protocol::consensus::Network;
 
-use crate::data::get_tor_dir;
+use crate::data::{get_tor_dir, NetworkParams};
 
 const ECC_TESTNET: &[Server<'_>] = &[Server::fixed("lightwalletd.testnet.electriccoin.co", 9067)];
 
@@ -81,8 +81,27 @@ impl Servers {
         }
     }
 
-    pub(crate) fn pick(&self, network: Network) -> anyhow::Result<&Server<'_>> {
-        // For now just use the first server in the list.
+    pub(crate) fn pick(&self, params: &NetworkParams) -> anyhow::Result<&Server<'_>> {
+        // For regtest, only custom servers are supported
+        if params.is_regtest() {
+            match self {
+                Servers::Custom(servers) => return Ok(servers.first().expect("not empty")),
+                Servers::Hosted(op) => {
+                    return Err(anyhow!(
+                        "Regtest network requires a custom server.\n\
+                         Use: --server localhost:9067 (or your lightwalletd address)\n\
+                         Hosted servers ({:?}) only support mainnet and testnet.",
+                        op
+                    ))
+                }
+            }
+        }
+
+        // For main/test, use existing logic
+        let network = params
+            .consensus_network()
+            .expect("main/test should be consensus network");
+
         match self {
             Servers::Hosted(server_operator) => server_operator
                 .servers(network)

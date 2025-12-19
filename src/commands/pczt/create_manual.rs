@@ -21,7 +21,8 @@ use zcash_primitives::transaction::{
     Transaction,
 };
 use zcash_protocol::{
-    consensus::{self, Parameters},
+    consensus::{self, BlockHeight, Parameters},
+    local_consensus::LocalNetwork,
     memo::{Memo, MemoBytes},
     value::Zatoshis,
 };
@@ -29,7 +30,7 @@ use zcash_script::script;
 
 use crate::{
     config::WalletConfig,
-    data::Network,
+    data::{Network, NetworkParams},
     error,
     remote::{tor_client, Servers},
 };
@@ -144,7 +145,23 @@ enum SpendInfo {
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> anyhow::Result<()> {
         let params = if let Some(network) = self.network {
-            consensus::Network::from(network)
+            match network {
+                Network::Main => NetworkParams::Consensus(consensus::Network::MainNetwork),
+                Network::Test => NetworkParams::Consensus(consensus::Network::TestNetwork),
+                Network::Regtest => {
+                    let height_1 = Some(BlockHeight::from_u32(1));
+                    NetworkParams::Local(LocalNetwork {
+                        overwinter: height_1,
+                        sapling: height_1,
+                        blossom: height_1,
+                        heartwood: height_1,
+                        canopy: height_1,
+                        nu5: height_1,
+                        nu6: height_1,
+                        nu6_1: None,
+                    })
+                }
+            }
         } else {
             let config = WalletConfig::read(wallet_dir.as_ref())?;
             config.network()
@@ -166,7 +183,7 @@ impl Command {
             .transpose()?
             .map(MemoBytes::from);
 
-        let server = self.server.pick(params)?;
+        let server = self.server.pick(&params)?;
         let mut client = if self.disable_tor {
             server.connect_direct().await?
         } else {
@@ -308,7 +325,7 @@ impl Command {
                                memo: Option<MemoBytes>|
          -> anyhow::Result<_> {
             let mut builder = Builder::new(
-                params,
+                params.clone(),
                 target_height,
                 zcash_primitives::transaction::builder::BuildConfig::Standard {
                     sapling_anchor,

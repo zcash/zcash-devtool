@@ -18,11 +18,11 @@ use zcash_client_backend::{
 use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_keys::encoding::AddressCodec;
 use zcash_primitives::transaction::{Transaction, TxId};
-use zcash_protocol::consensus::{BlockHeight, BranchId, Network};
+use zcash_protocol::consensus::{BlockHeight, BranchId};
 
 use crate::{
     config::get_wallet_network,
-    data::get_db_paths,
+    data::{get_db_paths, NetworkParams},
     remote::{tor_client, Servers},
 };
 
@@ -40,7 +40,7 @@ pub(crate) struct Command {
 }
 
 fn parse_raw_transaction(
-    params: &Network,
+    params: &NetworkParams,
     chain_tip: BlockHeight,
     tx: RawTransaction,
 ) -> Result<(Transaction, Option<BlockHeight>), anyhow::Error> {
@@ -58,7 +58,7 @@ fn parse_raw_transaction(
 
 async fn fetch_transaction(
     client: &mut CompactTxStreamerClient<Channel>,
-    params: &Network,
+    params: &NetworkParams,
     chain_tip: BlockHeight,
     txid: TxId,
 ) -> Result<Option<(Transaction, Option<BlockHeight>)>, anyhow::Error> {
@@ -88,7 +88,7 @@ impl Command {
         let params = get_wallet_network(wallet_dir.as_ref())?;
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
 
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+        let mut db_data = WalletDb::for_path(db_data, params.clone(), SystemClock, OsRng)?;
         let chain_tip = db_data.chain_height()?.ok_or_else(|| {
             anyhow!("Chain height must be available to perform transaction enhancement.")
         })?;
@@ -98,7 +98,7 @@ impl Command {
         // - Create an isolated `lightwalletd` connection for each transaction.
         // - Spread transactions across all available servers.
         // - Fetch transactions in parallel, with timing noise.
-        let server = self.server.pick(params)?;
+        let server = self.server.pick(&params)?;
         let mut client = if self.disable_tor {
             server.connect_direct().await?
         } else {

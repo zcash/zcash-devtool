@@ -37,7 +37,7 @@ impl Command {
         let params = config.network();
 
         // Connect to the client (for re-initializing the wallet).
-        let server = self.server.pick(params)?;
+        let server = self.server.pick(&params)?;
         let mut client = if self.disable_tor {
             server.connect_direct().await?
         } else {
@@ -56,7 +56,7 @@ impl Command {
         // Get the account name and key source to preserve them.
         let (account_name, key_source) = {
             let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-            let db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+            let db_data = WalletDb::for_path(db_data, params.clone(), SystemClock, OsRng)?;
 
             let account_id = *db_data
                 .get_account_ids()?

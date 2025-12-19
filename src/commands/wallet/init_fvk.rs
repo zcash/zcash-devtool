@@ -7,12 +7,12 @@ use zcash_client_backend::{
     proto::service,
 };
 use zcash_keys::{encoding::decode_extfvk_with_network, keys::UnifiedFullViewingKey};
-use zcash_protocol::consensus::{self, NetworkType};
+use zcash_protocol::{consensus::{self, BlockHeight, NetworkType}, local_consensus::LocalNetwork};
 use zip32::fingerprint::SeedFingerprint;
 
 use crate::{
     config::WalletConfig,
-    data::init_dbs,
+    data::{init_dbs, NetworkParams},
     parse_hex,
     remote::{tor_client, Servers},
 };
@@ -72,14 +72,25 @@ impl Command {
             )?;
 
         let network = match network_type {
-            NetworkType::Main => consensus::Network::MainNetwork,
-            NetworkType::Test => consensus::Network::TestNetwork,
+            NetworkType::Main => NetworkParams::Consensus(consensus::Network::MainNetwork),
+            NetworkType::Test => NetworkParams::Consensus(consensus::Network::TestNetwork),
             NetworkType::Regtest => {
-                return Err(anyhow!("the regtest network is not supported"));
+                // Create a LocalNetwork with all upgrades at height 1
+                let height_1 = Some(BlockHeight::from_u32(1));
+                NetworkParams::Local(LocalNetwork {
+                    overwinter: height_1,
+                    sapling: height_1,
+                    blossom: height_1,
+                    heartwood: height_1,
+                    canopy: height_1,
+                    nu5: height_1,
+                    nu6: height_1,
+                    nu6_1: None,
+                })
             }
         };
 
-        let server = opts.server.pick(network)?;
+        let server = opts.server.pick(&network)?;
         let mut client = if opts.disable_tor {
             server.connect_direct().await?
         } else {
@@ -121,9 +132,9 @@ impl Command {
         }?;
 
         // Save the wallet config to disk.
-        WalletConfig::init_without_mnemonic(wallet_dir.as_ref(), birthday.height(), network)?;
+        WalletConfig::init_without_mnemonic(wallet_dir.as_ref(), birthday.height(), &network)?;
 
-        let mut wallet_db = init_dbs(network, wallet_dir.as_ref())?;
+        let mut wallet_db = init_dbs(network.clone(), wallet_dir.as_ref())?;
         wallet_db.import_account_ufvk(&opts.name, &ufvk, &birthday, purpose, None)?;
 
         Ok(())

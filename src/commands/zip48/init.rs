@@ -5,11 +5,11 @@ use age::secrecy::{ExposeSecret, SecretString};
 use bip0039::{Count, English, Mnemonic};
 use clap::Args;
 
-use zcash_protocol::consensus::{self, Parameters};
+use zcash_protocol::{consensus::{self, BlockHeight, Parameters}, local_consensus::LocalNetwork};
 
 use crate::{
     config::WalletConfig,
-    data::{init_dbs, Network},
+    data::{init_dbs, Network, NetworkParams},
 };
 
 // Options accepted for the `zip48 init` command
@@ -31,7 +31,24 @@ pub(crate) struct Command {
 
 impl Command {
     pub(crate) fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
-        let params = consensus::Network::from(self.network);
+        let params = match self.network {
+            Network::Main => NetworkParams::Consensus(consensus::Network::MainNetwork),
+            Network::Test => NetworkParams::Consensus(consensus::Network::TestNetwork),
+            Network::Regtest => {
+                // Create a LocalNetwork with all upgrades at height 1
+                let height_1 = Some(BlockHeight::from_u32(1));
+                NetworkParams::Local(LocalNetwork {
+                    overwinter: height_1,
+                    sapling: height_1,
+                    blossom: height_1,
+                    heartwood: height_1,
+                    canopy: height_1,
+                    nu5: height_1,
+                    nu6: height_1,
+                    nu6_1: None,
+                })
+            }
+        };
 
         let recipients = if fs::exists(&self.identity)? {
             age::IdentityFile::from_file(self.identity)?.to_recipients()?
@@ -77,7 +94,7 @@ impl Command {
             params
                 .activation_height(consensus::NetworkUpgrade::Nu6)
                 .expect("active"),
-            self.network.into(),
+            &params,
         )?;
 
         // Initialise the block and wallet DBs.

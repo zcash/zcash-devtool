@@ -153,7 +153,7 @@ pub(crate) async fn pay<C: PaymentContext>(
     let params = config.network();
 
     let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-    let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+    let mut db_data = WalletDb::for_path(db_data, params.clone(), SystemClock, OsRng)?;
     let account = select_account(&db_data, context.spending_account())?;
     let derivation = account
         .source()
@@ -170,7 +170,7 @@ pub(crate) async fn pay<C: PaymentContext>(
         UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), derivation.account_index())
             .map_err(error::Error::from)?;
 
-    let server = context.servers().pick(params)?;
+    let server = context.servers().pick(&params)?;
     let mut client = if context.disable_tor() {
         server.connect_direct().await?
     } else {

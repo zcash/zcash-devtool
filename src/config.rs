@@ -7,17 +7,18 @@ use std::path::Path;
 use secrecy::{ExposeSecret, SecretVec, Zeroize};
 use serde::{Deserialize, Serialize};
 
-use zcash_protocol::consensus::{self, BlockHeight, Parameters};
+use zcash_protocol::consensus::{self, BlockHeight, NetworkUpgrade, Parameters};
+use zcash_protocol::local_consensus::LocalNetwork;
 
 use crate::{
-    data::{Network, DEFAULT_WALLET_DIR},
+    data::{Network, NetworkParams, DEFAULT_WALLET_DIR},
     error,
 };
 
 const KEYS_FILE: &str = "keys.toml";
 
 pub(crate) struct WalletConfig {
-    network: consensus::Network,
+    network_params: NetworkParams,
     seed_ciphertext: Option<String>,
     birthday: BlockHeight,
 }
@@ -28,22 +29,22 @@ impl WalletConfig {
         recipients: impl Iterator<Item = &'a dyn age::Recipient>,
         mnemonic: &Mnemonic,
         birthday: BlockHeight,
-        network: consensus::Network,
+        network_params: &NetworkParams,
     ) -> Result<(), anyhow::Error> {
         init_wallet_config(
             wallet_dir,
             Some(encrypt_mnemonic(recipients, mnemonic)?),
             birthday,
-            network,
+            network_params,
         )
     }
 
     pub(crate) fn init_without_mnemonic<P: AsRef<Path>>(
         wallet_dir: Option<P>,
         birthday: BlockHeight,
-        network: consensus::Network,
+        network_params: &NetworkParams,
     ) -> Result<(), anyhow::Error> {
-        init_wallet_config(wallet_dir, None, birthday, network)
+        init_wallet_config(wallet_dir, None, birthday, network_params)
     }
 
     pub(crate) fn decrypt_seed<'a>(
@@ -66,8 +67,8 @@ impl WalletConfig {
             .transpose()
     }
 
-    pub(crate) fn network(&self) -> consensus::Network {
-        self.network
+    pub(crate) fn network(&self) -> NetworkParams {
+        self.network_params.clone()
     }
 
     pub(crate) fn birthday(&self) -> BlockHeight {
@@ -79,7 +80,7 @@ fn init_wallet_config<P: AsRef<Path>>(
     wallet_dir: Option<P>,
     mnemonic: Option<String>,
     birthday: BlockHeight,
-    network: consensus::Network,
+    network_params: &NetworkParams,
 ) -> Result<(), anyhow::Error> {
     // Create the wallet directory.
     let wallet_dir = wallet_dir
@@ -95,10 +96,37 @@ fn init_wallet_config<P: AsRef<Path>>(
         fs::OpenOptions::new().create_new(true).write(true).open(p)
     }?;
 
+    // Extract network name and activation heights from NetworkParams
+    let (network_str, regtest_activations) = match network_params {
+        NetworkParams::Consensus(consensus::Network::MainNetwork) => ("main", None),
+        NetworkParams::Consensus(consensus::Network::TestNetwork) => ("test", None),
+        NetworkParams::Local(local) => {
+            let heights = (
+                local.activation_height(NetworkUpgrade::Overwinter).map(u32::from),
+                local.activation_height(NetworkUpgrade::Sapling).map(u32::from),
+                local.activation_height(NetworkUpgrade::Blossom).map(u32::from),
+                local.activation_height(NetworkUpgrade::Heartwood).map(u32::from),
+                local.activation_height(NetworkUpgrade::Canopy).map(u32::from),
+                local.activation_height(NetworkUpgrade::Nu5).map(u32::from),
+                local.activation_height(NetworkUpgrade::Nu6).map(u32::from),
+                local.activation_height(NetworkUpgrade::Nu6_1).map(u32::from),
+            );
+            ("regtest", Some(heights))
+        }
+    };
+
     let config = ConfigEncoding {
         mnemonic,
-        network: Some(Network::from(network).name().to_string()),
+        network: Some(network_str.to_string()),
         birthday: Some(u32::from(birthday)),
+        regtest_activation_overwinter: regtest_activations.and_then(|h| h.0),
+        regtest_activation_sapling: regtest_activations.and_then(|h| h.1),
+        regtest_activation_blossom: regtest_activations.and_then(|h| h.2),
+        regtest_activation_heartwood: regtest_activations.and_then(|h| h.3),
+        regtest_activation_canopy: regtest_activations.and_then(|h| h.4),
+        regtest_activation_nu5: regtest_activations.and_then(|h| h.5),
+        regtest_activation_nu6: regtest_activations.and_then(|h| h.6),
+        regtest_activation_nu6_1: regtest_activations.and_then(|h| h.7),
     };
 
     let config_str = toml::to_string(&config)
@@ -126,22 +154,44 @@ impl WalletConfig {
         let config: ConfigEncoding = toml::from_str(&conf_str)?;
 
         let network = config.network.map_or_else(
-            || Ok(consensus::Network::TestNetwork),
+            || Ok(Network::Test),
             |network_name| {
                 Network::parse(network_name.trim())
-                    .map(consensus::Network::from)
                     .map_err(|_| error::Error::InvalidKeysFile)
             },
         )?;
 
-        let birthday = config.birthday.map(BlockHeight::from).unwrap_or(
-            network
-                .activation_height(consensus::NetworkUpgrade::Sapling)
-                .expect("Sapling activation height is known."),
-        );
+        let network_params = match network {
+            Network::Main => NetworkParams::Consensus(consensus::Network::MainNetwork),
+            Network::Test => NetworkParams::Consensus(consensus::Network::TestNetwork),
+            Network::Regtest => {
+                // Helper to get activation height with default of 1
+                let height_or_default = |opt: Option<u32>| {
+                    opt.map(BlockHeight::from).or(Some(BlockHeight::from_u32(1)))
+                };
+
+                let local_network = LocalNetwork {
+                    overwinter: height_or_default(config.regtest_activation_overwinter),
+                    sapling: height_or_default(config.regtest_activation_sapling),
+                    blossom: height_or_default(config.regtest_activation_blossom),
+                    heartwood: height_or_default(config.regtest_activation_heartwood),
+                    canopy: height_or_default(config.regtest_activation_canopy),
+                    nu5: height_or_default(config.regtest_activation_nu5),
+                    nu6: height_or_default(config.regtest_activation_nu6),
+                    nu6_1: config.regtest_activation_nu6_1.map(BlockHeight::from),
+                };
+                NetworkParams::Local(local_network)
+            }
+        };
+
+        let birthday = config.birthday.map(BlockHeight::from).unwrap_or_else(|| {
+            network_params
+                .activation_height(NetworkUpgrade::Sapling)
+                .expect("Sapling activation height is known.")
+        });
 
         Ok(Self {
-            network,
+            network_params,
             seed_ciphertext: config.mnemonic,
             birthday,
         })
@@ -153,6 +203,16 @@ struct ConfigEncoding {
     mnemonic: Option<String>,
     network: Option<String>,
     birthday: Option<u32>,
+
+    // Regtest activation heights (all optional, default to 1)
+    regtest_activation_overwinter: Option<u32>,
+    regtest_activation_sapling: Option<u32>,
+    regtest_activation_blossom: Option<u32>,
+    regtest_activation_heartwood: Option<u32>,
+    regtest_activation_canopy: Option<u32>,
+    regtest_activation_nu5: Option<u32>,
+    regtest_activation_nu6: Option<u32>,
+    regtest_activation_nu6_1: Option<u32>,
 }
 
 fn encrypt_mnemonic<'a>(
@@ -203,8 +263,8 @@ fn decrypt_seed<'a>(
 
 pub(crate) fn get_wallet_network<P: AsRef<Path>>(
     wallet_dir: Option<P>,
-) -> Result<consensus::Network, anyhow::Error> {
-    Ok(WalletConfig::read(wallet_dir)?.network)
+) -> Result<NetworkParams, anyhow::Error> {
+    Ok(WalletConfig::read(wallet_dir)?.network_params)
 }
 
 pub(crate) fn get_wallet_seed<'a, P: AsRef<Path>>(

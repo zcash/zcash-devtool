@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 
 use transparent::address::TransparentAddress;
 use zcash_keys::encoding::AddressCodec;
-use zcash_protocol::consensus::Network;
+use zcash_protocol::{consensus, local_consensus::LocalNetwork, consensus::BlockHeight};
 use zcash_script::{
     pattern::check_multisig,
     script::{self, Evaluable},
@@ -54,7 +54,25 @@ impl Command {
         } = self;
 
         let (multisig_script, addr) = multisig_script(threshold, pub_keys)?;
-        let addr = addr.encode(&Network::from(network));
+        let params = match network {
+            crate::data::Network::Main => crate::data::NetworkParams::Consensus(consensus::Network::MainNetwork),
+            crate::data::Network::Test => crate::data::NetworkParams::Consensus(consensus::Network::TestNetwork),
+            crate::data::Network::Regtest => {
+                // Create a LocalNetwork with all upgrades at height 1
+                let height_1 = Some(BlockHeight::from_u32(1));
+                crate::data::NetworkParams::Local(LocalNetwork {
+                    overwinter: height_1,
+                    sapling: height_1,
+                    blossom: height_1,
+                    heartwood: height_1,
+                    canopy: height_1,
+                    nu5: height_1,
+                    nu6: height_1,
+                    nu6_1: None,
+                })
+            }
+        };
+        let addr = addr.encode(&params);
         println!("Created multisig address: {addr}");
         println!("Redeem script: {}", hex::encode(multisig_script.to_bytes()));
 
