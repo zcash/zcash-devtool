@@ -76,20 +76,20 @@ impl BlockParams for Network {
 }
 
 impl BlockParams for zcash_protocol::local_consensus::LocalNetwork {
+    // Equihash parameters for Regtest obtained from
+    // https://github.com/zcash/zcash/blob/16ac743764a513e41dafb2cd79c2417c5bb41e81/src/chainparams.cpp#L795-L799
     fn equihash_n(&self) -> u32 {
-        // Regtest uses same Equihash parameters as testnet
-        200
+        48
     }
 
     fn equihash_k(&self) -> u32 {
-        // Regtest uses same Equihash parameters as testnet
-        9
+        5
     }
 
     fn pow_limit(&self) -> U256 {
         // Regtest uses same PoW limit as testnet (easier than mainnet)
         U256::from_big_endian(
-            &hex::decode("07ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+            &hex::decode("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f")
                 .unwrap(),
         )
     }
