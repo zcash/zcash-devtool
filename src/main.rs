@@ -15,6 +15,7 @@ mod commands;
 mod config;
 mod data;
 mod error;
+mod helpers;
 mod remote;
 mod ui;
 
@@ -188,6 +189,7 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::pczt::Command::Create(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Shield(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::CreateManual(command) => command.run(wallet_dir).await,
+                commands::pczt::Command::PayManual(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Inspect(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::UpdateWithDerivation(command) => {
                     command.run(wallet_dir).await
