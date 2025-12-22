@@ -304,9 +304,9 @@ impl Command {
                     recipient_addr.clone(),
                     (updater, recipient_addr.encode(&params)),
                     |_, (updater, user_address)| {
-                        let t_index = mappings.get(&i).expect(&format!(
-                            "Transparent output index was tracked for output {i}"
-                        ));
+                        let t_index = mappings.get(&i).unwrap_or_else(|| {
+                            panic!("Transparent output index was tracked for output {i}")
+                        });
                         updater
                             .update_transparent_with(|mut u| {
                                 u.update_output_with(*t_index, |mut ou| {
@@ -320,7 +320,9 @@ impl Command {
                         let s_index = mappings
                             .get(&i)
                             .and_then(|i0| sapling_meta.output_index(*i0))
-                            .expect(&format!("Sapling output index was tracked for output {i}"));
+                            .unwrap_or_else(|| {
+                                panic!("Sapling output index was tracked for output {i}")
+                            });
                         updater
                             .update_sapling_with(|mut u| {
                                 u.update_output_with(s_index, |mut ou| {
@@ -334,7 +336,9 @@ impl Command {
                         let o_index = mappings
                             .get(&i)
                             .and_then(|i0| orchard_meta.output_action_index(*i0))
-                            .expect(&format!("Orchard output index was tracked for output {i}"));
+                            .unwrap_or_else(|| {
+                                panic!("Orchard output index was tracked for output {i}")
+                            });
                         updater
                             .update_orchard_with(|mut u| {
                                 u.update_action_with(o_index, |mut au| {
