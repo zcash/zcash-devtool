@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use anyhow::anyhow;
 use clap::Args;
+use orchard::note_encryption::OrchardDomain;
 use pczt::{roles::verifier::Verifier, Pczt};
 use secrecy::ExposeSecret;
 use tokio::io::{stdin, AsyncReadExt};
@@ -9,6 +10,8 @@ use tokio::io::{stdin, AsyncReadExt};
 use ::transparent::sighash::SighashType;
 use transparent::address::TransparentAddress;
 use zcash_keys::encoding::AddressCodec;
+use zcash_keys::keys::UnifiedFullViewingKey;
+use zcash_note_encryption::{try_note_decryption, try_output_recovery_with_ovk};
 use zcash_primitives::transaction::{
     sighash::SignableInput,
     sighash_v5::v5_signature_hash,
@@ -17,9 +20,10 @@ use zcash_primitives::transaction::{
 };
 use zcash_protocol::consensus::{NetworkConstants, Parameters};
 use zcash_script::solver;
-use zip32::fingerprint::SeedFingerprint;
+use zip32::{fingerprint::SeedFingerprint, Scope};
 
 use crate::config::WalletConfig;
+use zcash_address::unified::{self, Encoding};
 
 // Options accepted for the `pczt inspect` command
 #[derive(Debug, Args)]
@@ -27,6 +31,10 @@ pub(crate) struct Command {
     /// age identity file to decrypt the mnemonic phrase with (if a wallet is provided)
     #[arg(short, long)]
     identity: Option<String>,
+
+    /// Optional UFVK to use for decrypting Orchard notes
+    #[arg(short, long)]
+    ufvk: Option<String>,
 }
 
 impl Command {
@@ -42,6 +50,23 @@ impl Command {
         stdin().read_to_end(&mut buf).await?;
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
+
+        // Parse UFVK if provided and extract the Orchard full viewing key
+        let orchard_fvk = self
+            .ufvk
+            .as_ref()
+            .map(|ufvk_str| {
+                let ufvk = UnifiedFullViewingKey::decode(
+                    &zcash_protocol::consensus::MAIN_NETWORK,
+                    ufvk_str,
+                )
+                .map_err(|error| anyhow::anyhow!("malformed UFVK string: {error:?}"))?;
+
+                ufvk.orchard()
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("UFVK does not contain an Orchard key"))
+            })
+            .transpose()?;
 
         let seed_fp = config
             .as_mut()
@@ -138,6 +163,11 @@ impl Command {
                     .actions()
                     .iter()
                     .map(|action| {
+                        // Try to decrypt the action if UFVK was provided
+                        let decrypted = orchard_fvk
+                            .as_ref()
+                            .and_then(|fvk| decrypt_orchard_action(action, fvk));
+
                         (
                             *action.spend().value(),
                             action.output().user_address().clone(),
@@ -150,6 +180,7 @@ impl Command {
                                 .and_then(|(derivation, (seed_fp, coin_type))| {
                                     derivation.extract_account_index(seed_fp, *coin_type)
                                 }),
+                            decrypted,
                         )
                     })
                     .collect();
@@ -322,8 +353,10 @@ impl Command {
 
         if !pczt.orchard().actions().is_empty() {
             println!("{} Orchard actions:", pczt.orchard().actions().len());
-            for (index, (spend_value, output_user_address, output_value, output_account_index)) in
-                orchard_actions.iter().enumerate()
+            for (
+                index,
+                (spend_value, output_user_address, output_value, output_account_index, decrypted),
+            ) in orchard_actions.iter().enumerate()
             {
                 println!("- {index}:");
                 if let Some(value) = spend_value {
@@ -358,6 +391,40 @@ impl Command {
                         "- {index}: change to ZIP 32 account index {}",
                         u32::from(*idx)
                     );
+                }
+
+                // Display decrypted note information if available
+                if let Some((note, recipient, memo_bytes, scope)) = decrypted {
+                    println!("  - Decrypted note:");
+                    println!("    Value: {} zatoshis", note.value().inner());
+                    print_verified_recipient_address(
+                        recipient,
+                        orchard_fvk.as_ref().unwrap(),
+                        *scope,
+                    );
+                    // Parse and display the memo
+                    match zcash_protocol::memo::MemoBytes::from_bytes(memo_bytes) {
+                        Ok(memo) => match memo.try_into() {
+                            Ok(zcash_protocol::memo::Memo::Text(text)) => {
+                                println!("    Memo: {}", String::from(text));
+                            }
+                            Ok(zcash_protocol::memo::Memo::Empty) => {
+                                println!("    Memo: (empty)");
+                            }
+                            Ok(zcash_protocol::memo::Memo::Arbitrary(bytes)) => {
+                                println!("    Memo: (arbitrary data, {} bytes)", bytes.len());
+                            }
+                            Ok(zcash_protocol::memo::Memo::Future(_)) => {
+                                println!("    Memo: (future memo type)");
+                            }
+                            Err(_) => {
+                                println!("    Memo: (raw bytes)");
+                            }
+                        },
+                        Err(_) => {
+                            println!("    Memo: (invalid memo bytes)");
+                        }
+                    }
                 }
             }
         }
@@ -415,4 +482,115 @@ impl Command {
 
         Ok(())
     }
+}
+
+/// Verifies and displays information about a diversified Orchard address
+fn print_verified_recipient_address(
+    recipient: &orchard::Address,
+    orchard_fvk: &orchard::keys::FullViewingKey,
+    scope: Option<orchard::keys::Scope>,
+) {
+    let scope_type = scope.unwrap_or(orchard::keys::Scope::External);
+    let ivk = orchard_fvk.to_ivk(scope_type);
+
+    println!("    Recipient:");
+    println!("      Scope: {:?}", scope_type);
+
+    match ivk.diversifier_index(recipient) {
+        Some(diversifier_index) => {
+            println!("      Diversifier index: {}", u128::from(diversifier_index));
+
+            // Verify we can reconstruct the address from the diversifier index
+            let reconstructed = ivk.address_at(diversifier_index);
+
+            if reconstructed.to_raw_address_bytes() == recipient.to_raw_address_bytes() {
+                println!(
+                    "      ✓ Address {} belongs to this account",
+                    encode_orchard_ua(recipient)
+                );
+            } else {
+                println!(
+                    "      ✗ WARNING: unable to reconstruct address from FVK and diversifier index"
+                );
+                println!("      Expected: {}", encode_orchard_ua(&reconstructed));
+                println!("      Got:      {}", encode_orchard_ua(recipient));
+            }
+        }
+        None => {
+            println!(
+                "      ⚠ Recipient {} is external",
+                encode_orchard_ua(recipient)
+            );
+        }
+    }
+
+    println!();
+}
+
+/// Helper to encode an Orchard address as a unified address string
+fn encode_orchard_ua(address: &orchard::Address) -> String {
+    let receiver = unified::Receiver::Orchard(address.to_raw_address_bytes());
+    let ua = unified::Address::try_from_items(vec![receiver])
+        .expect("Orchard address should always produce valid UA");
+    ua.encode(&zcash_protocol::consensus::MAIN_NETWORK.network_type())
+}
+
+/// Attempts to decrypt an Orchard action's note using the provided full viewing key.
+/// Tries external IVK, then internal IVK, then external OVK.
+///
+/// Returns a tuple of (note, recipient, memo_bytes, scope)
+fn decrypt_orchard_action(
+    action: &orchard::pczt::Action,
+    orchard_fvk: &orchard::keys::FullViewingKey,
+) -> Option<(
+    orchard::Note,
+    orchard::Address,
+    [u8; 512],
+    Option<orchard::keys::Scope>,
+)> {
+    let domain = OrchardDomain::for_pczt_action(action);
+
+    // Derive the viewing keys from the FVK
+    let ivk_external = orchard::keys::PreparedIncomingViewingKey::new(
+        &orchard_fvk.to_ivk(orchard::keys::Scope::External),
+    );
+    let ivk_internal = orchard::keys::PreparedIncomingViewingKey::new(
+        &orchard_fvk.to_ivk(orchard::keys::Scope::Internal),
+    );
+    let ovk_external = orchard_fvk.to_ovk(Scope::External);
+
+    // Try external IVK (incoming to external address)
+    if let Some((note, recipient, memo_bytes)) = try_note_decryption(&domain, &ivk_external, action)
+    {
+        return Some((
+            note,
+            recipient,
+            memo_bytes,
+            Some(orchard::keys::Scope::External),
+        ));
+    }
+
+    // Try internal IVK (incoming to internal/change address)
+    if let Some((note, recipient, memo_bytes)) = try_note_decryption(&domain, &ivk_internal, action)
+    {
+        return Some((
+            note,
+            recipient,
+            memo_bytes,
+            Some(orchard::keys::Scope::Internal),
+        ));
+    }
+
+    // Try external OVK (outgoing note created by this wallet to an external address)
+    if let Some((note, recipient, memo_bytes)) = try_output_recovery_with_ovk(
+        &domain,
+        &ovk_external,
+        action,
+        action.cv_net(),
+        &action.output().encrypted_note().out_ciphertext,
+    ) {
+        return Some((note, recipient, memo_bytes, None));
+    }
+
+    None
 }
