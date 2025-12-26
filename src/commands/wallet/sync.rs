@@ -25,7 +25,7 @@ use zcash_client_sqlite::{
     chain::BlockMeta, util::SystemClock, FsBlockDb, FsBlockDbError, WalletDb,
 };
 use zcash_primitives::merkle_tree::HashSer;
-use zcash_protocol::consensus::{BlockHeight, Parameters};
+use zcash_protocol::consensus::{BlockHeight, NetworkUpgrade, Parameters};
 
 use crate::{
     config::get_wallet_network,
@@ -87,8 +87,8 @@ impl Command {
         let (fsblockdb_root, db_data) = get_db_paths(wallet_dir.as_ref());
         let fsblockdb_root = fsblockdb_root.as_path();
         let mut db_cache = FsBlockDb::for_path(fsblockdb_root).map_err(error::Error::from)?;
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
-        let mut client = self.server.pick(params)?.connect_direct().await?;
+        let mut db_data = WalletDb::for_path(db_data, params.clone(), SystemClock, OsRng)?;
+        let mut client = self.server.pick(&params)?.connect_direct().await?;
 
         #[cfg(feature = "tui")]
         let wallet_birthday = db_data
@@ -109,8 +109,12 @@ impl Command {
             None
         };
 
-        // 1) Download note commitment tree data from lightwalletd
-        // 2) Pass the commitment tree data to the database.
+        // 1) Download chain tip metadata from lightwalletd
+        // 2) Notify the wallet of the updated chain tip.
+        update_chain_tip(&mut client, &mut db_data).await?;
+
+        // 3) Download note commitment tree data from lightwalletd
+        // 4) Pass the commitment tree data to the database.
         update_subtree_roots(&mut client, &mut db_data).await?;
 
         #[allow(clippy::too_many_arguments)]
@@ -123,8 +127,7 @@ impl Command {
             db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
             #[cfg(feature = "tui")] tui_handle: Option<&defrag::AppHandle>,
         ) -> Result<bool, anyhow::Error> {
-            // 3) Download chain tip metadata from lightwalletd
-            // 4) Notify the wallet of the updated chain tip.
+            // 5) Update chain tip metadata from lightwalletd for this sync iteration.
             let _chain_tip = update_chain_tip(client, db_data).await?;
             #[cfg(feature = "tui")]
             if let Some(handle) = tui_handle {
@@ -133,21 +136,29 @@ impl Command {
                 );
             }
 
-            // Refresh UTXOs for the accounts in the wallet.
-            #[cfg(feature = "transparent-inputs")]
-            for account_id in db_data.get_account_ids()? {
-                info!(
-                    "Refreshing UTXOs for {:?} from height {}",
-                    account_id,
-                    BlockHeight::from(0),
-                );
-                refresh_utxos(params, client, db_data, account_id, BlockHeight::from(0)).await?;
-            }
-
-            // 5) Get the suggested scan ranges from the wallet database
+            // 6) Get the suggested scan ranges from the wallet database
             info!("Fetching scan ranges");
             let mut scan_ranges = db_data.suggest_scan_ranges()?;
             info!("Fetched {} scan ranges", scan_ranges.len());
+
+            // Refresh UTXOs for the accounts in the wallet.
+            // Only do this if Sapling is activated, as update_chain_tip requires this
+            // to properly set the chain tip in the scan_queue table.
+            #[cfg(feature = "transparent-inputs")]
+            if let Some(sapling_activation) = params.activation_height(NetworkUpgrade::Sapling) {
+                if _chain_tip >= sapling_activation {
+                    for account_id in db_data.get_account_ids()? {
+                        info!(
+                            "Refreshing UTXOs for {:?} from height {}",
+                            account_id,
+                            BlockHeight::from(0),
+                        );
+                        refresh_utxos(params, client, db_data, account_id, BlockHeight::from(0)).await?;
+                    }
+                } else {
+                    info!("Skipping UTXO refresh: chain tip {} is before Sapling activation at {}", _chain_tip, sapling_activation);
+                }
+            }
             #[cfg(feature = "tui")]
             if let Some(handle) = tui_handle {
                 if handle.set_scan_ranges(&scan_ranges, _chain_tip) {
@@ -163,7 +174,7 @@ impl Command {
             // tasks to allow us to continue downloading and scanning other ranges).
             let mut block_deletions = vec![];
 
-            // 6) Run the following loop until the wallet's view of the chain tip as of
+            // 7) Run the following loop until the wallet's view of the chain tip as of
             //    the previous wallet session is valid.
             loop {
                 // If there is a range of blocks that needs to be verified, it will always
@@ -240,7 +251,7 @@ impl Command {
                 }
             }
 
-            // 7) Loop over the remaining suggested scan ranges, retrieving the requested data
+            // 8) Loop over the remaining suggested scan ranges, retrieving the requested data
             //    and calling `scan_cached_blocks` on each range.
             let scan_ranges = db_data.suggest_scan_ranges()?;
             debug!("Suggested ranges: {:?}", scan_ranges);

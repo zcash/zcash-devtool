@@ -23,13 +23,13 @@ use zcash_client_backend::data_api::{WalletCommitmentTrees, WalletRead};
 use zcash_client_sqlite::{wallet::commitment_tree::SqliteShardStore, WalletDb};
 use zcash_primitives::merkle_tree::HashSer;
 use zcash_protocol::{
-    consensus::{BlockHeight, Network},
+    consensus::BlockHeight,
     ShieldedProtocol,
 };
 
 use crate::{
     config::get_wallet_network,
-    data::get_db_paths,
+    data::{get_db_paths, NetworkParams},
     tui::{self, Tui},
     ShutdownListener,
 };
@@ -105,7 +105,7 @@ impl Command {
 pub(super) struct App {
     should_quit: bool,
     notify_shutdown: Option<oneshot::Sender<()>>,
-    db_data: WalletDb<rusqlite::Connection, Network, (), ()>,
+    db_data: WalletDb<rusqlite::Connection, NetworkParams, (), ()>,
     pool: ShieldedProtocol,
     address: Address,
     action_tx: mpsc::UnboundedSender<Action>,
@@ -117,7 +117,7 @@ pub(super) struct App {
 impl App {
     pub(super) fn new(
         notify_shutdown: oneshot::Sender<()>,
-        db_data: WalletDb<rusqlite::Connection, Network, (), ()>,
+        db_data: WalletDb<rusqlite::Connection, NetworkParams, (), ()>,
         pool: ShieldedProtocol,
         address: Option<Address>,
         show_block_boundaries: bool,

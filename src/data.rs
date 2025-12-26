@@ -8,7 +8,8 @@ use zcash_client_sqlite::{FsBlockDb, WalletDb};
 use tracing::error;
 
 use zcash_client_sqlite::chain::BlockMeta;
-use zcash_protocol::consensus::{self, Parameters};
+use zcash_protocol::consensus::{self, BlockHeight, NetworkType, NetworkUpgrade, Parameters};
+use zcash_protocol::local_consensus::LocalNetwork;
 
 use crate::error;
 
@@ -17,11 +18,49 @@ const BLOCKS_FOLDER: &str = "blocks";
 const DATA_DB: &str = "data.sqlite";
 const TOR_DIR: &str = "tor";
 
+/// Wrapper enum for network parameters that supports both standard networks
+/// (MainNetwork, TestNetwork) and custom local networks (regtest).
+#[derive(Clone, Debug)]
+pub(crate) enum NetworkParams {
+    Consensus(consensus::Network),
+    Local(LocalNetwork),
+}
+
+impl NetworkParams {
+    pub(crate) fn is_regtest(&self) -> bool {
+        matches!(self, Self::Local(_))
+    }
+
+    pub(crate) fn consensus_network(&self) -> Option<consensus::Network> {
+        match self {
+            Self::Consensus(n) => Some(*n),
+            Self::Local(_) => None,
+        }
+    }
+}
+
+impl Parameters for NetworkParams {
+    fn network_type(&self) -> NetworkType {
+        match self {
+            Self::Consensus(n) => n.network_type(),
+            Self::Local(n) => n.network_type(),
+        }
+    }
+
+    fn activation_height(&self, nu: NetworkUpgrade) -> Option<BlockHeight> {
+        match self {
+            Self::Consensus(n) => n.activation_height(nu),
+            Self::Local(n) => n.activation_height(nu),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) enum Network {
     #[default]
     Test,
     Main,
+    Regtest,
 }
 
 impl Network {
@@ -29,6 +68,7 @@ impl Network {
         match name {
             "main" => Ok(Network::Main),
             "test" => Ok(Network::Test),
+            "regtest" => Ok(Network::Regtest),
             other => Err(format!("Unsupported network: {other}")),
         }
     }
@@ -37,24 +77,7 @@ impl Network {
         match self {
             Network::Test => "test",
             Network::Main => "main",
-        }
-    }
-}
-
-impl From<Network> for consensus::Network {
-    fn from(value: Network) -> Self {
-        match value {
-            Network::Test => consensus::Network::TestNetwork,
-            Network::Main => consensus::Network::MainNetwork,
-        }
-    }
-}
-
-impl From<consensus::Network> for Network {
-    fn from(value: consensus::Network) -> Self {
-        match value {
-            consensus::Network::TestNetwork => Network::Test,
-            consensus::Network::MainNetwork => Network::Main,
+            Network::Regtest => "regtest",
         }
     }
 }

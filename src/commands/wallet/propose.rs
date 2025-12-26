@@ -48,7 +48,7 @@ impl Command {
         let params = get_wallet_network(wallet_dir.as_ref())?;
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+        let mut db_data = WalletDb::for_path(db_data, params.clone(), SystemClock, OsRng)?;
         let account = select_account(&db_data, self.account_id)?;
 
         let change_strategy = MultiOutputChangeStrategy::new(

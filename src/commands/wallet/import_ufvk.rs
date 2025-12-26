@@ -9,11 +9,11 @@ use zcash_client_backend::{
 };
 use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_keys::keys::UnifiedFullViewingKey;
-use zcash_protocol::consensus;
+use zcash_protocol::{consensus::{self, BlockHeight}, local_consensus::LocalNetwork};
 use zip32::fingerprint::SeedFingerprint;
 
 use crate::{
-    data::get_db_paths,
+    data::{get_db_paths, NetworkParams},
     error, parse_hex,
     remote::{tor_client, Servers},
 };
@@ -56,21 +56,32 @@ impl Command {
         let ufvk = UnifiedFullViewingKey::parse(&ufvk).map_err(|e| anyhow!("{e}"))?;
 
         let params = match network {
-            consensus::NetworkType::Main => Ok(consensus::Network::MainNetwork),
-            consensus::NetworkType::Test => Ok(consensus::Network::TestNetwork),
+            consensus::NetworkType::Main => NetworkParams::Consensus(consensus::Network::MainNetwork),
+            consensus::NetworkType::Test => NetworkParams::Consensus(consensus::Network::TestNetwork),
             consensus::NetworkType::Regtest => {
-                Err(anyhow!("UFVK is for regtest, which is unsupported"))
+                // Create a LocalNetwork with all upgrades at height 1
+                let height_1 = Some(BlockHeight::from_u32(1));
+                NetworkParams::Local(LocalNetwork {
+                    overwinter: height_1,
+                    sapling: height_1,
+                    blossom: height_1,
+                    heartwood: height_1,
+                    canopy: height_1,
+                    nu5: height_1,
+                    nu6: height_1,
+                    nu6_1: height_1,
+                })
             }
-        }?;
+        };
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+        let mut db_data = WalletDb::for_path(db_data, params.clone(), SystemClock, OsRng)?;
 
         // Construct an `AccountBirthday` for the account's birthday.
         let birthday = {
             // Fetch the tree state corresponding to the last block prior to the wallet's
             // birthday height. NOTE: THIS APPROACH LEAKS THE BIRTHDAY TO THE SERVER!
-            let server = self.server.pick(params)?;
+            let server = self.server.pick(&params)?;
             let mut client = if self.disable_tor {
                 server.connect_direct().await?
             } else {
