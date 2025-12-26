@@ -68,7 +68,7 @@ impl Command {
                     canopy: height_1,
                     nu5: height_1,
                     nu6: height_1,
-                    nu6_1: None,
+                    nu6_1: height_1,
                 })
             }
         };

@@ -25,7 +25,7 @@ use zcash_client_sqlite::{
     chain::BlockMeta, util::SystemClock, FsBlockDb, FsBlockDbError, WalletDb,
 };
 use zcash_primitives::merkle_tree::HashSer;
-use zcash_protocol::consensus::{BlockHeight, Parameters};
+use zcash_protocol::consensus::{BlockHeight, NetworkUpgrade, Parameters};
 
 use crate::{
     config::get_wallet_network,
