@@ -178,7 +178,7 @@ impl WalletConfig {
                     canopy: height_or_default(config.regtest_activation_canopy),
                     nu5: height_or_default(config.regtest_activation_nu5),
                     nu6: height_or_default(config.regtest_activation_nu6),
-                    nu6_1: config.regtest_activation_nu6_1.map(BlockHeight::from),
+                    nu6_1: height_or_default(config.regtest_activation_nu6_1),
                 };
                 NetworkParams::Local(local_network)
             }
