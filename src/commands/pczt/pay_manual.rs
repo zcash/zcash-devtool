@@ -29,7 +29,7 @@ use crate::{
     config::WalletConfig,
     data::Network,
     helpers::pczt::create_manual::{add_inputs, add_recipient, handle_recipient, parse_coins},
-    remote::{tor_client, Servers},
+    remote::ConnectionArgs,
 };
 
 // Options accepted for the `pczt pay-manual` command
@@ -63,14 +63,8 @@ pub(crate) struct Command {
     #[arg(value_parser = Network::parse)]
     network: Option<Network>,
 
-    /// The server to use for network information (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 }
 
 impl Command {
@@ -85,12 +79,7 @@ impl Command {
 
         let coins = parse_coins(&self.coins)?;
 
-        let server = self.server.pick(params)?;
-        let mut client = if self.disable_tor {
-            server.connect_direct().await?
-        } else {
-            server.connect(|| tor_client(wallet_dir.as_ref())).await?
-        };
+        let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
         let latest_block = client.get_latest_block(ChainSpec {}).await?.into_inner();
         let target_height =

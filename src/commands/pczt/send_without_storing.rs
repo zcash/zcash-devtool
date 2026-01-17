@@ -8,23 +8,13 @@ use tokio::io::{stdin, AsyncReadExt};
 use zcash_client_backend::proto::service;
 use zcash_proofs::prover::LocalTxProver;
 
-use crate::{
-    config::WalletConfig,
-    error,
-    remote::{tor_client, Servers},
-};
+use crate::{config::WalletConfig, error, remote::ConnectionArgs};
 
 // Options accepted for the `pczt send-without-storing` command
 #[derive(Debug, Args)]
 pub(crate) struct Command {
-    /// The server to send via (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 }
 
 impl Command {
@@ -32,12 +22,7 @@ impl Command {
         let config = WalletConfig::read(wallet_dir.as_ref())?;
         let params = config.network();
 
-        let server = self.server.pick(params)?;
-        let mut client = if self.disable_tor {
-            server.connect_direct().await?
-        } else {
-            server.connect(|| tor_client(wallet_dir.as_ref())).await?
-        };
+        let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
         let mut buf = vec![];
         stdin().read_to_end(&mut buf).await?;

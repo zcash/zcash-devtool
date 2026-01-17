@@ -26,11 +26,8 @@ use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
 
 use crate::{
-    commands::select_account,
-    config::WalletConfig,
-    data::get_db_paths,
-    error,
-    remote::{tor_client, Servers},
+    commands::select_account, config::WalletConfig, data::get_db_paths, error,
+    remote::ConnectionArgs,
 };
 
 // Options accepted for the `shield` command
@@ -47,14 +44,8 @@ pub(crate) struct Command {
     #[arg(short, long)]
     identity: String,
 
-    /// The server to shield via (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 
     /// Note management: the number of notes to maintain in the wallet
     #[arg(long)]
@@ -98,12 +89,7 @@ impl Command {
         )
         .map_err(error::Error::from)?;
 
-        let server = self.server.pick(params)?;
-        let mut client = if self.disable_tor {
-            server.connect_direct().await?
-        } else {
-            server.connect(|| tor_client(wallet_dir.as_ref())).await?
-        };
+        let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
         // Create the transaction.
         println!("Creating transaction...");

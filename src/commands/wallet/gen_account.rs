@@ -4,12 +4,7 @@ use rand::rngs::OsRng;
 use zcash_client_backend::{data_api::WalletWrite, proto::service};
 use zcash_client_sqlite::{util::SystemClock, WalletDb};
 
-use crate::{
-    commands::wallet,
-    config::WalletConfig,
-    data::get_db_paths,
-    remote::{tor_client, Servers},
-};
+use crate::{commands::wallet, config::WalletConfig, data::get_db_paths, remote::ConnectionArgs};
 
 // Options accepted for the `generate-account` command
 #[derive(Debug, Args)]
@@ -22,14 +17,8 @@ pub(crate) struct Command {
     #[arg(long)]
     name: String,
 
-    /// The server to initialize with (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 }
 
 impl Command {
@@ -48,12 +37,7 @@ impl Command {
                 "Seed must be present to enable generating a new account"
             ))?;
 
-        let server = self.server.pick(params)?;
-        let mut client = if self.disable_tor {
-            server.connect_direct().await?
-        } else {
-            server.connect(|| tor_client(wallet_dir.as_ref())).await?
-        };
+        let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
         // Get the current chain height (for the wallet's birthday and/or recover-until height).
         let chain_tip: u32 = client

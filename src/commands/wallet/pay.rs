@@ -1,5 +1,7 @@
 #![allow(deprecated)]
 
+use std::net::SocketAddr;
+
 use age::Identity;
 use clap::Args;
 use uuid::Uuid;
@@ -32,9 +34,13 @@ pub(crate) struct Command {
     #[arg(default_value = "ecc", value_parser = Servers::parse)]
     server: Servers,
 
-    /// Disable connections via TOR
+    /// Disable connections via the built-in Tor client
     #[arg(long)]
     disable_tor: bool,
+
+    /// Route connections through a SOCKS5 proxy (e.g., "127.0.0.1:9050" for Tor)
+    #[arg(long)]
+    socks_proxy: Option<SocketAddr>,
 
     /// Note management: the number of notes to maintain in the wallet
     #[arg(long)]
@@ -67,6 +73,10 @@ impl PaymentContext for Command {
 
     fn disable_tor(&self) -> bool {
         self.disable_tor
+    }
+
+    fn socks_proxy(&self) -> Option<SocketAddr> {
+        self.socks_proxy
     }
 
     fn target_note_count(&self) -> usize {

@@ -15,7 +15,7 @@ use crate::{
     config::WalletConfig,
     data::{init_dbs, Network},
     error,
-    remote::{tor_client, Servers},
+    remote::ConnectionArgs,
 };
 
 // Options accepted for the `init` command
@@ -38,14 +38,8 @@ pub(crate) struct Command {
     #[arg(value_parser = Network::parse)]
     network: Network,
 
-    /// The server to initialize with (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 }
 
 impl Command {
@@ -53,12 +47,7 @@ impl Command {
         let opts = self;
         let params = consensus::Network::from(opts.network);
 
-        let server = opts.server.pick(params)?;
-        let mut client = if opts.disable_tor {
-            server.connect_direct().await?
-        } else {
-            server.connect(|| tor_client(wallet_dir.as_ref())).await?
-        };
+        let mut client = opts.connection.connect(params, wallet_dir.as_ref()).await?;
 
         // Get the current chain height (for the wallet's birthday and/or recover-until height).
         let chain_tip: u32 = client

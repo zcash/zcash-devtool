@@ -31,12 +31,14 @@ use zcash_protocol::{
 };
 use zip321::{Payment, TransactionRequest};
 
+use std::net::SocketAddr;
+
 use crate::{
     commands::select_account,
     config::WalletConfig,
     data::get_db_paths,
     error,
-    remote::{tor_client, Servers},
+    remote::{tor_client, ConnectionMode, Servers},
 };
 
 // Options accepted for the `send` command
@@ -66,9 +68,13 @@ pub(crate) struct Command {
     #[arg(default_value = "ecc", value_parser = Servers::parse)]
     server: Servers,
 
-    /// Disable connections via TOR
+    /// Disable connections via the built-in Tor client
     #[arg(long)]
     disable_tor: bool,
+
+    /// Route connections through a SOCKS5 proxy (e.g., "127.0.0.1:9050" for Tor)
+    #[arg(long)]
+    socks_proxy: Option<SocketAddr>,
 
     /// Note management: the number of notes to maintain in the wallet
     #[arg(long)]
@@ -86,9 +92,20 @@ pub(crate) trait PaymentContext {
     fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity>>>;
     fn servers(&self) -> &Servers;
     fn disable_tor(&self) -> bool;
+    fn socks_proxy(&self) -> Option<SocketAddr>;
     fn target_note_count(&self) -> usize;
     fn min_split_output_value(&self) -> u64;
     fn require_confirmation(&self) -> bool;
+
+    fn connection_mode(&self) -> ConnectionMode {
+        if let Some(proxy_addr) = self.socks_proxy() {
+            ConnectionMode::SocksProxy(proxy_addr)
+        } else if self.disable_tor() {
+            ConnectionMode::Direct
+        } else {
+            ConnectionMode::BuiltInTor
+        }
+    }
 }
 
 impl PaymentContext for Command {
@@ -107,6 +124,10 @@ impl PaymentContext for Command {
 
     fn disable_tor(&self) -> bool {
         self.disable_tor
+    }
+
+    fn socks_proxy(&self) -> Option<SocketAddr> {
+        self.socks_proxy
     }
 
     fn target_note_count(&self) -> usize {
@@ -171,10 +192,10 @@ pub(crate) async fn pay<C: PaymentContext>(
             .map_err(error::Error::from)?;
 
     let server = context.servers().pick(params)?;
-    let mut client = if context.disable_tor() {
-        server.connect_direct().await?
-    } else {
-        server.connect(|| tor_client(wallet_dir.as_ref())).await?
+    let mut client = match context.connection_mode() {
+        ConnectionMode::Direct => server.connect_direct().await?,
+        ConnectionMode::BuiltInTor => server.connect(|| tor_client(wallet_dir.as_ref())).await?,
+        ConnectionMode::SocksProxy(proxy_addr) => server.connect_over_socks(proxy_addr).await?,
     };
 
     // Create the transaction.

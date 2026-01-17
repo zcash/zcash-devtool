@@ -10,24 +10,13 @@ use zcash_client_backend::{
 use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_proofs::prover::LocalTxProver;
 
-use crate::{
-    config::WalletConfig,
-    data::get_db_paths,
-    error,
-    remote::{tor_client, Servers},
-};
+use crate::{config::WalletConfig, data::get_db_paths, error, remote::ConnectionArgs};
 
 // Options accepted for the `pczt send` command
 #[derive(Debug, Args)]
 pub(crate) struct Command {
-    /// The server to send via (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 }
 
 impl Command {
@@ -38,12 +27,7 @@ impl Command {
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
 
-        let server = self.server.pick(params)?;
-        let mut client = if self.disable_tor {
-            server.connect_direct().await?
-        } else {
-            server.connect(|| tor_client(wallet_dir.as_ref())).await?
-        };
+        let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
         let mut buf = vec![];
         stdin().read_to_end(&mut buf).await?;
