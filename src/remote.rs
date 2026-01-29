@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use clap::Args;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint, Uri};
 
-use tracing::info;
+use tracing::{info, warn};
 use zcash_client_backend::{
     proto::service::compact_tx_streamer_client::CompactTxStreamerClient, tor,
 };
@@ -259,11 +259,19 @@ pub(crate) struct ConnectionArgs {
     /// Connection mode: "direct", "tor" (default), or "socks5://<host>:<port>"
     #[arg(long, default_value = "tor", value_parser = parse_connection_mode)]
     pub(crate) connection: ConnectionMode,
+
+    /// Deprecated: use --connection direct instead
+    #[arg(long, hide = true)]
+    pub(crate) disable_tor: bool,
 }
 
 impl ConnectionArgs {
     /// Returns the configured connection mode.
     pub(crate) fn mode(&self) -> ConnectionMode {
+        if self.disable_tor {
+            warn!("--disable-tor is deprecated, use --connection direct instead");
+            return ConnectionMode::Direct;
+        }
         self.connection.clone()
     }
 
