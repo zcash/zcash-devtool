@@ -41,7 +41,7 @@ transparent = { package = "zcash_transparent", version = "0.6", features = ["tes
 zcash_address = "0.10"
 zcash_client_backend = { version = "0.21", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "pczt", "tor"] }
 zcash_client_sqlite = { version = "0.19", features = ["unstable", "orchard", "serde"] }
-zcash_keys = { version = "0.12", features = ["unstable", "orchard"] }
+zcash_keys = { version = "0.12", features = ["orchard", "unstable", "unstable-frost"] }
 zcash_primitives = "0.26"
 zcash_proofs = { version = "0.26", features = ["bundled-prover"] }
 zcash_protocol = { version = "0.7", features = ["local-consensus"] }
