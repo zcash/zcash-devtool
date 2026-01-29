@@ -32,10 +32,7 @@ use zcash_protocol::{
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
-    commands::select_account,
-    config::WalletConfig,
-    data::get_db_paths,
-    error,
+    commands::select_account, config::WalletConfig, data::get_db_paths, error,
     remote::ConnectionArgs,
 };
 

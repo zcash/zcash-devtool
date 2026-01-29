@@ -245,7 +245,9 @@ fn parse_connection_mode(s: &str) -> Result<ConnectionMode, String> {
                 .map_err(|_| format!("Invalid SOCKS5 proxy address: {}", url_part))?;
             Ok(ConnectionMode::SocksProxy(addr))
         }
-        _ => Err("Invalid connection mode. Use 'direct', 'tor', or 'socks5://<host>:<port>'".to_string()),
+        _ => Err(
+            "Invalid connection mode. Use 'direct', 'tor', or 'socks5://<host>:<port>'".to_string(),
+        ),
     }
 }
 
