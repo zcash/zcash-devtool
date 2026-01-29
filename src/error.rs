@@ -9,12 +9,22 @@ use zcash_client_sqlite::{
 };
 use zcash_keys::keys::DerivationError;
 use zcash_primitives::transaction::fees::zip317;
+use zcash_protocol::value::BalanceError;
 use zip321::Zip321Error;
 
 pub(crate) type WalletErrorT = WalletError<
     SqliteClientError,
     commitment_tree::Error,
     GreedyInputSelectorError,
+    zip317::FeeError,
+    zip317::FeeError,
+    ReceivedNoteId,
+>;
+
+pub(crate) type SendMaxErrorT = WalletError<
+    SqliteClientError,
+    commitment_tree::Error,
+    BalanceError,
     zip317::FeeError,
     zip317::FeeError,
     ReceivedNoteId,
@@ -39,6 +49,7 @@ pub enum Error {
     InvalidKeysFile,
     InvalidTreeState,
     SendFailed { code: i32, reason: String },
+    SendMax(SendMaxErrorT),
     Shield(ShieldErrorT),
     TransparentMemo(usize),
     Wallet(WalletErrorT),
@@ -56,6 +67,7 @@ impl fmt::Display for Error {
             Error::InvalidKeysFile => write!(f, "Invalid keys file"),
             Error::InvalidTreeState => write!(f, "Invalid TreeState received from server"),
             Error::SendFailed { code, reason } => write!(f, "Send failed: ({code}) {reason}"),
+            Error::SendMax(e) => e.fmt(f),
             Error::TransparentMemo(idx) => {
                 write!(f, "Payment {idx} invalid: can't send memo to a t-address")
             }

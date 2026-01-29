@@ -188,6 +188,7 @@ fn main() -> Result<(), anyhow::Error> {
                 command,
             }) => match command {
                 commands::pczt::Command::Create(command) => command.run(wallet_dir).await,
+                commands::pczt::Command::CreateMax(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Shield(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::CreateManual(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::PayManual(command) => command.run(wallet_dir).await,
