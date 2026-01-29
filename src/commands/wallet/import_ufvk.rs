@@ -12,11 +12,7 @@ use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_protocol::consensus;
 use zip32::fingerprint::SeedFingerprint;
 
-use crate::{
-    data::get_db_paths,
-    error, parse_hex,
-    remote::{tor_client, Servers},
-};
+use crate::{data::get_db_paths, error, parse_hex, remote::ConnectionArgs};
 
 // Options accepted for the `import-ufvk` command
 #[derive(Debug, Args)]
@@ -40,14 +36,8 @@ pub(crate) struct Command {
     #[arg(long)]
     hd_account_index: Option<u32>,
 
-    /// The server to initialize with (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 }
 
 impl Command {
@@ -70,12 +60,7 @@ impl Command {
         let birthday = {
             // Fetch the tree state corresponding to the last block prior to the wallet's
             // birthday height. NOTE: THIS APPROACH LEAKS THE BIRTHDAY TO THE SERVER!
-            let server = self.server.pick(params)?;
-            let mut client = if self.disable_tor {
-                server.connect_direct().await?
-            } else {
-                server.connect(|| tor_client(wallet_dir)).await?
-            };
+            let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
             let tip_height = client
                 .get_latest_block(service::ChainSpec::default())

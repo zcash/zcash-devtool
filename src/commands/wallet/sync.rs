@@ -31,7 +31,7 @@ use crate::{
     config::get_wallet_network,
     data::{get_block_path, get_db_paths},
     error,
-    remote::Servers,
+    remote::ConnectionArgs,
     ShutdownListener,
 };
 
@@ -65,10 +65,8 @@ const BATCH_SIZE: u32 = 10_000;
 // Options accepted for the `sync` command
 #[derive(Debug, Args)]
 pub(crate) struct Command {
-    /// The server to sync with (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 
     #[cfg(feature = "tui")]
     #[arg(long)]
@@ -88,7 +86,7 @@ impl Command {
         let fsblockdb_root = fsblockdb_root.as_path();
         let mut db_cache = FsBlockDb::for_path(fsblockdb_root).map_err(error::Error::from)?;
         let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
-        let mut client = self.server.pick(params)?.connect_direct().await?;
+        let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
         #[cfg(feature = "tui")]
         let wallet_birthday = db_data

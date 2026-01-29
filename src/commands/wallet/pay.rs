@@ -8,7 +8,7 @@ use zip321::TransactionRequest;
 
 use crate::{
     commands::wallet::send::{pay, PaymentContext},
-    remote::Servers,
+    remote::ConnectionArgs,
 };
 
 // Options accepted for the `pay` command
@@ -27,14 +27,8 @@ pub(crate) struct Command {
     #[arg(long)]
     payment_uri: String,
 
-    /// The server to send via (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 
     /// Note management: the number of notes to maintain in the wallet
     #[arg(long)]
@@ -61,12 +55,8 @@ impl PaymentContext for Command {
         Ok(identities)
     }
 
-    fn servers(&self) -> &Servers {
-        &self.server
-    }
-
-    fn disable_tor(&self) -> bool {
-        self.disable_tor
+    fn connection_args(&self) -> &ConnectionArgs {
+        &self.connection
     }
 
     fn target_note_count(&self) -> usize {

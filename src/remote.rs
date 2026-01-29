@@ -1,15 +1,16 @@
-use std::{borrow::Cow, fmt, future::Future, path::Path};
+use std::{borrow::Cow, fmt, future::Future, net::SocketAddr, path::Path, time::Duration};
 
 use anyhow::anyhow;
-use tonic::transport::{Channel, ClientTlsConfig};
+use clap::Args;
+use tonic::transport::{Channel, ClientTlsConfig, Endpoint, Uri};
 
-use tracing::info;
+use tracing::{info, warn};
 use zcash_client_backend::{
     proto::service::compact_tx_streamer_client::CompactTxStreamerClient, tor,
 };
 use zcash_protocol::consensus::Network;
 
-use crate::data::get_tor_dir;
+use crate::{data::get_tor_dir, socks::SocksConnector};
 
 const ECC_TESTNET: &[Server<'_>] = &[Server::fixed("lightwalletd.testnet.electriccoin.co", 9067)];
 
@@ -123,8 +124,9 @@ impl Server<'_> {
     }
 
     fn use_tls(&self) -> bool {
-        // Assume that localhost will never have a cert, and require remotes to have one.
+        // localhost never has a cert, .onion uses Tor's encryption, remotes need TLS
         !matches!(self.host.as_ref(), "localhost" | "127.0.0.1" | "::1")
+            && !self.host.ends_with(".onion")
     }
 
     fn endpoint(&self) -> String {
@@ -181,6 +183,112 @@ impl Server<'_> {
             self.connect_over_tor(&tor().await?).await
         } else {
             self.connect_direct().await
+        }
+    }
+
+    /// Connects to the server via a SOCKS5 proxy.
+    pub(crate) async fn connect_over_socks(
+        &self,
+        proxy_addr: SocketAddr,
+    ) -> Result<CompactTxStreamerClient<Channel>, anyhow::Error> {
+        info!("Connecting to {} via SOCKS proxy {}", self, proxy_addr);
+
+        let connector = SocksConnector::new(proxy_addr);
+
+        let uri: Uri = self.endpoint().parse()?;
+
+        let mut endpoint = Endpoint::from(uri.clone())
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30));
+
+        // Only add TLS for non-.onion addresses (use_tls already checks for this)
+        if self.use_tls() {
+            endpoint = endpoint.tls_config(
+                ClientTlsConfig::new()
+                    .domain_name(self.host.to_string())
+                    .assume_http2(true)
+                    .with_webpki_roots(),
+            )?;
+        }
+
+        let channel = endpoint.connect_with_connector(connector).await?;
+
+        Ok(CompactTxStreamerClient::with_origin(channel, uri))
+    }
+}
+
+/// Determines how to connect to the lightwalletd server.
+#[derive(Clone, Debug)]
+pub(crate) enum ConnectionMode {
+    /// Direct TCP connection (no proxy)
+    Direct,
+    /// Use the built-in Tor client
+    BuiltInTor,
+    /// Route through an external SOCKS5 proxy
+    SocksProxy(SocketAddr),
+}
+
+/// Parse a connection mode from a string.
+///
+/// Supported formats:
+/// - `direct` - Direct TCP connection
+/// - `tor` - Use the built-in Tor client (default)
+/// - `socks5://<host>:<port>` - Route through a SOCKS5 proxy
+fn parse_connection_mode(s: &str) -> Result<ConnectionMode, String> {
+    match s {
+        "direct" => Ok(ConnectionMode::Direct),
+        "tor" => Ok(ConnectionMode::BuiltInTor),
+        s if s.starts_with("socks5://") => {
+            let url_part = s.strip_prefix("socks5://").unwrap();
+            let addr: SocketAddr = url_part
+                .parse()
+                .map_err(|_| format!("Invalid SOCKS5 proxy address: {}", url_part))?;
+            Ok(ConnectionMode::SocksProxy(addr))
+        }
+        _ => Err(
+            "Invalid connection mode. Use 'direct', 'tor', or 'socks5://<host>:<port>'".to_string(),
+        ),
+    }
+}
+
+/// CLI arguments for server connection configuration.
+#[derive(Debug, Args, Clone)]
+pub(crate) struct ConnectionArgs {
+    /// The server to connect to (default is "ecc")
+    #[arg(short, long, default_value = "ecc", value_parser = Servers::parse)]
+    pub(crate) server: Servers,
+
+    /// Connection mode: "direct", "tor" (default), or "socks5://<host>:<port>"
+    #[arg(long, default_value = "tor", value_parser = parse_connection_mode)]
+    pub(crate) connection: ConnectionMode,
+
+    /// Deprecated: use --connection direct instead
+    #[arg(long, hide = true)]
+    pub(crate) disable_tor: bool,
+}
+
+impl ConnectionArgs {
+    /// Returns the configured connection mode.
+    pub(crate) fn mode(&self) -> ConnectionMode {
+        if self.disable_tor {
+            warn!("--disable-tor is deprecated, use --connection direct instead");
+            return ConnectionMode::Direct;
+        }
+        self.connection.clone()
+    }
+
+    /// Connects to the configured server using the appropriate connection mode.
+    pub(crate) async fn connect<P: AsRef<Path>>(
+        &self,
+        network: Network,
+        wallet_dir: Option<P>,
+    ) -> Result<CompactTxStreamerClient<Channel>, anyhow::Error> {
+        let server = self.server.pick(network)?;
+
+        match self.mode() {
+            ConnectionMode::Direct => server.connect_direct().await,
+            ConnectionMode::BuiltInTor => server.connect(|| tor_client(wallet_dir.as_ref())).await,
+            ConnectionMode::SocksProxy(proxy_addr) => server.connect_over_socks(proxy_addr).await,
         }
     }
 }

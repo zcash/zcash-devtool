@@ -10,12 +10,7 @@ use zcash_keys::{encoding::decode_extfvk_with_network, keys::UnifiedFullViewingK
 use zcash_protocol::consensus::{self, NetworkType};
 use zip32::fingerprint::SeedFingerprint;
 
-use crate::{
-    config::WalletConfig,
-    data::init_dbs,
-    parse_hex,
-    remote::{tor_client, Servers},
-};
+use crate::{config::WalletConfig, data::init_dbs, parse_hex, remote::ConnectionArgs};
 
 // Options accepted for the `init-fvk` command
 #[derive(Debug, Args)]
@@ -41,14 +36,8 @@ pub(crate) struct Command {
     #[arg(long)]
     hd_account_index: Option<u32>,
 
-    /// The server to initialize with (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 }
 
 impl Command {
@@ -79,12 +68,10 @@ impl Command {
             }
         };
 
-        let server = opts.server.pick(network)?;
-        let mut client = if opts.disable_tor {
-            server.connect_direct().await?
-        } else {
-            server.connect(|| tor_client(wallet_dir.as_ref())).await?
-        };
+        let mut client = opts
+            .connection
+            .connect(network, wallet_dir.as_ref())
+            .await?;
 
         // Get the current chain height (for the wallet's birthday recover-until height).
         let chain_tip: u32 = client

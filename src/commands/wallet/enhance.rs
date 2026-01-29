@@ -20,23 +20,13 @@ use zcash_keys::encoding::AddressCodec;
 use zcash_primitives::transaction::{Transaction, TxId};
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network};
 
-use crate::{
-    config::get_wallet_network,
-    data::get_db_paths,
-    remote::{tor_client, Servers},
-};
+use crate::{config::get_wallet_network, data::get_db_paths, remote::ConnectionArgs};
 
 // Options accepted for the `enhance` command
 #[derive(Debug, Args)]
 pub(crate) struct Command {
-    /// The server to enhance with (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 }
 
 fn parse_raw_transaction(
@@ -98,12 +88,7 @@ impl Command {
         // - Create an isolated `lightwalletd` connection for each transaction.
         // - Spread transactions across all available servers.
         // - Fetch transactions in parallel, with timing noise.
-        let server = self.server.pick(params)?;
-        let mut client = if self.disable_tor {
-            server.connect_direct().await?
-        } else {
-            server.connect(|| tor_client(wallet_dir.as_ref())).await?
-        };
+        let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
         let mut satisfied_requests = BTreeSet::new();
         loop {

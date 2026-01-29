@@ -10,7 +10,7 @@ use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use crate::{
     config::WalletConfig,
     data::{erase_wallet_state, get_db_paths},
-    remote::{tor_client, Servers},
+    remote::ConnectionArgs,
 };
 
 // Options accepted for the `reset` command
@@ -20,14 +20,8 @@ pub(crate) struct Command {
     #[arg(short, long)]
     identity: String,
 
-    /// The server to re-initialize with (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 }
 
 impl Command {
@@ -37,12 +31,7 @@ impl Command {
         let params = config.network();
 
         // Connect to the client (for re-initializing the wallet).
-        let server = self.server.pick(params)?;
-        let mut client = if self.disable_tor {
-            server.connect_direct().await?
-        } else {
-            server.connect(|| tor_client(wallet_dir.as_ref())).await?
-        };
+        let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
         // Get the current chain height (for the wallet's recover-until height).
         let chain_tip = client

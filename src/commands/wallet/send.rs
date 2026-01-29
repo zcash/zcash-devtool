@@ -32,11 +32,8 @@ use zcash_protocol::{
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
-    commands::select_account,
-    config::WalletConfig,
-    data::get_db_paths,
-    error,
-    remote::{tor_client, Servers},
+    commands::select_account, config::WalletConfig, data::get_db_paths, error,
+    remote::ConnectionArgs,
 };
 
 // Options accepted for the `send` command
@@ -61,14 +58,8 @@ pub(crate) struct Command {
     #[arg(long)]
     memo: Option<String>,
 
-    /// The server to send via (default is \"ecc\")
-    #[arg(short, long)]
-    #[arg(default_value = "ecc", value_parser = Servers::parse)]
-    server: Servers,
-
-    /// Disable connections via TOR
-    #[arg(long)]
-    disable_tor: bool,
+    #[command(flatten)]
+    connection: ConnectionArgs,
 
     /// Note management: the number of notes to maintain in the wallet
     #[arg(long)]
@@ -84,8 +75,7 @@ pub(crate) struct Command {
 pub(crate) trait PaymentContext {
     fn spending_account(&self) -> Option<Uuid>;
     fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity>>>;
-    fn servers(&self) -> &Servers;
-    fn disable_tor(&self) -> bool;
+    fn connection_args(&self) -> &ConnectionArgs;
     fn target_note_count(&self) -> usize;
     fn min_split_output_value(&self) -> u64;
     fn require_confirmation(&self) -> bool;
@@ -101,12 +91,8 @@ impl PaymentContext for Command {
         Ok(identities)
     }
 
-    fn servers(&self) -> &Servers {
-        &self.server
-    }
-
-    fn disable_tor(&self) -> bool {
-        self.disable_tor
+    fn connection_args(&self) -> &ConnectionArgs {
+        &self.connection
     }
 
     fn target_note_count(&self) -> usize {
@@ -170,12 +156,10 @@ pub(crate) async fn pay<C: PaymentContext>(
         UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), derivation.account_index())
             .map_err(error::Error::from)?;
 
-    let server = context.servers().pick(params)?;
-    let mut client = if context.disable_tor() {
-        server.connect_direct().await?
-    } else {
-        server.connect(|| tor_client(wallet_dir.as_ref())).await?
-    };
+    let mut client = context
+        .connection_args()
+        .connect(params, wallet_dir.as_ref())
+        .await?;
 
     // Create the transaction.
     println!("Creating transaction...");
