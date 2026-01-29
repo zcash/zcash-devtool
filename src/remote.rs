@@ -228,10 +228,25 @@ pub(crate) enum ConnectionMode {
     SocksProxy(SocketAddr),
 }
 
-/// Parse a SOCKS proxy address from a string.
-fn parse_socks_proxy(s: &str) -> Result<SocketAddr, String> {
-    s.parse()
-        .map_err(|_| format!("Invalid SOCKS proxy address: {}", s))
+/// Parse a connection mode from a string.
+///
+/// Supported formats:
+/// - `direct` - Direct TCP connection
+/// - `tor` - Use the built-in Tor client (default)
+/// - `socks5://<host>:<port>` - Route through a SOCKS5 proxy
+fn parse_connection_mode(s: &str) -> Result<ConnectionMode, String> {
+    match s {
+        "direct" => Ok(ConnectionMode::Direct),
+        "tor" => Ok(ConnectionMode::BuiltInTor),
+        s if s.starts_with("socks5://") => {
+            let url_part = s.strip_prefix("socks5://").unwrap();
+            let addr: SocketAddr = url_part
+                .parse()
+                .map_err(|_| format!("Invalid SOCKS5 proxy address: {}", url_part))?;
+            Ok(ConnectionMode::SocksProxy(addr))
+        }
+        _ => Err("Invalid connection mode. Use 'direct', 'tor', or 'socks5://<host>:<port>'".to_string()),
+    }
 }
 
 /// CLI arguments for server connection configuration.
@@ -241,25 +256,15 @@ pub(crate) struct ConnectionArgs {
     #[arg(short, long, default_value = "ecc", value_parser = Servers::parse)]
     pub(crate) server: Servers,
 
-    /// Disable connections via the built-in Tor client
-    #[arg(long)]
-    pub(crate) disable_tor: bool,
-
-    /// Route connections through a SOCKS5 proxy (e.g., "127.0.0.1:9050" for Tor)
-    #[arg(long, value_parser = parse_socks_proxy)]
-    pub(crate) socks_proxy: Option<SocketAddr>,
+    /// Connection mode: "direct", "tor" (default), or "socks5://<host>:<port>"
+    #[arg(long, default_value = "tor", value_parser = parse_connection_mode)]
+    pub(crate) connection: ConnectionMode,
 }
 
 impl ConnectionArgs {
-    /// Determines the connection mode based on CLI arguments.
+    /// Returns the configured connection mode.
     pub(crate) fn mode(&self) -> ConnectionMode {
-        if let Some(proxy_addr) = self.socks_proxy {
-            ConnectionMode::SocksProxy(proxy_addr)
-        } else if self.disable_tor {
-            ConnectionMode::Direct
-        } else {
-            ConnectionMode::BuiltInTor
-        }
+        self.connection.clone()
     }
 
     /// Connects to the configured server using the appropriate connection mode.
