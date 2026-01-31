@@ -4,7 +4,10 @@ use clap::Args;
 use secrecy::ExposeSecret;
 use transparent::address::TransparentAddress;
 use zcash_address::{ToAddress, ZcashAddress};
-use zcash_keys::{address::UnifiedAddress, encoding::AddressCodec};
+use zcash_keys::{
+    encoding::AddressCodec,
+    keys::{UnifiedAddressRequest, UnifiedFullViewingKey},
+};
 use zcash_protocol::{
     consensus::{NetworkConstants, Parameters},
     PoolType,
@@ -141,7 +144,7 @@ impl Command {
             PoolType::SAPLING => {
                 // Print out Sapling information.
                 println!("Sapling derivation at {}:", self.path);
-                let address = match path.as_slice() {
+                let dfvk = match path.as_slice() {
                     [(32, true), subpath @ ..] => {
                         println!(" - ZIP 32 derivation path");
                         match subpath {
@@ -174,6 +177,7 @@ impl Command {
                                     [] => {
                                         // Only encode as an address if the network
                                         // matches the wallet.
+                                        #[allow(deprecated)]
                                         network_match.then(|| {
                                             sapling::zip32::ExtendedSpendingKey::master(
                                                 seed.expose_secret(),
@@ -181,8 +185,7 @@ impl Command {
                                             .derive_child(zip32::ChildIndex::hardened(32))
                                             .derive_child(zip32::ChildIndex::hardened(*coin_type))
                                             .derive_child(zip32::ChildIndex::hardened(*account))
-                                            .default_address()
-                                            .1
+                                            .to_extended_full_viewing_key()
                                         })
                                     }
                                     _ => None,
@@ -195,7 +198,12 @@ impl Command {
                         None
                     }
                 };
-                if let Some(addr) = address {
+                if let Some(extfvk) = dfvk {
+                    let addr = extfvk.default_address().1;
+                    let ufvk =
+                        UnifiedFullViewingKey::from_sapling_extended_full_viewing_key(extfvk)
+                            .expect("always valid");
+                    println!(" - UFVK: {}", ufvk.encode(&params));
                     println!(
                         " - Default address: {}",
                         ZcashAddress::from_sapling(params.network_type(), addr.to_bytes())
@@ -205,7 +213,7 @@ impl Command {
             PoolType::ORCHARD => {
                 // Print out Orchard information.
                 println!("Orchard derivation at {}:", self.path);
-                let address = match path.as_slice() {
+                let fvk = match path.as_slice() {
                     [(32, true), subpath @ ..] => {
                         println!(" - ZIP 32 derivation path");
                         match subpath {
@@ -249,10 +257,7 @@ impl Command {
                                                 .ok()
                                             })
                                             .flatten()
-                                            .map(|sk| {
-                                                let fvk = orchard::keys::FullViewingKey::from(&sk);
-                                                fvk.address_at(0u32, zip32::Scope::External)
-                                            })
+                                            .map(|sk| orchard::keys::FullViewingKey::from(&sk))
                                     }
                                     _ => None,
                                 }
@@ -264,13 +269,13 @@ impl Command {
                         None
                     }
                 };
-                if let Some(addr) = address {
-                    println!(
-                        " - Default address: {}",
-                        UnifiedAddress::from_receivers(Some(addr), None, None)
-                            .expect("valid")
-                            .encode(&params),
-                    );
+                if let Some(fvk) = fvk {
+                    let ufvk = UnifiedFullViewingKey::from_orchard_fvk(fvk).expect("always valid");
+                    let (ua, _) = ufvk
+                        .default_address(UnifiedAddressRequest::AllAvailableKeys)
+                        .expect("always valid");
+                    println!(" - UFVK: {}", ufvk.encode(&params));
+                    println!(" - Default address: {}", ua.encode(&params));
                 }
             }
         }

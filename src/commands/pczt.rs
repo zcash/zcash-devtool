@@ -3,6 +3,7 @@ use clap::Subcommand;
 pub(crate) mod combine;
 pub(crate) mod create;
 pub(crate) mod create_manual;
+pub(crate) mod create_max;
 pub(crate) mod inspect;
 pub(crate) mod pay_manual;
 pub(crate) mod prove;
@@ -20,6 +21,8 @@ pub(crate) mod qr;
 pub(crate) enum Command {
     /// Create a PCZT
     Create(create::Command),
+    /// Create a PCZT that sends all funds within the account
+    CreateMax(create_max::Command),
     /// Create a shielding PCZT
     Shield(shield::Command),
     /// Create a PCZT from manually-provided transparent inputs
