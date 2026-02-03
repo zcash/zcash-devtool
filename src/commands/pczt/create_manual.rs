@@ -1,11 +1,14 @@
 #![allow(deprecated)]
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 use anyhow::anyhow;
 use clap::Args;
 use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer, updater::Updater};
 use rand::rngs::OsRng;
-use tokio::io::{stdout, AsyncWriteExt};
+use tokio::{
+    fs::File,
+    io::{stdout, AsyncWriteExt},
+};
 use transparent::builder::TransparentInputInfo;
 
 use zcash_address::ZcashAddress;
@@ -66,6 +69,10 @@ pub(crate) struct Command {
 
     #[command(flatten)]
     connection: ConnectionArgs,
+
+    /// Path to a file to which to write the PCZT. If not provided, writes to stdout.
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 impl Command {
@@ -254,7 +261,16 @@ impl Command {
         )?
         .finish();
 
-        stdout().write_all(&pczt.serialize()).await?;
+        if let Some(output_path) = &self.output {
+            File::create(output_path)
+                .await?
+                .write_all(&pczt.serialize())
+                .await?;
+        } else {
+            let mut stdout = stdout();
+            stdout.write_all(&pczt.serialize()).await?;
+            stdout.flush().await?;
+        }
 
         Ok(())
     }

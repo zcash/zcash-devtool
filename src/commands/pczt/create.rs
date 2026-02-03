@@ -1,10 +1,13 @@
 #![allow(deprecated)]
-use std::{num::NonZeroUsize, str::FromStr};
+use std::{num::NonZeroUsize, path::PathBuf, str::FromStr};
 
 use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
-use tokio::io::{stdout, AsyncWriteExt};
+use tokio::{
+    fs::File,
+    io::{stdout, AsyncWriteExt},
+};
 use uuid::Uuid;
 
 use zcash_address::ZcashAddress;
@@ -56,6 +59,10 @@ pub(crate) struct Command {
     #[arg(long)]
     #[arg(default_value_t = 10000000)]
     min_split_output_value: u64,
+
+    /// Path to a file to which to write the PCZT. If not provided, writes to stdout.
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 impl Command {
@@ -115,7 +122,16 @@ impl Command {
         )
         .map_err(error::Error::from)?;
 
-        stdout().write_all(&pczt.serialize()).await?;
+        if let Some(output_path) = &self.output {
+            File::create(output_path)
+                .await?
+                .write_all(&pczt.serialize())
+                .await?;
+        } else {
+            let mut stdout = stdout();
+            stdout.write_all(&pczt.serialize()).await?;
+            stdout.flush().await?;
+        }
 
         Ok(())
     }
