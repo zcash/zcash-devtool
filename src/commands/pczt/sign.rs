@@ -204,6 +204,8 @@ impl Command {
 
         stdout().write_all(&pczt.serialize()).await?;
 
+        stdout().flush().await?;
+
         Ok(())
     }
 }
