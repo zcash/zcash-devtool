@@ -207,6 +207,8 @@ impl Command {
             .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
         stdout().write_all(&pczt_bytes).await?;
 
+        stdout().flush().await?;
+
         Ok(())
     }
 }
