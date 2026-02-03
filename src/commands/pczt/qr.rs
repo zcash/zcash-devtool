@@ -16,7 +16,10 @@ use pczt::roles::signer::batch::{BatchSignRequest, BatchSignResponse};
 use qrcode::{QrCode, render::unicode};
 use rand::RngCore;
 use rand::rngs::OsRng;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, Stdout, stdin, stdout};
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncWriteExt, Stdout, stdin, stdout},
+};
 
 use crate::ShutdownListener;
 
@@ -52,6 +55,9 @@ pub(crate) struct Send {
     #[cfg(feature = "tui")]
     #[arg(long)]
     pub(crate) tui: bool,
+
+    /// Path to a file from which to read the PCZT. If not provided, reads from stdin.
+    input: Option<PathBuf>,
 }
 
 impl Send {
@@ -61,7 +67,11 @@ impl Send {
         #[cfg(feature = "tui")] tui: Tui,
     ) -> Result<(), anyhow::Error> {
         let mut buf = vec![];
-        stdin().read_to_end(&mut buf).await?;
+        if let Some(input_path) = &self.input {
+            File::open(input_path).await?.read_to_end(&mut buf).await?;
+        } else {
+            stdin().read_to_end(&mut buf).await?;
+        }
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 
@@ -336,6 +346,10 @@ pub(crate) struct Receive {
     /// interactive picker and errors out if no camera name matches.
     #[arg(long)]
     camera: Option<String>,
+
+    /// Path to a file to which to write the PCZT. If not provided, writes to stdout.
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 impl Receive {
@@ -368,7 +382,16 @@ impl Receive {
         let pczt_bytes = pczt
             .serialize()
             .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
-        stdout().write_all(&pczt_bytes).await?;
+        if let Some(output_path) = &self.output {
+            File::create(output_path)
+                .await?
+                .write_all(&pczt_bytes)
+                .await?;
+        } else {
+            let mut stdout = stdout();
+            stdout.write_all(&pczt_bytes).await?;
+            stdout.flush().await?;
+        }
 
         Ok(())
     }
