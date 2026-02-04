@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::anyhow;
 use clap::Args;
 use pczt::{
@@ -9,7 +11,10 @@ use pczt::{
     },
     Pczt,
 };
-use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
+use tokio::{
+    fs::File,
+    io::{stdin, stdout, AsyncReadExt, AsyncWriteExt},
+};
 
 // Options accepted for the `pczt redact` command
 #[derive(Debug, Args)]
@@ -17,12 +22,23 @@ pub(crate) struct Command {
     /// A list of PCZT keys to redact, in foo.bar.baz notation
     #[arg(short, long)]
     key: Vec<String>,
+
+    /// Path to a file from which to read the PCZT. If not provided, reads from stdin.
+    input: Option<PathBuf>,
+
+    /// Path to a file to which to write the PCZT. If not provided, writes to stdout.
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 impl Command {
     pub(crate) async fn run(self) -> Result<(), anyhow::Error> {
         let mut buf = vec![];
-        stdin().read_to_end(&mut buf).await?;
+        if let Some(input_path) = &self.input {
+            File::open(input_path).await?.read_to_end(&mut buf).await?;
+        } else {
+            stdin().read_to_end(&mut buf).await?;
+        }
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 
@@ -34,7 +50,16 @@ impl Command {
             })?
             .finish();
 
-        stdout().write_all(&pczt.serialize()).await?;
+        if let Some(output_path) = &self.output {
+            File::create(output_path)
+                .await?
+                .write_all(&pczt.serialize())
+                .await?;
+        } else {
+            let mut stdout = stdout();
+            stdout.write_all(&pczt.serialize()).await?;
+            stdout.flush().await?;
+        }
 
         Ok(())
     }

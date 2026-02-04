@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use anyhow::anyhow;
 use clap::Args;
@@ -12,7 +12,10 @@ use nokhwa::{
 };
 use pczt::Pczt;
 use qrcode::{render::unicode, QrCode};
-use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt, Stdout};
+use tokio::{
+    fs::File,
+    io::{stdin, stdout, AsyncReadExt, AsyncWriteExt, Stdout},
+};
 
 use crate::ShutdownListener;
 
@@ -37,6 +40,9 @@ pub(crate) struct Send {
     #[cfg(feature = "tui")]
     #[arg(long)]
     pub(crate) tui: bool,
+
+    /// Path to a file from which to read the PCZT. If not provided, reads from stdin.
+    input: Option<PathBuf>,
 }
 
 impl Send {
@@ -46,7 +52,11 @@ impl Send {
         #[cfg(feature = "tui")] tui: Tui,
     ) -> Result<(), anyhow::Error> {
         let mut buf = vec![];
-        stdin().read_to_end(&mut buf).await?;
+        if let Some(input_path) = &self.input {
+            File::open(input_path).await?.read_to_end(&mut buf).await?;
+        } else {
+            stdin().read_to_end(&mut buf).await?;
+        }
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 
@@ -129,6 +139,10 @@ pub(crate) struct Receive {
     #[arg(long)]
     #[arg(default_value_t = 500)]
     interval: u64,
+
+    /// Path to a file to which to write the PCZT. If not provided, writes to stdout.
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 impl Receive {
@@ -219,7 +233,16 @@ impl Receive {
         )
         .map_err(|e| anyhow!("Failed to read PCZT from QR codes: {:?}", e))?;
 
-        stdout().write_all(&pczt.serialize()).await?;
+        if let Some(output_path) = &self.output {
+            File::create(output_path)
+                .await?
+                .write_all(&pczt.serialize())
+                .await?;
+        } else {
+            let mut stdout = stdout();
+            stdout.write_all(&pczt.serialize()).await?;
+            stdout.flush().await?;
+        }
 
         Ok(())
     }
