@@ -1,15 +1,15 @@
 use anyhow::anyhow;
 use clap::Args;
 use pczt::{
+    Pczt,
     roles::redactor::{
+        Redactor,
         orchard::ActionRedactor,
         sapling::{OutputRedactor as SaplingOutputRedactor, SpendRedactor},
         transparent::{InputRedactor, OutputRedactor as TransparentOutputRedactor},
-        Redactor,
     },
-    Pczt,
 };
-use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, stdin, stdout};
 
 // Options accepted for the `pczt redact` command
 #[derive(Debug, Args)]

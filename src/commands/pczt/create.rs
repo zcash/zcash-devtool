@@ -4,26 +4,26 @@ use std::{num::NonZeroUsize, str::FromStr};
 use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
-use tokio::io::{stdout, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt, stdout};
 use uuid::Uuid;
 
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
-        wallet::{
-            create_pczt_from_proposal, input_selection::GreedyInputSelector, propose_transfer,
-            ConfirmationsPolicy,
-        },
         Account as _,
+        wallet::{
+            ConfirmationsPolicy, create_pczt_from_proposal, input_selection::GreedyInputSelector,
+            propose_transfer,
+        },
     },
-    fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
+    fees::{DustOutputPolicy, SplitPolicy, StandardFeeRule, standard::MultiOutputChangeStrategy},
     wallet::OvkPolicy,
 };
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_protocol::{
+    ShieldedProtocol,
     memo::{Memo, MemoBytes},
     value::Zatoshis,
-    ShieldedProtocol,
 };
 use zip321::{Payment, TransactionRequest};
 
@@ -81,18 +81,21 @@ impl Command {
         );
         let input_selector = GreedyInputSelector::new();
 
-        let request = TransactionRequest::new(vec![Payment::new(
-            ZcashAddress::from_str(&self.address).map_err(|_| error::Error::InvalidRecipient)?,
-            Some(Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?),
-            self.memo
-                .map(|memo| Memo::from_str(&memo))
-                .transpose()?
-                .map(MemoBytes::from),
-            None,
-            None,
-            vec![],
-        )
-        .ok_or_else(|| error::Error::TransparentMemo(0))?])
+        let request = TransactionRequest::new(vec![
+            Payment::new(
+                ZcashAddress::from_str(&self.address)
+                    .map_err(|_| error::Error::InvalidRecipient)?,
+                Some(Zatoshis::from_u64(self.value).map_err(|_| error::Error::InvalidAmount)?),
+                self.memo
+                    .map(|memo| Memo::from_str(&memo))
+                    .transpose()?
+                    .map(MemoBytes::from),
+                None,
+                None,
+                vec![],
+            )
+            .ok_or_else(|| error::Error::TransparentMemo(0))?,
+        ])
         .map_err(error::Error::from)?;
 
         let proposal = propose_transfer(

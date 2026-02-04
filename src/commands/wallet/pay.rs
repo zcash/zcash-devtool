@@ -7,7 +7,7 @@ use uuid::Uuid;
 use zip321::TransactionRequest;
 
 use crate::{
-    commands::wallet::send::{pay, PaymentContext},
+    commands::wallet::send::{PaymentContext, pay},
     remote::ConnectionArgs,
 };
 

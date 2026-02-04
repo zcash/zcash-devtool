@@ -1,6 +1,6 @@
 use crossterm::event::KeyCode;
 use futures_util::FutureExt;
-use qrcode::{render::unicode, QrCode};
+use qrcode::{QrCode, render::unicode};
 use ratatui::{
     prelude::*,
     widgets::{Block, Paragraph},

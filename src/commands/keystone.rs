@@ -3,14 +3,14 @@ use std::time::Duration;
 use anyhow::anyhow;
 use clap::{Args, Subcommand};
 use minicbor::data::{Int, Tag};
-use qrcode::{render::unicode, QrCode};
+use qrcode::{QrCode, render::unicode};
 use rand::rngs::OsRng;
-use tokio::io::{stdout, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt, stdout};
 use uuid::Uuid;
 use zcash_client_backend::data_api::Account;
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 
-use crate::{config::WalletConfig, data::get_db_paths, ShutdownListener};
+use crate::{ShutdownListener, config::WalletConfig, data::get_db_paths};
 
 use super::select_account;
 

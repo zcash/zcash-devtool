@@ -86,7 +86,9 @@ fn multisig_script(
 
 fn validate_args(threshold: u8, pub_keys: &[PublicKey]) -> anyhow::Result<()> {
     if threshold < 1 {
-        return Err(anyhow::anyhow!("a multisignature address must require at least one key to redeem, threshold must be at least 1"));
+        return Err(anyhow::anyhow!(
+            "a multisignature address must require at least one key to redeem, threshold must be at least 1"
+        ));
     }
 
     if pub_keys.len() < threshold as usize {

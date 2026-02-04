@@ -2,7 +2,7 @@ use clap::Args;
 use nonempty::NonEmpty;
 use rand::rngs::OsRng;
 use zcash_client_backend::data_api::scanning::ScanPriority;
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 
 use crate::{config::get_wallet_network, data::get_db_paths};
 

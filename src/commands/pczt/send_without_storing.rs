@@ -1,10 +1,10 @@
 use anyhow::anyhow;
 use clap::Args;
 use pczt::{
-    roles::{spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor},
     Pczt,
+    roles::{spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor},
 };
-use tokio::io::{stdin, AsyncReadExt};
+use tokio::io::{AsyncReadExt, stdin};
 use zcash_client_backend::proto::service;
 use zcash_proofs::prover::LocalTxProver;
 
