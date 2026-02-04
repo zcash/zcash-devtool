@@ -1,7 +1,7 @@
 use group::GroupEncoding;
 use zcash_address::{
-    unified::{self, Container, Encoding},
     ConversionError, ToAddress, ZcashAddress,
+    unified::{self, Container, Encoding},
 };
 use zcash_protocol::consensus::NetworkType;
 

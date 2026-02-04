@@ -1,14 +1,14 @@
 use anyhow::{anyhow, bail};
 use clap::Args;
-use rusqlite::{named_params, Connection};
+use rusqlite::{Connection, named_params};
 use time::macros::format_description;
 use uuid::Uuid;
 
 use zcash_protocol::{
+    PoolType, TxId,
     consensus::BlockHeight,
     memo::{Memo, MemoBytes},
     value::{ZatBalance, Zatoshis},
-    PoolType, TxId,
 };
 
 use crate::{data::get_db_paths, ui::format_zec};
@@ -257,7 +257,9 @@ impl WalletTxOutput {
         if let Some(action) = match (&self.from_account, &self.to_account) {
             (Some(_), Some(_)) => None, // wallet-internal transfer, skip
             (None, None) => {
-                bail!("we should not encounter a state where neither source nor destination are known");
+                bail!(
+                    "we should not encounter a state where neither source nor destination are known"
+                );
             }
             (None, Some(_)) => Some("RECEIVE"),
             (Some(_), None) => Some("SEND"),
@@ -288,7 +290,9 @@ impl WalletTxOutput {
                 Memo::Future(_) => "".to_string(),
                 Memo::Arbitrary(_) => "".to_string(),
             });
-            println!("{date},{action},{symbol},{volume},{currency},{account_id}{aname_str},{total},{price},{fee},{fee_currency},{memo}");
+            println!(
+                "{date},{action},{symbol},{volume},{currency},{account_id}{aname_str},{total},{price},{fee},{fee_currency},{memo}"
+            );
         }
 
         Ok(())

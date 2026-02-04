@@ -1,12 +1,12 @@
 use anyhow::anyhow;
 use clap::Args;
 use pczt::{
-    roles::{prover::Prover, updater::Updater},
     Pczt,
+    roles::{prover::Prover, updater::Updater},
 };
 use sapling::ProofGenerationKey;
 use secrecy::{ExposeSecret, SecretVec};
-use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, stdin, stdout};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::consensus::{NetworkConstants, Parameters};

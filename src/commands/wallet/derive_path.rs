@@ -9,8 +9,8 @@ use zcash_keys::{
     keys::{UnifiedAddressRequest, UnifiedFullViewingKey},
 };
 use zcash_protocol::{
-    consensus::{NetworkConstants, Parameters},
     PoolType,
+    consensus::{NetworkConstants, Parameters},
 };
 
 use crate::config::WalletConfig;
@@ -75,8 +75,11 @@ impl Command {
                                 println!("  ⚠️  Missing account");
                                 false
                             }
-                            [(coin_type, coin_type_hardened), (account, account_hardened), subpath @ ..] =>
-                            {
+                            [
+                                (coin_type, coin_type_hardened),
+                                (account, account_hardened),
+                                subpath @ ..,
+                            ] => {
                                 if !*coin_type_hardened {
                                     println!("  ⚠️  Coin type is not hardened");
                                 }
@@ -93,8 +96,10 @@ impl Command {
                                     println!("  ⚠️  Account is not hardened");
                                 }
                                 match subpath {
-                                    [(kind, kind_hardened), (address_index, address_index_hardened)] =>
-                                    {
+                                    [
+                                        (kind, kind_hardened),
+                                        (address_index, address_index_hardened),
+                                    ] => {
                                         match kind {
                                             0 => println!("   - External chain"),
                                             1 => println!("   - Internal chain (change addresses)"),
@@ -156,8 +161,11 @@ impl Command {
                                 println!("  ⚠️  Missing account");
                                 None
                             }
-                            [(coin_type, coin_type_hardened), (account, account_hardened), subpath @ ..] =>
-                            {
+                            [
+                                (coin_type, coin_type_hardened),
+                                (account, account_hardened),
+                                subpath @ ..,
+                            ] => {
                                 if !*coin_type_hardened {
                                     println!("  ⚠️  Coin type is not hardened");
                                 }
@@ -225,8 +233,11 @@ impl Command {
                                 println!("  ⚠️  Missing account");
                                 None
                             }
-                            [(coin_type, coin_type_hardened), (account, account_hardened), subpath @ ..] =>
-                            {
+                            [
+                                (coin_type, coin_type_hardened),
+                                (account, account_hardened),
+                                subpath @ ..,
+                            ] => {
                                 if !*coin_type_hardened {
                                     println!("  ⚠️  Coin type is not hardened");
                                 }

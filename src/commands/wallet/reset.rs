@@ -5,7 +5,7 @@ use zcash_client_backend::{
     data_api::{Account, WalletRead},
     proto::service,
 };
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 
 use crate::{
     config::WalletConfig,

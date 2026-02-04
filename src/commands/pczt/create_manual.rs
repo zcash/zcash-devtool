@@ -5,16 +5,16 @@ use anyhow::anyhow;
 use clap::Args;
 use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer, updater::Updater};
 use rand::rngs::OsRng;
-use tokio::io::{stdout, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt, stdout};
 use transparent::builder::TransparentInputInfo;
 
 use zcash_address::ZcashAddress;
 use zcash_client_backend::proto::service::{ChainSpec, TxFilter};
 use zcash_keys::address::Address;
 use zcash_primitives::transaction::{
+    Transaction,
     builder::{Builder, PcztResult},
     fees::zip317,
-    Transaction,
 };
 use zcash_protocol::{
     consensus::{self, Parameters},

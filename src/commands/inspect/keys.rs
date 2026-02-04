@@ -9,8 +9,8 @@ use ::transparent::{
     keys::{AccountPrivKey, IncomingViewingKey},
 };
 use zcash_address::{
-    unified::{self, Encoding},
     ToAddress, ZcashAddress,
+    unified::{self, Encoding},
 };
 use zcash_keys::{
     encoding::AddressCodec,
@@ -103,9 +103,11 @@ pub(crate) fn inspect_mnemonic(mnemonic: bip0039::Mnemonic, context: Option<Cont
                         Ok(addr) => eprintln!(
                             "     - Default address: {}",
                             match addr {
-                                TransparentAddress::PublicKeyHash(data) => ZcashAddress::from_transparent_p2pkh(addr_net, data),
+                                TransparentAddress::PublicKeyHash(data) =>
+                                    ZcashAddress::from_transparent_p2pkh(addr_net, data),
                                 TransparentAddress::ScriptHash(_) => unreachable!(),
-                            }.encode(),
+                            }
+                            .encode(),
                         ),
                         Err(e) => eprintln!(
                             "    ⚠️  No valid transparent default address for this account under this seed: {e:?}"
@@ -153,7 +155,9 @@ pub(crate) fn inspect_mnemonic(mnemonic: bip0039::Mnemonic, context: Option<Cont
         }
         seed.zeroize();
     } else {
-        eprintln!("🔎 To show account details, add \"network\" (either \"main\" or \"test\") and \"accounts\" array to context");
+        eprintln!(
+            "🔎 To show account details, add \"network\" (either \"main\" or \"test\") and \"accounts\" array to context"
+        );
     }
 
     eprintln!();

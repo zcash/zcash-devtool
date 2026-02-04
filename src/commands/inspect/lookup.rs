@@ -1,7 +1,7 @@
 use tonic::transport::{Channel, ClientTlsConfig};
 use zcash_client_backend::proto::{
     compact_formats::CompactBlock,
-    service::{compact_tx_streamer_client::CompactTxStreamerClient, BlockId, TxFilter},
+    service::{BlockId, TxFilter, compact_tx_streamer_client::CompactTxStreamerClient},
 };
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network};

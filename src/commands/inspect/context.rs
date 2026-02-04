@@ -3,8 +3,8 @@ use std::fmt;
 use std::str::FromStr;
 
 use serde::{
-    de::{Unexpected, Visitor},
     Deserialize, Serialize, Serializer,
+    de::{Unexpected, Visitor},
 };
 
 use ::transparent::{
@@ -262,7 +262,7 @@ impl<'de> Deserialize<'de> for ZScript {
 
 impl Serialize for ZScript {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&hex::encode(&self.0 .0 .0))
+        serializer.serialize_str(&hex::encode(&self.0.0.0))
     }
 }
 
