@@ -254,8 +254,8 @@ fn parse_connection_mode(s: &str) -> Result<ConnectionMode, String> {
 /// CLI arguments for server connection configuration.
 #[derive(Debug, Args, Clone)]
 pub(crate) struct ConnectionArgs {
-    /// The server to connect to (default is "ecc")
-    #[arg(short, long, default_value = "ecc", value_parser = Servers::parse)]
+    /// The server to connect to (default is "zecrocks")
+    #[arg(short, long, default_value = "zecrocks", value_parser = Servers::parse)]
     pub(crate) server: Servers,
 
     /// Connection mode: "direct", "tor" (default), or "socks5://<host>:<port>"
