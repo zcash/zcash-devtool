@@ -888,4 +888,157 @@ mod tests {
         };
         assert!(store.to_commitments().is_err());
     }
+
+    #[test]
+    fn frost_dkg_to_orchard_fvk_and_address() {
+        use orchard::keys::{FullViewingKey, Scope};
+        use rand::RngCore;
+        use zcash_keys::keys::{UnifiedAddressRequest, UnifiedFullViewingKey};
+        use zip32::DiversifierIndex;
+
+        // The FVK construction can fail for two reasons:
+        // 1. DKG produces ak with wrong sign bit (~50% chance)
+        //    SpendValidatingKey::from_bytes requires b[31] & 0x80 == 0
+        // 2. The derived ivk is zero or bottom (rare but possible)
+        // We retry the entire construction, matching how a real coordinator would
+        // regenerate nk/rivk if FVK construction fails.
+        let max_attempts = 50;
+        let mut fvk = None;
+        let mut fvk_bytes_out = [0u8; 96];
+
+        for _ in 0..max_attempts {
+            let (_, public_key_package) = run_dkg_2_of_3();
+            let ak_bytes: [u8; 32] = public_key_package.group_public().serialize();
+
+            // Skip ak with wrong sign bit
+            if ak_bytes[31] & 0x80 != 0 {
+                continue;
+            }
+
+            // Generate random nk and rivk bytes, clearing the top bit to ensure
+            // they are within the Pallas base/scalar field moduli (both ~2^255).
+            let mut nk_bytes = [0u8; 32];
+            let mut rivk_bytes = [0u8; 32];
+            OsRng.fill_bytes(&mut nk_bytes);
+            OsRng.fill_bytes(&mut rivk_bytes);
+            nk_bytes[31] &= 0x7f;
+            rivk_bytes[31] &= 0x7f;
+
+            let mut fvk_bytes = [0u8; 96];
+            fvk_bytes[..32].copy_from_slice(&ak_bytes);
+            fvk_bytes[32..64].copy_from_slice(&nk_bytes);
+            fvk_bytes[64..96].copy_from_slice(&rivk_bytes);
+
+            if let Some(f) = FullViewingKey::from_bytes(&fvk_bytes) {
+                fvk = Some(f);
+                fvk_bytes_out = fvk_bytes;
+                break;
+            }
+            // ivk was zero or bottom; retry with fresh nk/rivk
+        }
+
+        let fvk = fvk.expect("Failed to construct valid FVK after max attempts");
+
+        // Derive an address and verify it is 43 bytes
+        let address = fvk.address_at(DiversifierIndex::new(), Scope::External);
+        assert_eq!(
+            address.to_raw_address_bytes().len(),
+            43,
+            "Orchard address should be 43 bytes"
+        );
+
+        // Wrap in UnifiedFullViewingKey
+        let ufvk = UnifiedFullViewingKey::from_orchard_fvk(fvk)
+            .expect("from_orchard_fvk should succeed");
+
+        // Derive default unified address
+        let (_ua, _di) = ufvk
+            .default_address(UnifiedAddressRequest::AllAvailableKeys)
+            .expect("default_address should succeed");
+
+        // Verify the orchard component round-trips
+        let recovered_fvk = ufvk.orchard().expect("UFVK should contain orchard FVK");
+        assert_eq!(
+            recovered_fvk.to_bytes(),
+            fvk_bytes_out,
+            "Orchard FVK bytes should round-trip through UFVK"
+        );
+    }
+
+    #[test]
+    fn frost_signature_to_orchard_spendauth() {
+        use frost_core::Field;
+        use frost_rerandomized::RandomizedParams;
+        use orchard::primitives::redpallas as orchard_redpallas;
+        use reddsa::frost::redpallas::PallasScalarField;
+
+        let (key_packages, public_key_package) = run_dkg_2_of_3();
+
+        // Use participants 1 and 2 as signers
+        let signer_ids: Vec<Identifier> = (1..=2u16)
+            .map(|i| Identifier::try_from(i).unwrap())
+            .collect();
+
+        let sighash = [0x42u8; 32];
+
+        let alpha_scalar = <PallasScalarField as Field>::random(&mut OsRng);
+
+        // Round 1: commit
+        let mut nonces_map: HashMap<Identifier, round1::SigningNonces> = HashMap::new();
+        let mut commitments_map: BTreeMap<
+            Identifier,
+            frost_core::frost::round1::SigningCommitments<P>,
+        > = BTreeMap::new();
+
+        for &signer_id in &signer_ids {
+            let kp = &key_packages[&signer_id];
+            let (nonce, commitment) = round1::commit(kp.secret_share(), &mut OsRng);
+            nonces_map.insert(signer_id, nonce);
+            commitments_map.insert(signer_id, commitment);
+        }
+
+        // Build signing package
+        let signing_package =
+            frost_core::frost::SigningPackage::new(commitments_map, &sighash[..]);
+
+        let randomized_params =
+            RandomizedParams::from_randomizer(&public_key_package, alpha_scalar);
+        let randomizer_point = randomized_params.randomizer_point();
+
+        // Round 2: sign
+        let mut signature_shares: HashMap<Identifier, round2::SignatureShare> = HashMap::new();
+
+        for &signer_id in &signer_ids {
+            let share = round2::sign(
+                &signing_package,
+                &nonces_map[&signer_id],
+                &key_packages[&signer_id],
+                randomizer_point,
+            )
+            .unwrap();
+            signature_shares.insert(signer_id, share);
+        }
+
+        // Aggregate
+        let frost_signature = redpallas::aggregate(
+            &signing_package,
+            &signature_shares,
+            &public_key_package,
+            &randomized_params,
+        )
+        .expect("Aggregate should succeed");
+
+        // Convert to orchard_redpallas::Signature<SpendAuth> -- the exact conversion
+        // used in frost_sign.rs before apply_orchard_signature()
+        let sig_bytes: [u8; 64] = frost_signature.serialize();
+        let orchard_sig =
+            orchard_redpallas::Signature::<orchard_redpallas::SpendAuth>::from(sig_bytes);
+
+        // Verify round-trip: extract bytes back and compare
+        let recovered_bytes: [u8; 64] = (&orchard_sig).into();
+        assert_eq!(
+            sig_bytes, recovered_bytes,
+            "FROST signature bytes should round-trip through orchard_redpallas::Signature<SpendAuth>"
+        );
+    }
 }
