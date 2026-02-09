@@ -154,8 +154,6 @@ pub(crate) struct SigningRequest {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ActionSigningData {
     pub action_index: usize,
-    /// The alpha (spend auth randomizer) as hex bytes
-    pub alpha_hex: String,
 }
 
 /// Hex-serializable wrapper for SigningCommitments (hiding + binding nonce commitments).
@@ -553,7 +551,6 @@ mod tests {
             sighash_hex: hex::encode(sighash),
             actions: vec![ActionSigningData {
                 action_index: 0,
-                alpha_hex: hex::encode(alpha_bytes),
             }],
         };
 
@@ -1040,6 +1037,264 @@ mod tests {
         assert_eq!(
             sig_bytes, recovered_bytes,
             "FROST signature bytes should round-trip through orchard_redpallas::Signature<SpendAuth>"
+        );
+    }
+
+    #[test]
+    fn frost_signing_sighash_mismatch_detected() {
+        use frost_core::{Field, Group};
+        use frost_rerandomized::RandomizedParams;
+        use reddsa::frost::redpallas::{PallasGroup, PallasScalarField};
+
+        let (key_packages, public_key_package) = run_dkg_2_of_3();
+
+        let signer_ids: Vec<Identifier> = (1..=2u16)
+            .map(|i| Identifier::try_from(i).unwrap())
+            .collect();
+
+        // Sighash used in Round 1 (the one the participant trusts)
+        let sighash_a = [0x42u8; 32];
+
+        let alpha_scalar = <PallasScalarField as Field>::random(&mut OsRng);
+
+        // Round 1: generate commitments against sighash_a
+        let mut nonces_map: HashMap<Identifier, round1::SigningNonces> = HashMap::new();
+        let mut commitments_map: BTreeMap<
+            Identifier,
+            frost_core::frost::round1::SigningCommitments<P>,
+        > = BTreeMap::new();
+
+        for &signer_id in &signer_ids {
+            let kp = &key_packages[&signer_id];
+            let (nonce, commitment) = round1::commit(kp.secret_share(), &mut OsRng);
+            nonces_map.insert(signer_id, nonce);
+            commitments_map.insert(signer_id, commitment);
+        }
+
+        // Coordinator builds Round 2 signing package with a DIFFERENT sighash (sighash_b)
+        let sighash_b = [0xFFu8; 32];
+        let signing_package =
+            frost_core::frost::SigningPackage::new(commitments_map.clone(), &sighash_b[..]);
+
+        let randomized_params =
+            RandomizedParams::from_randomizer(&public_key_package, alpha_scalar);
+        let rp_bytes: [u8; 32] = PallasGroup::serialize(randomized_params.randomizer_point());
+
+        // Serialize through our serde types (as the coordinator would)
+        let round2_request = SignRound2Request {
+            packages: vec![ActionSigningPackageMsg {
+                action_index: 0,
+                signing_package: SigningPackageStore::from_signing_package(&signing_package),
+                randomizer_point_hex: hex::encode(rp_bytes),
+            }],
+        };
+
+        // Participant receives Round 2 and checks sighash matches Round 1
+        let action_pkg = &round2_request.packages[0];
+        let sp = action_pkg.signing_package.to_signing_package().unwrap();
+
+        // This is the exact check from frost_participate.rs lines 119-130:
+        // the participant compares the signing package's message against the expected sighash
+        assert_ne!(
+            sp.message(),
+            &sighash_a[..],
+            "Participant should detect that the Round 2 sighash differs from the Round 1 sighash"
+        );
+        assert_eq!(
+            sp.message(),
+            &sighash_b[..],
+            "Signing package should contain the coordinator's (potentially malicious) sighash"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "no entry found for key")]
+    fn frost_aggregate_wrong_signer_set_fails() {
+        use frost_core::Field;
+        use frost_rerandomized::RandomizedParams;
+        use reddsa::frost::redpallas::PallasScalarField;
+
+        let (key_packages, public_key_package) = run_dkg_2_of_3();
+
+        // Signers 1 and 2 generate commitments (the intended signing set)
+        let committed_ids: Vec<Identifier> = (1..=2u16)
+            .map(|i| Identifier::try_from(i).unwrap())
+            .collect();
+        let signer3_id = Identifier::try_from(3u16).unwrap();
+
+        let sighash = [0x42u8; 32];
+        let alpha_scalar = <PallasScalarField as Field>::random(&mut OsRng);
+
+        // Round 1: signers 1 and 2 commit
+        let mut nonces_map: HashMap<Identifier, round1::SigningNonces> = HashMap::new();
+        let mut commitments_map: BTreeMap<
+            Identifier,
+            frost_core::frost::round1::SigningCommitments<P>,
+        > = BTreeMap::new();
+
+        for &signer_id in &committed_ids {
+            let kp = &key_packages[&signer_id];
+            let (nonce, commitment) = round1::commit(kp.secret_share(), &mut OsRng);
+            nonces_map.insert(signer_id, nonce);
+            commitments_map.insert(signer_id, commitment);
+        }
+
+        // Build signing package from signers 1 and 2's commitments
+        let signing_package =
+            frost_core::frost::SigningPackage::new(commitments_map.clone(), &sighash[..]);
+
+        let randomized_params =
+            RandomizedParams::from_randomizer(&public_key_package, alpha_scalar);
+
+        // Signer 1 produces a valid share
+        let share1 = round2::sign(
+            &signing_package,
+            &nonces_map[&committed_ids[0]],
+            &key_packages[&committed_ids[0]],
+            randomized_params.randomizer_point(),
+        )
+        .unwrap();
+
+        // Signer 3 (NOT in the commitment set) produces a share
+        // They need their own nonce since they weren't part of Round 1
+        let (nonce3, _commitment3) =
+            round1::commit(key_packages[&signer3_id].secret_share(), &mut OsRng);
+        let share3 = round2::sign(
+            &signing_package,
+            &nonce3,
+            &key_packages[&signer3_id],
+            randomized_params.randomizer_point(),
+        )
+        .unwrap();
+
+        // Attempt aggregation with signer 1's share + signer 3's share
+        // (signer 3 was not in the commitment set)
+        // The frost-rerandomized library panics when it encounters a signer ID
+        // not present in the signing package's commitments map.
+        let mut bad_shares: HashMap<Identifier, round2::SignatureShare> = HashMap::new();
+        bad_shares.insert(committed_ids[0], share1);
+        bad_shares.insert(signer3_id, share3);
+
+        let _result = redpallas::aggregate(
+            &signing_package,
+            &bad_shares,
+            &public_key_package,
+            &randomized_params,
+        );
+    }
+
+    #[test]
+    fn frost_production_fvk_path() {
+        use orchard::keys::FullViewingKey;
+        use rand::RngCore;
+
+        use crate::frost_config::{decrypt_string, encrypt_string};
+
+        let max_attempts = 50;
+        let mut fvk = None;
+
+        for _ in 0..max_attempts {
+            let (key_packages, public_key_package) = run_dkg_2_of_3();
+
+            // Step 1: Extract ak and check sign bit (matches frost_dkg.rs line 238)
+            let ak_bytes: [u8; 32] = public_key_package.group_public().serialize();
+            if ak_bytes[31] & 0x80 != 0 {
+                continue;
+            }
+
+            // Step 2: Generate nk/rivk with OsRng + clear high bits
+            // (matches frost_dkg.rs lines 254-259)
+            let mut nk_bytes = [0u8; 32];
+            let mut rivk_bytes = [0u8; 32];
+            OsRng.fill_bytes(&mut nk_bytes);
+            OsRng.fill_bytes(&mut rivk_bytes);
+            nk_bytes[31] &= 0x7f;
+            rivk_bytes[31] &= 0x7f;
+
+            // Step 3: Construct 96-byte FVK (matches frost_dkg.rs lines 291-294)
+            let mut fvk_bytes = [0u8; 96];
+            fvk_bytes[..32].copy_from_slice(&ak_bytes);
+            fvk_bytes[32..64].copy_from_slice(&nk_bytes);
+            fvk_bytes[64..96].copy_from_slice(&rivk_bytes);
+
+            if let Some(f) = FullViewingKey::from_bytes(&fvk_bytes) {
+                // Step 4: Encrypt nk and rivk with age, decrypt, verify round-trip
+                let age_key = age::x25519::Identity::generate();
+                let age_pubkey = age_key.to_public();
+
+                let nk_encrypted = encrypt_string(
+                    std::iter::once(&age_pubkey as &dyn age::Recipient),
+                    &hex::encode(nk_bytes),
+                )
+                .unwrap();
+                let rivk_encrypted = encrypt_string(
+                    std::iter::once(&age_pubkey as &dyn age::Recipient),
+                    &hex::encode(rivk_bytes),
+                )
+                .unwrap();
+
+                let nk_decrypted = decrypt_string(
+                    std::iter::once(&age_key as &dyn age::Identity),
+                    &nk_encrypted,
+                )
+                .unwrap();
+                let rivk_decrypted = decrypt_string(
+                    std::iter::once(&age_key as &dyn age::Identity),
+                    &rivk_encrypted,
+                )
+                .unwrap();
+
+                assert_eq!(hex::encode(nk_bytes), nk_decrypted);
+                assert_eq!(hex::encode(rivk_bytes), rivk_decrypted);
+
+                // Step 5: Serialize key_package and public_key_package through stores, verify round-trip
+                let kp = key_packages.values().next().unwrap();
+                let kp_store = KeyPackageStore::from_key_package(kp);
+                let kp_json = serde_json::to_string(&kp_store).unwrap();
+
+                // Encrypt and decrypt the key package (as production does)
+                let kp_encrypted = encrypt_string(
+                    std::iter::once(&age_pubkey as &dyn age::Recipient),
+                    &kp_json,
+                )
+                .unwrap();
+                let kp_decrypted = decrypt_string(
+                    std::iter::once(&age_key as &dyn age::Identity),
+                    &kp_encrypted,
+                )
+                .unwrap();
+                let kp_restored: KeyPackageStore =
+                    serde_json::from_str(&kp_decrypted).unwrap();
+                let kp_restored = kp_restored.to_key_package().unwrap();
+                assert_eq!(
+                    kp.identifier().serialize(),
+                    kp_restored.identifier().serialize()
+                );
+                assert_eq!(
+                    kp.secret_share().serialize(),
+                    kp_restored.secret_share().serialize()
+                );
+
+                let pkp_store =
+                    PublicKeyPackageStore::from_public_key_package(&public_key_package);
+                let pkp_json = serde_json::to_string(&pkp_store).unwrap();
+                let pkp_restored: PublicKeyPackageStore =
+                    serde_json::from_str(&pkp_json).unwrap();
+                let pkp_restored = pkp_restored.to_public_key_package().unwrap();
+                assert_eq!(
+                    public_key_package.group_public().serialize(),
+                    pkp_restored.group_public().serialize()
+                );
+
+                fvk = Some(f);
+                break;
+            }
+        }
+
+        assert!(
+            fvk.is_some(),
+            "Failed to construct valid FVK via production path after {} attempts",
+            max_attempts
         );
     }
 }

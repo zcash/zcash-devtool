@@ -78,77 +78,75 @@ impl Command {
             ));
         }
 
-        // Initialize the Signer to get the sighash and access to the Orchard actions
+        // Extract alpha values from the Orchard actions before consuming the PCZT into a Signer.
+        // This avoids re-parsing the PCZT just to read action fields.
+        let action_alphas: Vec<(usize, [u8; 32])> = {
+            let actions = pczt.orchard().actions();
+            let mut alphas = Vec::new();
+            // The alpha field is pub(crate) on pczt::orchard::Spend, so we extract it via serde
+            for (i, action) in actions.iter().enumerate() {
+                let spend_value = serde_json::to_value(action.spend())?;
+                let alpha_bytes: [u8; 32] = match spend_value.get("alpha") {
+                    Some(serde_json::Value::Array(arr)) => {
+                        let bytes: Vec<u8> = arr
+                            .iter()
+                            .map(|v| {
+                                v.as_u64()
+                                    .and_then(|n| u8::try_from(n).ok())
+                                    .ok_or_else(|| anyhow!("Orchard action {} alpha contains non-u8 value", i))
+                            })
+                            .collect::<Result<Vec<u8>, _>>()?;
+                        bytes
+                            .try_into()
+                            .map_err(|_| anyhow!("Orchard action {} alpha has wrong length", i))?
+                    }
+                    Some(serde_json::Value::Null) | None => {
+                        return Err(anyhow!(
+                            "Orchard action {} missing alpha (spend_auth_randomizer)",
+                            i
+                        ));
+                    }
+                    other => {
+                        return Err(anyhow!(
+                            "Orchard action {} unexpected alpha format: {:?}",
+                            i,
+                            other
+                        ));
+                    }
+                };
+                alphas.push((i, alpha_bytes));
+            }
+            alphas
+        };
+
+        // Now consume the PCZT into a Signer to extract the sighash
         let signer =
             Signer::new(pczt).map_err(|e| anyhow!("Failed to initialize Signer: {:?}", e))?;
 
         let sighash = signer.shielded_sighash();
-
         let sighash_hex = hex::encode(sighash);
 
-        // Re-parse PCZT to access the Orchard bundle fields directly
-        let pczt_for_read =
-            Pczt::parse(&buf).map_err(|e| anyhow!("PCZT re-parse failed: {:?}", e))?;
-        let orchard_bundle = pczt_for_read.orchard();
-        let actions = orchard_bundle.actions();
+        let num_actions = action_alphas.len();
 
-        if actions.is_empty() {
+        if num_actions == 0 {
             eprintln!("No Orchard actions to sign.");
             let pczt = signer.finish();
             stdout().write_all(&pczt.serialize()).await?;
             return Ok(());
         }
 
-        let num_actions = actions.len();
         eprintln!(
             "FROST signing ceremony for {} Orchard action(s) with {}-of-{} threshold",
             num_actions, account_config.min_signers, account_config.max_signers,
         );
-
-        // Collect alpha values from each action
-        // The alpha field is pub(crate) on pczt::orchard::Spend, so we extract it via serde
-        let mut action_alphas: Vec<(usize, [u8; 32])> = Vec::new();
-        for (i, action) in actions.iter().enumerate() {
-            let spend_value = serde_json::to_value(action.spend())?;
-            let alpha_bytes: [u8; 32] = match spend_value.get("alpha") {
-                Some(serde_json::Value::Array(arr)) => {
-                    let bytes: Vec<u8> = arr
-                        .iter()
-                        .map(|v| {
-                            v.as_u64()
-                                .and_then(|n| u8::try_from(n).ok())
-                                .ok_or_else(|| anyhow!("Orchard action {} alpha contains non-u8 value", i))
-                        })
-                        .collect::<Result<Vec<u8>, _>>()?;
-                    bytes
-                        .try_into()
-                        .map_err(|_| anyhow!("Orchard action {} alpha has wrong length", i))?
-                }
-                Some(serde_json::Value::Null) | None => {
-                    return Err(anyhow!(
-                        "Orchard action {} missing alpha (spend_auth_randomizer)",
-                        i
-                    ));
-                }
-                other => {
-                    return Err(anyhow!(
-                        "Orchard action {} unexpected alpha format: {:?}",
-                        i,
-                        other
-                    ));
-                }
-            };
-            action_alphas.push((i, alpha_bytes));
-        }
 
         // Build and output the signing request
         let signing_request = SigningRequest {
             sighash_hex,
             actions: action_alphas
                 .iter()
-                .map(|(idx, alpha_bytes)| ActionSigningData {
+                .map(|(idx, _)| ActionSigningData {
                     action_index: *idx,
-                    alpha_hex: hex::encode(alpha_bytes),
                 })
                 .collect(),
         };

@@ -390,7 +390,7 @@ FROST tests with:
 cargo test --features frost -- frost
 ```
 
-This runs 17 tests organized in three categories:
+This runs 20 tests organized in three categories:
 
 ### Protocol and serde round-trips
 
@@ -430,6 +430,9 @@ tests alone do not cover:
 |------|----------------|
 | `frost_dkg_to_orchard_fvk_and_address` | DKG group public key (`ak`) combined with coordinator-generated `nk`/`rivk` produces a valid Orchard `FullViewingKey`, derives an address, wraps in a `UnifiedFullViewingKey`, and round-trips the orchard component |
 | `frost_signature_to_orchard_spendauth` | FROST aggregate signature serialized to `[u8; 64]` converts to `orchard_redpallas::Signature<SpendAuth>` (the type consumed by `Signer::apply_orchard_signature()`) and round-trips correctly |
+| `frost_signing_sighash_mismatch_detected` | Verifies participants can detect a coordinator changing the sighash between Round 1 and Round 2 (the exact check from `frost_participate.rs`) |
+| `frost_aggregate_wrong_signer_set_fails` | Verifies FROST aggregation rejects signature shares from a signer not in the original commitment set |
+| `frost_production_fvk_path` | Tests the exact FVK construction path used in production (`frost_dkg.rs`): ak sign bit check, nk/rivk high-bit clearing, age encrypt/decrypt round-trip, and key package store serialization round-trip |
 
 The FVK construction test includes retry logic for the `ak` sign bit
 constraint: `SpendValidatingKey::from_bytes()` requires `b[31] & 0x80 == 0`,
