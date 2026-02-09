@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::path::Path;
 
 use anyhow::anyhow;
@@ -22,9 +22,9 @@ pub(crate) struct FrostAccountConfig {
     pub key_package: String,
     /// PublicKeyPackage serialized as hex (JSON of raw byte fields)
     pub public_key_package: String,
-    /// Shared nullifier key bytes (hex, 32 bytes)
+    /// Shared nullifier key bytes (age-encrypted hex, 32 bytes)
     pub nk_bytes: String,
-    /// Shared commit-ivk randomness bytes (hex, 32 bytes)
+    /// Shared commit-ivk randomness bytes (age-encrypted hex, 32 bytes)
     pub rivk_bytes: String,
     /// This participant's FROST identifier (hex, 32 bytes scalar serialization)
     pub identifier: String,
@@ -41,14 +41,16 @@ impl FrostConfig {
     /// Read the FROST config from the wallet directory.
     pub fn read<P: AsRef<Path>>(wallet_dir: Option<P>) -> Result<Self, anyhow::Error> {
         let path = frost_file_path(wallet_dir);
-        if !path.exists() {
-            return Ok(FrostConfig::default());
+        match File::open(&path) {
+            Ok(mut file) => {
+                let mut contents = String::new();
+                file.read_to_string(&mut contents)?;
+                let config: FrostConfig = toml::from_str(&contents)?;
+                Ok(config)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(FrostConfig::default()),
+            Err(e) => Err(e.into()),
         }
-        let mut file = BufReader::new(File::open(&path)?);
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
-        let config: FrostConfig = toml::from_str(&contents)?;
-        Ok(config)
     }
 
     /// Write the FROST config to the wallet directory.
@@ -57,14 +59,21 @@ impl FrostConfig {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let contents = toml::to_string(self)
-            .map_err::<anyhow::Error, _>(|_| anyhow!("error serializing frost config"))?;
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(path)?;
-        write!(&mut file, "{contents}")?;
+        let contents =
+            toml::to_string(self).map_err(|e| anyhow!("error serializing frost config: {e}"))?;
+
+        let mut options = fs::OpenOptions::new();
+        options.create(true).write(true).truncate(true);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+
+        let mut file = options.open(&path)?;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
         Ok(())
     }
 
@@ -73,6 +82,10 @@ impl FrostConfig {
         self.accounts.iter().find(|a| a.account_uuid == uuid)
     }
 
+    /// Check whether an account with the given UUID already exists.
+    pub fn has_account(&self, uuid: &str) -> bool {
+        self.accounts.iter().any(|a| a.account_uuid == uuid)
+    }
 }
 
 fn frost_file_path<P: AsRef<Path>>(wallet_dir: Option<P>) -> std::path::PathBuf {
@@ -95,7 +108,7 @@ pub(crate) fn encrypt_string<'a>(
     )?)?;
     writer.write_all(plaintext.as_bytes())?;
     writer.finish().and_then(|armor| armor.finish())?;
-    Ok(String::from_utf8(ciphertext).expect("armor is valid UTF-8"))
+    String::from_utf8(ciphertext).map_err(|e| anyhow!("age armor produced invalid UTF-8: {e}"))
 }
 
 pub(crate) fn decrypt_string<'a>(
@@ -108,19 +121,28 @@ pub(crate) fn decrypt_string<'a>(
     Ok(String::from_utf8(buf)?)
 }
 
-/// Read age x25519 identities from a file and return both identities and their public keys.
+/// Read age x25519 identities from a file and return their public keys as recipients.
 pub(crate) fn load_age_recipients(
     identity_path: &str,
 ) -> Result<Vec<age::x25519::Recipient>, anyhow::Error> {
-    let contents = std::fs::read_to_string(identity_path)?;
-    let identities: Vec<age::x25519::Identity> = contents
-        .lines()
-        .filter(|line| !line.starts_with('#') && !line.is_empty())
-        .filter_map(|line| line.parse().ok())
-        .collect();
+    let contents = std::fs::read_to_string(identity_path)
+        .map_err(|e| anyhow!("Failed to read identity file '{}': {e}", identity_path))?;
+    let mut identities = Vec::new();
+    for line in contents.lines() {
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        let id: age::x25519::Identity = line
+            .parse()
+            .map_err(|e| anyhow!("Failed to parse age identity line: {e}"))?;
+        identities.push(id);
+    }
 
     if identities.is_empty() {
-        return Err(anyhow!("No age x25519 identities found in identity file"));
+        return Err(anyhow!(
+            "No age x25519 identities found in '{}'",
+            identity_path
+        ));
     }
 
     Ok(identities.iter().map(|id| id.to_public()).collect())
@@ -150,9 +172,16 @@ mod tests {
         let deserialized: FrostConfig = toml::from_str(&serialized).unwrap();
 
         assert_eq!(deserialized.accounts.len(), 1);
-        assert_eq!(deserialized.accounts[0].name, "test-frost");
-        assert_eq!(deserialized.accounts[0].min_signers, 2);
-        assert_eq!(deserialized.accounts[0].max_signers, 3);
+        let a = &deserialized.accounts[0];
+        assert_eq!(a.name, "test-frost");
+        assert_eq!(a.account_uuid, "12345678-1234-1234-1234-123456789012");
+        assert_eq!(a.min_signers, 2);
+        assert_eq!(a.max_signers, 3);
+        assert_eq!(a.key_package, "encrypted-key-package-placeholder");
+        assert_eq!(a.public_key_package, "public-key-package-hex");
+        assert_eq!(a.nk_bytes, "aa".repeat(32));
+        assert_eq!(a.rivk_bytes, "bb".repeat(32));
+        assert_eq!(a.identifier, "01".repeat(32));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead};
 
 use anyhow::anyhow;
@@ -23,10 +23,6 @@ use crate::frost_serde::{
 // Options accepted for the `pczt frost-sign` command
 #[derive(Debug, Args)]
 pub(crate) struct Command {
-    /// age identity file to decrypt FROST key material
-    #[arg(short, long)]
-    identity: String,
-
     /// Number of signers participating in this ceremony
     #[arg(long)]
     num_signers: u16,
@@ -74,6 +70,14 @@ impl Command {
             ));
         }
 
+        if self.num_signers > account_config.max_signers {
+            return Err(anyhow!(
+                "num_signers ({}) exceeds max_signers ({})",
+                self.num_signers,
+                account_config.max_signers,
+            ));
+        }
+
         // Initialize the Signer to get the sighash and access to the Orchard actions
         let signer =
             Signer::new(pczt).map_err(|e| anyhow!("Failed to initialize Signer: {:?}", e))?;
@@ -110,8 +114,12 @@ impl Command {
                 Some(serde_json::Value::Array(arr)) => {
                     let bytes: Vec<u8> = arr
                         .iter()
-                        .map(|v| v.as_u64().unwrap_or(0) as u8)
-                        .collect();
+                        .map(|v| {
+                            v.as_u64()
+                                .and_then(|n| u8::try_from(n).ok())
+                                .ok_or_else(|| anyhow!("Orchard action {} alpha contains non-u8 value", i))
+                        })
+                        .collect::<Result<Vec<u8>, _>>()?;
                     bytes
                         .try_into()
                         .map_err(|_| anyhow!("Orchard action {} alpha has wrong length", i))?
@@ -135,7 +143,7 @@ impl Command {
 
         // Build and output the signing request
         let signing_request = SigningRequest {
-            sighash_hex: sighash_hex.clone(),
+            sighash_hex,
             actions: action_alphas
                 .iter()
                 .map(|(idx, alpha_bytes)| ActionSigningData {
@@ -171,7 +179,7 @@ impl Command {
         let io_stdin = io::stdin();
         for line in io_stdin.lock().lines().take(num_signers) {
             let line = line?;
-            let response: SignRound1Response = serde_json::from_str(&line)
+            let response: SignRound1Response = serde_json::from_str(line.trim())
                 .map_err(|e| anyhow!("Failed to parse Round 1 response: {e}"))?;
 
             let their_id = response.identifier.to_id()?;
@@ -188,7 +196,9 @@ impl Command {
                 let commitment = commitment_store.to_commitments().map_err(|e| {
                     anyhow!("Failed to parse commitment for action {}: {e}", action_idx)
                 })?;
-                all_commitments[action_idx].insert(their_id, commitment);
+                if all_commitments[action_idx].insert(their_id, commitment).is_some() {
+                    return Err(anyhow!("Duplicate Round 1 commitment from participant {}", response.identifier.0));
+                }
             }
 
             eprintln!("  Received commitments from participant {}", response.identifier.0);
@@ -249,16 +259,16 @@ impl Command {
         );
 
         let mut all_shares: Vec<
-            std::collections::HashMap<
+            HashMap<
                 frost_core::frost::Identifier<PallasBlake2b512>,
                 redpallas::round2::SignatureShare,
             >,
-        > = vec![std::collections::HashMap::new(); num_actions];
+        > = vec![HashMap::new(); num_actions];
 
         let io_stdin = io::stdin();
         for line in io_stdin.lock().lines().take(num_signers) {
             let line = line?;
-            let response: SignRound2Response = serde_json::from_str(&line)
+            let response: SignRound2Response = serde_json::from_str(line.trim())
                 .map_err(|e| anyhow!("Failed to parse Round 2 response: {e}"))?;
 
             let their_id = response.identifier.to_id()?;
@@ -279,10 +289,24 @@ impl Command {
                     redpallas::round2::SignatureShare::deserialize(share_bytes).map_err(|e| {
                         anyhow!("Failed to parse share for action {}: {:?}", action_idx, e)
                     })?;
-                all_shares[action_idx].insert(their_id, share);
+                if all_shares[action_idx].insert(their_id, share).is_some() {
+                    return Err(anyhow!("Duplicate Round 2 share from participant {}", response.identifier.0));
+                }
             }
 
             eprintln!("  Received shares from participant {}", response.identifier.0);
+        }
+
+        // Cross-round participant validation
+        for (action_idx, (commitments, shares)) in all_commitments.iter().zip(all_shares.iter()).enumerate() {
+            let commit_ids: std::collections::HashSet<_> = commitments.keys().collect();
+            let share_ids: std::collections::HashSet<_> = shares.keys().collect();
+            if commit_ids != share_ids {
+                return Err(anyhow!(
+                    "Participant mismatch in action {}: Round 1 and Round 2 have different signers",
+                    action_idx
+                ));
+            }
         }
 
         // Aggregate signatures and apply to PCZT

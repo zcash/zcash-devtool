@@ -115,6 +115,20 @@ impl Command {
             ));
         }
 
+        // Verify that round 2 signing packages contain the expected sighash
+        let expected_sighash = hex::decode(&signing_request.sighash_hex)
+            .map_err(|e| anyhow!("Invalid sighash hex in signing request: {e}"))?;
+        for (i, action_pkg) in round2_request.packages.iter().enumerate() {
+            let sp = action_pkg.signing_package.to_signing_package()?;
+            if sp.message() != expected_sighash.as_slice() {
+                return Err(anyhow!(
+                    "Round 2 signing package for action {} contains a different sighash than Round 1. \
+                     This may indicate a malicious coordinator.",
+                    i
+                ));
+            }
+        }
+
         let mut shares: Vec<String> = Vec::new();
 
         for (i, action_pkg) in round2_request.packages.iter().enumerate() {

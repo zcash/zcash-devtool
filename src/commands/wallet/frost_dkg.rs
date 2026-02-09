@@ -4,6 +4,7 @@ use std::io::{self, BufRead};
 use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
+use rand::RngCore;
 
 use frost_core::frost::keys::dkg;
 use reddsa::frost::redpallas::{Identifier, PallasBlake2b512};
@@ -51,7 +52,7 @@ pub(crate) struct Command {
     participant_index: u16,
 
     /// Whether this participant is the coordinator (generates nk/rivk)
-    #[arg(long, default_value = "false")]
+    #[arg(long)]
     coordinator: bool,
 
     /// The wallet birthday height
@@ -74,6 +75,9 @@ impl Command {
             return Err(anyhow!(
                 "participant_index must be between 1 and max_signers"
             ));
+        }
+        if self.birthday == 0 {
+            return Err(anyhow!("birthday must be at least 1"));
         }
 
         let my_identifier = Identifier::try_from(self.participant_index)?;
@@ -123,7 +127,7 @@ impl Command {
         let stdin = io::stdin();
         for line in stdin.lock().lines().take(other_count) {
             let line = line?;
-            let msg: DkgRound1Msg = serde_json::from_str(&line)
+            let msg: DkgRound1Msg = serde_json::from_str(line.trim())
                 .map_err(|e| anyhow!("Failed to parse Round 1 package: {e}"))?;
             let their_id = msg.identifier.to_id()?;
             if their_id == my_identifier {
@@ -137,7 +141,12 @@ impl Command {
                 "  Received Round 1 package from participant {}",
                 msg.identifier.0
             );
-            round1_packages.insert(their_id, pkg);
+            if round1_packages.insert(their_id, pkg).is_some() {
+                return Err(anyhow!(
+                    "Duplicate Round 1 package from participant {}",
+                    msg.identifier.0
+                ));
+            }
         }
 
         if round1_packages.len() != other_count {
@@ -180,13 +189,19 @@ impl Command {
         let stdin = io::stdin();
         for line in stdin.lock().lines().take(other_count) {
             let line = line?;
-            let msg: DkgRound2Msg = serde_json::from_str(&line)
+            let msg: DkgRound2Msg = serde_json::from_str(line.trim())
                 .map_err(|e| anyhow!("Failed to parse Round 2 package: {e}"))?;
             let to_id = msg.to.to_id()?;
             if to_id != my_identifier {
                 return Err(anyhow!("Round 2 package not addressed to us"));
             }
             let from_id = msg.from.to_id()?;
+            if !round1_packages.contains_key(&from_id) {
+                return Err(anyhow!(
+                    "Round 2 package from unknown participant {}",
+                    msg.from.0
+                ));
+            }
             let pkg = msg
                 .package
                 .to_package()
@@ -195,7 +210,12 @@ impl Command {
                 "  Received Round 2 package from participant {}",
                 msg.from.0
             );
-            received_round2.insert(from_id, pkg);
+            if received_round2.insert(from_id, pkg).is_some() {
+                return Err(anyhow!(
+                    "Duplicate Round 2 package from participant {}",
+                    msg.from.0
+                ));
+            }
         }
 
         if received_round2.len() != other_count {
@@ -215,6 +235,13 @@ impl Command {
         // Get the group verifying key (this is the Orchard spend validating key / ak)
         let ak_bytes: [u8; 32] = public_key_package.group_public().serialize();
 
+        if ak_bytes[31] & 0x80 != 0 {
+            return Err(anyhow!(
+                "DKG produced an ak with invalid sign bit (b[31] & 0x80 != 0). \
+                 The FROST DKG has no negation logic for this case; please re-run the DKG ceremony."
+            ));
+        }
+
         eprintln!(
             "DKG complete. Group public key (ak): {}",
             hex::encode(ak_bytes)
@@ -226,9 +253,10 @@ impl Command {
 
             let mut nk = [0u8; 32];
             let mut rivk = [0u8; 32];
-            use rand::RngCore;
             OsRng.fill_bytes(&mut nk);
             OsRng.fill_bytes(&mut rivk);
+            nk[31] &= 0x7f;
+            rivk[31] &= 0x7f;
 
             let fvk_share = FvkShareMsg {
                 nk_hex: hex::encode(nk),
@@ -285,7 +313,7 @@ impl Command {
                 .get_ref()
                 .height
                 .try_into()
-                .expect("block heights must fit into u32");
+                .map_err(|_| anyhow!("block height from server exceeds u32 range"))?;
 
             let request = service::BlockId {
                 height: (self.birthday - 1).into(),
@@ -299,7 +327,7 @@ impl Command {
         let purpose = AccountPurpose::ViewOnly;
         let account =
             db_data.import_account_ufvk(&self.name, &ufvk, &birthday, purpose, Some("frost"))?;
-        let account_uuid = format!("{:?}", account.id());
+        let account_uuid = account.id().expose_uuid().to_string();
 
         eprintln!("Account '{}' imported (UUID: {})", self.name, account_uuid);
 
@@ -313,22 +341,38 @@ impl Command {
             &kp_json,
         )?;
 
+        let encrypted_nk = frost_config::encrypt_string(
+            age_recipients.iter().map(|r| r as &dyn age::Recipient),
+            &hex::encode(nk_bytes),
+        )?;
+
+        let encrypted_rivk = frost_config::encrypt_string(
+            age_recipients.iter().map(|r| r as &dyn age::Recipient),
+            &hex::encode(rivk_bytes),
+        )?;
+
         let pkp_store = PublicKeyPackageStore::from_public_key_package(&public_key_package);
         let pkp_json = serde_json::to_string(&pkp_store)?;
 
         let frost_account = FrostAccountConfig {
             name: self.name.clone(),
-            account_uuid,
+            account_uuid: account_uuid.clone(),
             min_signers: self.min_signers,
             max_signers: self.max_signers,
             key_package: encrypted_kp,
             public_key_package: pkp_json,
-            nk_bytes: hex::encode(nk_bytes),
-            rivk_bytes: hex::encode(rivk_bytes),
+            nk_bytes: encrypted_nk,
+            rivk_bytes: encrypted_rivk,
             identifier: my_id_hex.0,
         };
 
         let mut frost_config_data = FrostConfig::read(wallet_dir.as_ref())?;
+        if frost_config_data.has_account(&account_uuid) {
+            return Err(anyhow!(
+                "FROST account with UUID {} already exists in frost.toml",
+                account_uuid
+            ));
+        }
         frost_config_data.accounts.push(frost_account);
         frost_config_data.write(wallet_dir.as_ref())?;
 

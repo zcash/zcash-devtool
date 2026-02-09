@@ -14,7 +14,7 @@ type P = PallasBlake2b512;
 
 /// Hex-serializable wrapper for a FROST Identifier.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct IdHex(pub String);
+pub(crate) struct IdHex(pub(crate) String);
 
 impl IdHex {
     pub fn from_id(id: &Identifier) -> Self {
@@ -331,12 +331,12 @@ impl KeyPackageStore {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct PublicKeyPackageStore {
     pub verifying_key: String,
-    pub signer_pubkeys: HashMap<String, String>,
+    pub signer_pubkeys: BTreeMap<String, String>,
 }
 
 impl PublicKeyPackageStore {
     pub fn from_public_key_package(pkp: &keys::PublicKeyPackage) -> Self {
-        let mut signer_pubkeys = HashMap::new();
+        let mut signer_pubkeys = BTreeMap::new();
         for (id, share) in pkp.signer_pubkeys() {
             let id_hex = hex::encode(id.serialize());
             let share_hex = hex::encode(share.serialize());
@@ -915,8 +915,9 @@ mod tests {
                 continue;
             }
 
-            // Generate random nk and rivk bytes, clearing the top bit to ensure
-            // they are within the Pallas base/scalar field moduli (both ~2^255).
+            // Generate random nk and rivk bytes, clearing the top bit to reduce
+            // the probability of exceeding the Pallas field moduli (~2^254).
+            // Values can still exceed the modulus; the retry loop handles that.
             let mut nk_bytes = [0u8; 32];
             let mut rivk_bytes = [0u8; 32];
             OsRng.fill_bytes(&mut nk_bytes);
