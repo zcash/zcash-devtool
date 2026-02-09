@@ -4,6 +4,8 @@ pub(crate) mod balance;
 pub(crate) mod derive_path;
 pub(crate) mod display_mnemonic;
 pub(crate) mod enhance;
+#[cfg(feature = "frost")]
+pub(crate) mod frost_dkg;
 pub(crate) mod gen_account;
 pub(crate) mod gen_addr;
 pub(crate) mod import_ufvk;
@@ -87,4 +89,8 @@ pub(crate) enum Command {
     /// Commands that operate directly on the note commitment trees
     #[command(subcommand)]
     Tree(tree::Command),
+
+    /// Run FROST distributed key generation to create a threshold signing account
+    #[cfg(feature = "frost")]
+    FrostDkg(frost_dkg::Command),
 }

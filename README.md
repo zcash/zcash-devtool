@@ -68,6 +68,9 @@ The code developed in this demo resulted in [this](https://github.com/zcash/zcas
 For a step-by-step guide for how to get started using these tools, see [this
 walkthrough](doc/walkthrough.md).
 
+For a guide to setting up a FROST threshold-signing wallet (multi-party
+Orchard spending), see the [FROST walkthrough](doc/frost-walkthrough.md).
+
 ## License
 
 All code in this workspace is licensed under either of

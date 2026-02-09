@@ -4,6 +4,10 @@ pub(crate) mod combine;
 pub(crate) mod create;
 pub(crate) mod create_manual;
 pub(crate) mod create_max;
+#[cfg(feature = "frost")]
+pub(crate) mod frost_participate;
+#[cfg(feature = "frost")]
+pub(crate) mod frost_sign;
 pub(crate) mod inspect;
 pub(crate) mod pay_manual;
 pub(crate) mod prove;
@@ -42,6 +46,12 @@ pub(crate) enum Command {
     Sign(sign::Command),
     /// Combine two PCZTs
     Combine(combine::Command),
+    /// Coordinate FROST threshold signing for Orchard spends in a PCZT
+    #[cfg(feature = "frost")]
+    FrostSign(frost_sign::Command),
+    /// Participate in a FROST threshold signing ceremony
+    #[cfg(feature = "frost")]
+    FrostParticipate(frost_participate::Command),
     /// Extract a finished transaction and send it
     Send(send::Command),
     /// Extract a finished transaction and send it, without storing in the wallet.

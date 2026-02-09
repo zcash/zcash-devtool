@@ -35,6 +35,12 @@ uuid = "1"
 
 # Zcash
 orchard = { version = "0.12", default-features = false }
+
+# FROST threshold signing
+frost-core = { version = "0.6.0", features = ["serde"], optional = true }
+frost-rerandomized = { version = "0.6.0", optional = true }
+reddsa = { version = "0.5.1", features = ["frost"], optional = true }
+zeroize = { version = "1", optional = true }
 pczt = "0.5"
 sapling = { package = "sapling-crypto", version = "0.6" }
 transparent = { package = "zcash_transparent", version = "0.6", features = ["test-dependencies"] }
@@ -104,6 +110,13 @@ qr = ["dep:qrcode"]
 pczt-qr = ["dep:image", "dep:minicbor", "dep:nokhwa", "dep:qrcode", "dep:rqrr", "dep:ur"]
 transparent-inputs = [
     "zcash_client_sqlite/transparent-inputs",
+]
+frost = [
+    "dep:frost-core",
+    "dep:frost-rerandomized",
+    "dep:reddsa",
+    "dep:zeroize",
+    "orchard/unstable-frost",
 ]
 tui = [
     "dep:crossterm",
