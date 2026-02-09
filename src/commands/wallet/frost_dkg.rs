@@ -287,7 +287,13 @@ impl Command {
             eprintln!("Paste the FVK share message from the coordinator:");
 
             let mut line = String::new();
-            io::stdin().lock().read_line(&mut line)?;
+            loop {
+                line.clear();
+                io::stdin().lock().read_line(&mut line)?;
+                if !line.trim().is_empty() {
+                    break;
+                }
+            }
             let msg: FvkShareMsg = serde_json::from_str(line.trim())
                 .map_err(|e| anyhow!("Failed to parse FVK share: {e}"))?;
 
@@ -339,6 +345,9 @@ impl Command {
                 .map_err(error::Error::from)?
         };
 
+        // AccountPurpose only has Spending and ViewOnly variants; ViewOnly is the
+        // correct choice for FROST accounts since spending requires threshold cooperation
+        // via the FROST signing ceremony rather than a local spending key.
         let purpose = AccountPurpose::ViewOnly;
         let account =
             db_data.import_account_ufvk(&self.name, &ufvk, &birthday, purpose, Some("frost"))?;

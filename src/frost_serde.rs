@@ -278,6 +278,13 @@ pub(crate) struct KeyPackageStore {
     pub verifying_key: String,
 }
 
+impl Drop for KeyPackageStore {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.signing_share.zeroize();
+    }
+}
+
 impl KeyPackageStore {
     pub fn from_key_package(kp: &keys::KeyPackage) -> Self {
         KeyPackageStore {
