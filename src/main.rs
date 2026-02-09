@@ -15,6 +15,10 @@ mod commands;
 mod config;
 mod data;
 mod error;
+#[cfg(feature = "frost")]
+mod frost_config;
+#[cfg(feature = "frost")]
+mod frost_serde;
 mod helpers;
 mod remote;
 mod socks;
@@ -173,6 +177,10 @@ fn main() -> Result<(), anyhow::Error> {
                     }
                     commands::wallet::tree::Command::Fix(command) => command.run(wallet_dir).await,
                 },
+                #[cfg(feature = "frost")]
+                commands::wallet::Command::FrostDkg(command) => {
+                    command.run(wallet_dir).await
+                }
             },
             Command::Zip48(commands::Zip48 {
                 wallet_dir,
@@ -200,6 +208,12 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::pczt::Command::Prove(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Sign(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Combine(command) => command.run().await,
+                #[cfg(feature = "frost")]
+                commands::pczt::Command::FrostSign(command) => command.run(wallet_dir).await,
+                #[cfg(feature = "frost")]
+                commands::pczt::Command::FrostParticipate(command) => {
+                    command.run(wallet_dir).await
+                }
                 commands::pczt::Command::Send(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::SendWithoutStoring(command) => {
                     command.run(wallet_dir).await
