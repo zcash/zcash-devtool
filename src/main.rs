@@ -212,7 +212,7 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::pczt::Command::FrostSign(command) => command.run(wallet_dir).await,
                 #[cfg(feature = "frost")]
                 commands::pczt::Command::FrostParticipate(command) => {
-                    command.run(wallet_dir).await
+                    command.run(wallet_dir)
                 }
                 commands::pczt::Command::Send(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::SendWithoutStoring(command) => {

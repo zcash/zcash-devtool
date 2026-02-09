@@ -86,6 +86,32 @@ impl FrostConfig {
     pub fn has_account(&self, uuid: &str) -> bool {
         self.accounts.iter().any(|a| a.account_uuid == uuid)
     }
+
+    /// Resolve which FROST account to use.
+    ///
+    /// If `account_uuid` is Some, looks it up by UUID. Otherwise, returns the
+    /// sole account or errors if there are zero or multiple accounts.
+    pub fn resolve_account(
+        &self,
+        account_uuid: Option<&str>,
+    ) -> Result<&FrostAccountConfig, anyhow::Error> {
+        match account_uuid {
+            Some(uuid) => self
+                .find_account(uuid)
+                .ok_or_else(|| anyhow!("No FROST account found for UUID {}", uuid)),
+            None => {
+                if self.accounts.len() == 1 {
+                    Ok(&self.accounts[0])
+                } else if self.accounts.is_empty() {
+                    Err(anyhow!("No FROST accounts found in frost.toml"))
+                } else {
+                    Err(anyhow!(
+                        "Multiple FROST accounts found; please specify account UUID"
+                    ))
+                }
+            }
+        }
+    }
 }
 
 fn frost_file_path<P: AsRef<Path>>(wallet_dir: Option<P>) -> std::path::PathBuf {

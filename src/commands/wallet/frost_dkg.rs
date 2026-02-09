@@ -125,8 +125,11 @@ impl Command {
         > = HashMap::new();
 
         let stdin = io::stdin();
-        for line in stdin.lock().lines().take(other_count) {
+        for line in stdin.lock().lines() {
             let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
             let msg: DkgRound1Msg = serde_json::from_str(line.trim())
                 .map_err(|e| anyhow!("Failed to parse Round 1 package: {e}"))?;
             let their_id = msg.identifier.to_id()?;
@@ -147,6 +150,9 @@ impl Command {
                     msg.identifier.0
                 ));
             }
+            if round1_packages.len() >= other_count {
+                break;
+            }
         }
 
         if round1_packages.len() != other_count {
@@ -163,6 +169,9 @@ impl Command {
         let (round2_secret, round2_packages) = dkg::part2(round1_secret, &round1_packages)?;
 
         // Output Round 2 packages (each is for a specific recipient)
+        eprintln!("\nWARNING: Each Round 2 package below contains a SECRET SHARE.");
+        eprintln!("Send each package ONLY to its intended recipient via a private channel.");
+        eprintln!("Do NOT broadcast these -- a recipient's share must not be seen by others.\n");
         for (recipient_id, package) in &round2_packages {
             let msg = DkgRound2Msg {
                 from: my_id_hex.clone(),
@@ -171,7 +180,7 @@ impl Command {
             };
             let json = serde_json::to_string(&msg)?;
             eprintln!(
-                "\nRound 2 package for participant {} (send privately):",
+                "--- SECRET: Round 2 package for participant {} ONLY ---",
                 IdHex::from_id(recipient_id).0
             );
             println!("{json}");
@@ -187,8 +196,11 @@ impl Command {
         > = HashMap::new();
 
         let stdin = io::stdin();
-        for line in stdin.lock().lines().take(other_count) {
+        for line in stdin.lock().lines() {
             let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
             let msg: DkgRound2Msg = serde_json::from_str(line.trim())
                 .map_err(|e| anyhow!("Failed to parse Round 2 package: {e}"))?;
             let to_id = msg.to.to_id()?;
@@ -215,6 +227,9 @@ impl Command {
                     "Duplicate Round 2 package from participant {}",
                     msg.from.0
                 ));
+            }
+            if received_round2.len() >= other_count {
+                break;
             }
         }
 

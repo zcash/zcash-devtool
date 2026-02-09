@@ -26,26 +26,13 @@ pub(crate) struct Command {
 }
 
 impl Command {
-    pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
+    pub(crate) fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
         // Load FROST config
         let frost_config = FrostConfig::read(wallet_dir.as_ref())?;
 
-        let account_config = match self.account {
-            Some(uuid) => frost_config
-                .find_account(&uuid.to_string())
-                .ok_or_else(|| anyhow!("No FROST account found for UUID {}", uuid))?,
-            None => {
-                if frost_config.accounts.len() == 1 {
-                    &frost_config.accounts[0]
-                } else if frost_config.accounts.is_empty() {
-                    return Err(anyhow!("No FROST accounts found in frost.toml"));
-                } else {
-                    return Err(anyhow!(
-                        "Multiple FROST accounts found; please specify account UUID"
-                    ));
-                }
-            }
-        };
+        let account_config = frost_config.resolve_account(
+            self.account.as_ref().map(|u| u.to_string()).as_deref(),
+        )?;
 
         // Decrypt key package
         let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;

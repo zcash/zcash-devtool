@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead};
+use std::path::PathBuf;
 
 use anyhow::anyhow;
 use clap::Args;
-use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{stdout, AsyncWriteExt};
 use uuid::Uuid;
 
 use frost_rerandomized::RandomizedParams;
@@ -23,40 +24,32 @@ use crate::frost_serde::{
 // Options accepted for the `pczt frost-sign` command
 #[derive(Debug, Args)]
 pub(crate) struct Command {
+    /// Path to the PCZT file to sign (stdin is reserved for interactive JSON)
+    pczt_file: PathBuf,
+
     /// Number of signers participating in this ceremony
     #[arg(long)]
     num_signers: u16,
 
     /// Account UUID to sign with (optional if only one FROST account exists)
+    #[arg(long)]
     account: Option<Uuid>,
 }
 
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
-        // Read PCZT from stdin
-        let mut buf = vec![];
-        stdin().read_to_end(&mut buf).await?;
-        let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
+        // Read PCZT from file (stdin is reserved for interactive JSON exchange)
+        let buf = std::fs::read(&self.pczt_file).map_err(|e| {
+            anyhow!("Failed to read PCZT file '{}': {e}", self.pczt_file.display())
+        })?;
+        let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to parse PCZT: {:?}", e))?;
 
         // Load FROST config
         let frost_config = FrostConfig::read(wallet_dir.as_ref())?;
 
-        let account_config = match self.account {
-            Some(uuid) => frost_config
-                .find_account(&uuid.to_string())
-                .ok_or_else(|| anyhow!("No FROST account found for UUID {}", uuid))?,
-            None => {
-                if frost_config.accounts.len() == 1 {
-                    &frost_config.accounts[0]
-                } else if frost_config.accounts.is_empty() {
-                    return Err(anyhow!("No FROST accounts found in frost.toml"));
-                } else {
-                    return Err(anyhow!(
-                        "Multiple FROST accounts found; please specify account UUID"
-                    ));
-                }
-            }
-        };
+        let account_config = frost_config.resolve_account(
+            self.account.as_ref().map(|u| u.to_string()).as_deref(),
+        )?;
 
         let pkp_store: PublicKeyPackageStore =
             serde_json::from_str(&account_config.public_key_package)?;
@@ -83,7 +76,11 @@ impl Command {
         let action_alphas: Vec<(usize, [u8; 32])> = {
             let actions = pczt.orchard().actions();
             let mut alphas = Vec::new();
-            // The alpha field is pub(crate) on pczt::orchard::Spend, so we extract it via serde
+            // HACK: The pczt crate's Spend type stores alpha as `pub(crate)` with no
+            // public getter (only nullifier, rk, and proprietary have #[getset(get = "pub")]).
+            // We work around this by serializing to serde_json::Value and extracting the
+            // "alpha" key. This breaks if the pczt crate changes its serde representation.
+            // Upstream fix: add #[getset(get = "pub")] to the `alpha` field in pczt::orchard::Spend.
             for (i, action) in actions.iter().enumerate() {
                 let spend_value = serde_json::to_value(action.spend())?;
                 let alpha_bytes: [u8; 32] = match spend_value.get("alpha") {
@@ -174,9 +171,14 @@ impl Command {
             >,
         > = vec![BTreeMap::new(); num_actions];
 
+        let mut received_r1 = 0usize;
         let io_stdin = io::stdin();
-        for line in io_stdin.lock().lines().take(num_signers) {
+        for line in io_stdin.lock().lines() {
             let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+
             let response: SignRound1Response = serde_json::from_str(line.trim())
                 .map_err(|e| anyhow!("Failed to parse Round 1 response: {e}"))?;
 
@@ -200,6 +202,10 @@ impl Command {
             }
 
             eprintln!("  Received commitments from participant {}", response.identifier.0);
+            received_r1 += 1;
+            if received_r1 >= num_signers {
+                break;
+            }
         }
 
         // Build signing packages for each action
@@ -263,9 +269,14 @@ impl Command {
             >,
         > = vec![HashMap::new(); num_actions];
 
+        let mut received_r2 = 0usize;
         let io_stdin = io::stdin();
-        for line in io_stdin.lock().lines().take(num_signers) {
+        for line in io_stdin.lock().lines() {
             let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+
             let response: SignRound2Response = serde_json::from_str(line.trim())
                 .map_err(|e| anyhow!("Failed to parse Round 2 response: {e}"))?;
 
@@ -293,6 +304,10 @@ impl Command {
             }
 
             eprintln!("  Received shares from participant {}", response.identifier.0);
+            received_r2 += 1;
+            if received_r2 >= num_signers {
+                break;
+            }
         }
 
         // Cross-round participant validation

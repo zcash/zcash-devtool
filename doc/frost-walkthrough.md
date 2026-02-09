@@ -240,19 +240,17 @@ This outputs a binary PCZT file containing Orchard actions ready for signing.
 ### Step 2: Coordinator initiates signing
 
 The coordinator (who can be any participant -- not necessarily the same one
-from the DKG) reads the PCZT from stdin and orchestrates the signing ceremony:
+from the DKG) reads the PCZT from a file and orchestrates the signing ceremony:
 
 ```bash
-cat tx.pczt | zcash-devtool pczt -w ~/frost-wallet frost-sign \
-  --identity ~/frost-identity.txt \
+zcash-devtool pczt -w ~/frost-wallet frost-sign tx.pczt \
   --num-signers 2 \
-  [ACCOUNT_UUID] \
   > tx_signed.pczt
 ```
 
-The `ACCOUNT_UUID` argument is optional if only one FROST account exists in
-`frost.toml`. If you have multiple FROST accounts, you must specify which one
-to sign with.
+The PCZT file is a positional argument. Stdin is reserved for interactive JSON
+exchange during the signing ceremony. If you have multiple FROST accounts in
+`frost.toml`, specify which one to sign with using `--account <ACCOUNT_UUID>`.
 
 The coordinator's CLI:
 
@@ -303,7 +301,7 @@ as signers:
 ```
                  A (coordinator)              B (signer)         C (signer)
 
-  PCZT -------> frost-sign                   frost-participate   frost-participate
+  PCZT (file)-> frost-sign                   frost-participate   frost-participate
                   |
                   |--- Signing Request -----> paste              paste
                   |                             |                  |
