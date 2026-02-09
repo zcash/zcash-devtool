@@ -379,6 +379,64 @@ Security Considerations
 - **This is experimental software.** As with all of `zcash-devtool`, do not
   use this for production wallets or significant funds.
 
+Testing
+-------
+
+The FROST implementation has an automated test suite covering the cryptographic
+protocol, serialization layer, and the bridge into the Zcash wallet. Run all
+FROST tests with:
+
+```bash
+cargo test --features frost -- frost
+```
+
+This runs 17 tests organized in three categories:
+
+### Protocol and serde round-trips
+
+These tests verify that the DKG and signing ceremonies work correctly and that
+every serialized message type survives a JSON round-trip:
+
+| Test | What it covers |
+|------|----------------|
+| `dkg_full_ceremony_2_of_3` | Full 2-of-3 DKG through all three rounds |
+| `frost_signing_with_rerandomization` | Complete signing ceremony with spend auth rerandomization |
+| `identifier_hex_round_trip` | `IdHex` serialization |
+| `key_package_store_round_trip` | `KeyPackageStore` serialization |
+| `public_key_package_store_round_trip` | `PublicKeyPackageStore` serialization |
+| `signing_commitments_store_round_trip` | `SigningCommitmentsStore` serialization |
+| `signing_package_store_round_trip` | `SigningPackageStore` serialization |
+| `dkg_round1_package_store_round_trip` | `DkgRound1PackageStore` serialization |
+| `dkg_round2_package_store_round_trip` | `DkgRound2PackageStore` serialization |
+| `frost_config_round_trip` | `FrostConfig` TOML serialization |
+| `encrypt_decrypt_round_trip` | age encryption/decryption of key material |
+
+### Error handling
+
+| Test | What it covers |
+|------|----------------|
+| `id_hex_rejects_invalid_hex` | Bad hex strings are rejected |
+| `id_hex_rejects_wrong_length` | Wrong-length identifiers are rejected |
+| `key_package_store_rejects_truncated_fields` | Truncated fields are rejected |
+| `signing_commitments_store_rejects_bad_hex` | Bad hex in commitments is rejected |
+
+### Zcash wallet bridge
+
+These tests verify the two critical integration points between the FROST
+protocol and the Zcash wallet -- the boundaries that the protocol and serde
+tests alone do not cover:
+
+| Test | What it covers |
+|------|----------------|
+| `frost_dkg_to_orchard_fvk_and_address` | DKG group public key (`ak`) combined with coordinator-generated `nk`/`rivk` produces a valid Orchard `FullViewingKey`, derives an address, wraps in a `UnifiedFullViewingKey`, and round-trips the orchard component |
+| `frost_signature_to_orchard_spendauth` | FROST aggregate signature serialized to `[u8; 64]` converts to `orchard_redpallas::Signature<SpendAuth>` (the type consumed by `Signer::apply_orchard_signature()`) and round-trips correctly |
+
+The FVK construction test includes retry logic for the `ak` sign bit
+constraint: `SpendValidatingKey::from_bytes()` requires `b[31] & 0x80 == 0`,
+but the FROST DKG has no negation logic, so roughly half of DKG runs produce
+an `ak` that would be rejected. In production, the coordinator would need to
+handle this; the test retries the DKG until a valid `ak` is produced.
+
 Troubleshooting
 ---------------
 
