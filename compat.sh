@@ -8,6 +8,7 @@ die() {
 	echo "$@" >&2
 	exit 1
 }
+
 ### Bail and instruct user on missing package to install for their platform
 die_pkg() {
 	local -r package=${1?}
@@ -35,6 +36,7 @@ die_pkg() {
 	[ -n "$install_cmd" ] && echo "Try: \`${install_cmd}\`"  >&2
 	exit 1
 }
+
 ### Check if actual binary version is >= minimum version
 check_version(){
 	local pkg="${1?}"
@@ -53,6 +55,7 @@ check_version(){
 		((10#${ver1[i]} < 10#${ver2[i]})) && die_pkg "${pkg}" "${need}"
 	done
 }
+
 ### Check if required binaries are installed at appropriate versions
 check_tools(){
 	if [ -z "${BASH_VERSINFO[0]}" ] \
@@ -74,9 +77,8 @@ check_tools(){
 		esac
 	done
 }
+
 check_tools docker buildx;
 docker info -f '{{ .DriverStatus }}' \
     | grep "io.containerd.snapshotter.v1" >/dev/null \
 || die "Error: Docker Engine is not using containerd for image storage"
-
-
