@@ -2,7 +2,7 @@
 
 # stages:
 # - setup: sets default values
-# - release: builds release binaries
+# - release: builds release binary
 # - runtime: prepares the release image
 #
 # We first set default values for build arguments used across the stages.
@@ -78,7 +78,7 @@ RUN --network=none \
     cargo build --frozen --release --features "${FEATURES}" --target ${TARGET_ARCH} && \
     install -D -m 0755 ${HOME}/target/${TARGET_ARCH}/release/zcash-devtool /usr/local/bin/zcash-devtool
 
-# This stage is used for exporting the binaries
+# This stage is used to export the binary
 FROM scratch AS export
 COPY --from=release /usr/local/bin/* /
 
