@@ -6,7 +6,7 @@
 .PHONY: stagex compat build
 
 stagex:	compat build
-	@echo "stagex build completed via make! Thank you have a nice day."
+	@echo "stagex build completed via make."
 
 compat:
 	@echo "Beginning Compatibility Check step."
