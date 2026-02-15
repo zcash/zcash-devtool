@@ -17,8 +17,13 @@ scale experimentation, at your own risk.
 
 ## Usage
 
-No binary artifacts are provided for this crate; it is generally used via
-`cargo run` as follows:
+No binary artifacts are directly provided for this crate.
+
+However, a bootstrapped and reproducible build pipeline using StageX is included.
+To create a binary, you can simply run `make` in the root directory of the repo.
+The resulting binary will be found in the `/build/` directory.
+
+It can also be used via `cargo run` as follows:
 
 To obtain the help docs:
 ```
