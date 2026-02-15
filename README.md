@@ -19,7 +19,7 @@ scale experimentation, at your own risk.
 
 No binary artifacts are directly provided for this crate.
 
-However, a bootstrapped and reproducable build pipeline using StageX is included.
+However, a bootstrapped and reproducible build pipeline using StageX is included.
 To create a binary, you can simply run `make` in the root directory of the repo.
 The resulting binary will be found in the `/build/` directory.
 
