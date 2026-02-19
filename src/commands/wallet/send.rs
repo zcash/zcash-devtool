@@ -23,6 +23,7 @@ use zcash_client_backend::{
 };
 use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_keys::keys::UnifiedSpendingKey;
+use zcash_primitives::transaction::TxVersion;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::{
     memo::{Memo, MemoBytes},
@@ -70,6 +71,12 @@ pub(crate) struct Command {
     #[arg(long)]
     #[arg(default_value_t = 10000000)]
     min_split_output_value: u64,
+
+    /// The transaction version to use (4 or 5). Defaults to the version selected
+    /// by the wallet based on the consensus rules at the current chain height.
+    #[arg(long)]
+    #[arg(value_parser = crate::commands::wallet::send::parse_tx_version)]
+    tx_version: Option<TxVersion>,
 }
 
 pub(crate) trait PaymentContext {
@@ -79,6 +86,7 @@ pub(crate) trait PaymentContext {
     fn target_note_count(&self) -> usize;
     fn min_split_output_value(&self) -> u64;
     fn require_confirmation(&self) -> bool;
+    fn tx_version(&self) -> Option<TxVersion>;
 }
 
 impl PaymentContext for Command {
@@ -105,6 +113,24 @@ impl PaymentContext for Command {
 
     fn require_confirmation(&self) -> bool {
         false
+    }
+
+    fn tx_version(&self) -> Option<TxVersion> {
+        self.tx_version
+    }
+}
+
+pub(crate) fn parse_tx_version(s: &str) -> anyhow::Result<TxVersion> {
+    let v: u32 = s
+        .parse()
+        .map_err(|_| anyhow!("`{s}` is not a valid Zcash transaction version"))?;
+    match v {
+        4 => Ok(TxVersion::V4),
+        5 => Ok(TxVersion::V5),
+        other => Err(anyhow!(
+            "Unsupported transaction version {}; expected 4 or 5",
+            other
+        )),
     }
 }
 
@@ -185,6 +211,7 @@ pub(crate) async fn pay<C: PaymentContext>(
         &change_strategy,
         request,
         ConfirmationsPolicy::default(),
+        context.tx_version(),
     )
     .map_err(error::Error::from)?;
 
@@ -206,6 +233,7 @@ pub(crate) async fn pay<C: PaymentContext>(
             &SpendingKeys::from_unified_spending_key(usk),
             OvkPolicy::Sender,
             &proposal,
+            context.tx_version(),
         )
         .map_err(error::Error::from)?;
 
