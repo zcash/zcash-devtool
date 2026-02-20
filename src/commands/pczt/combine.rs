@@ -14,6 +14,10 @@ pub(crate) struct Command {
     /// A list of PCZT files to combine
     #[arg(short, long)]
     input: Vec<PathBuf>,
+
+    /// Path to a file to which to write the combined PCZT. If not provided, writes to stdout.
+    #[arg(short, long)]
+    output: Option<PathBuf>,
 }
 
 impl Command {
@@ -34,7 +38,16 @@ impl Command {
             .combine()
             .map_err(|e| anyhow!("Failed to combine PCZTs: {:?}", e))?;
 
-        stdout().write_all(&pczt.serialize()).await?;
+        if let Some(output_path) = &self.output {
+            File::create(output_path)
+                .await?
+                .write_all(&pczt.serialize())
+                .await?;
+        } else {
+            let mut stdout = stdout();
+            stdout.write_all(&pczt.serialize()).await?;
+            stdout.flush().await?;
+        }
 
         Ok(())
     }

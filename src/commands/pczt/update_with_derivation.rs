@@ -1,10 +1,15 @@
+use std::path::PathBuf;
+
 use anyhow::anyhow;
 use bip32::Prefix;
 use clap::Args;
 use pczt::{roles::updater::Updater, Pczt};
 use sapling::zip32::DiversifiableFullViewingKey;
 use secrecy::ExposeSecret;
-use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
+use tokio::{
+    fs::File,
+    io::{stdin, stdout, AsyncReadExt, AsyncWriteExt},
+};
 use transparent::{address::TransparentAddress, pczt::Bip32Derivation, zip48};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_protocol::{
@@ -29,6 +34,13 @@ pub(crate) struct Command {
 
     /// The ZIP 32 or BIP 44 path to derive.
     path: String,
+
+    /// Path to a file from which to read the PCZT. If not provided, reads from stdin.
+    input: Option<PathBuf>,
+
+    /// Path to a file to which to write the PCZT. If not provided, writes to stdout.
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 impl Command {
@@ -39,7 +51,11 @@ impl Command {
         let params = config.network();
 
         let mut buf = vec![];
-        stdin().read_to_end(&mut buf).await?;
+        if let Some(input_path) = &self.input {
+            File::open(input_path).await?.read_to_end(&mut buf).await?;
+        } else {
+            stdin().read_to_end(&mut buf).await?;
+        }
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 
@@ -154,7 +170,16 @@ impl Command {
 
         let pczt = updater.finish();
 
-        stdout().write_all(&pczt.serialize()).await?;
+        if let Some(output_path) = &self.output {
+            File::create(output_path)
+                .await?
+                .write_all(&pczt.serialize())
+                .await?;
+        } else {
+            let mut stdout = stdout();
+            stdout.write_all(&pczt.serialize()).await?;
+            stdout.flush().await?;
+        }
 
         Ok(())
     }

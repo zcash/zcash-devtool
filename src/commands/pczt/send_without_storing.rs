@@ -1,10 +1,15 @@
+use std::path::PathBuf;
+
 use anyhow::anyhow;
 use clap::Args;
 use pczt::{
     roles::{spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor},
     Pczt,
 };
-use tokio::io::{stdin, AsyncReadExt};
+use tokio::{
+    fs::File,
+    io::{stdin, AsyncReadExt},
+};
 use zcash_client_backend::proto::service;
 use zcash_proofs::prover::LocalTxProver;
 
@@ -15,6 +20,9 @@ use crate::{config::WalletConfig, error, remote::ConnectionArgs};
 pub(crate) struct Command {
     #[command(flatten)]
     connection: ConnectionArgs,
+
+    /// Path to a file from which to read the PCZT. If not provided, reads from stdin.
+    input: Option<PathBuf>,
 }
 
 impl Command {
@@ -25,7 +33,11 @@ impl Command {
         let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
         let mut buf = vec![];
-        stdin().read_to_end(&mut buf).await?;
+        if let Some(input_path) = &self.input {
+            File::open(input_path).await?.read_to_end(&mut buf).await?;
+        } else {
+            stdin().read_to_end(&mut buf).await?;
+        }
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 

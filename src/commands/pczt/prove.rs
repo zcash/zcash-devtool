@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::anyhow;
 use clap::Args;
 use pczt::{
@@ -6,7 +8,10 @@ use pczt::{
 };
 use sapling::ProofGenerationKey;
 use secrecy::{ExposeSecret, SecretVec};
-use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
+use tokio::{
+    fs::File,
+    io::{stdin, stdout, AsyncReadExt, AsyncWriteExt},
+};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::consensus::{NetworkConstants, Parameters};
@@ -25,12 +30,23 @@ pub(crate) struct Command {
     /// age identity file to decrypt the mnemonic phrase with for deriving the Sapling proof generation key
     #[arg(short, long)]
     identity: Option<String>,
+
+    /// Path to a file from which to read the PCZT. If not provided, reads from stdin.
+    input: Option<PathBuf>,
+
+    /// Path to a file to which to write the PCZT. If not provided, writes to stdout.
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
         let mut buf = vec![];
-        stdin().read_to_end(&mut buf).await?;
+        if let Some(input_path) = &self.input {
+            File::open(input_path).await?.read_to_end(&mut buf).await?;
+        } else {
+            stdin().read_to_end(&mut buf).await?;
+        }
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 
@@ -179,7 +195,16 @@ impl Command {
             .map_err(|e| anyhow!("Failed to create Sapling proofs: {:?}", e))?
             .finish();
 
-        stdout().write_all(&pczt.serialize()).await?;
+        if let Some(output_path) = &self.output {
+            File::create(output_path)
+                .await?
+                .write_all(&pczt.serialize())
+                .await?;
+        } else {
+            let mut stdout = stdout();
+            stdout.write_all(&pczt.serialize()).await?;
+            stdout.flush().await?;
+        }
 
         Ok(())
     }
