@@ -12,27 +12,27 @@ use tonic::transport::Channel;
 use tracing::{debug, error, info};
 use zcash_client_backend::{
     data_api::{
+        WalletCommitmentTrees, WalletRead, WalletWrite,
         chain::{
-            error::Error as ChainError, scan_cached_blocks, BlockSource, ChainState,
-            CommitmentTreeRoot,
+            BlockSource, ChainState, CommitmentTreeRoot, error::Error as ChainError,
+            scan_cached_blocks,
         },
         scanning::{ScanPriority, ScanRange},
-        WalletCommitmentTrees, WalletRead, WalletWrite,
     },
-    proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient, BlockId},
+    proto::service::{self, BlockId, compact_tx_streamer_client::CompactTxStreamerClient},
 };
 use zcash_client_sqlite::{
-    chain::BlockMeta, util::SystemClock, FsBlockDb, FsBlockDbError, WalletDb,
+    FsBlockDb, FsBlockDbError, WalletDb, chain::BlockMeta, util::SystemClock,
 };
 use zcash_primitives::merkle_tree::HashSer;
 use zcash_protocol::consensus::{BlockHeight, Parameters};
 
 use crate::{
+    ShutdownListener,
     config::get_wallet_network,
     data::{get_block_path, get_db_paths},
     error,
     remote::ConnectionArgs,
-    ShutdownListener,
 };
 
 #[cfg(feature = "transparent-inputs")]

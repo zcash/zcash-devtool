@@ -1,16 +1,16 @@
 use anyhow::anyhow;
 use clap::Args;
 use iso_currency::Currency;
-use rust_decimal::{prelude::FromPrimitive, Decimal};
+use rust_decimal::{Decimal, prelude::FromPrimitive};
 use tracing::{info, warn};
 use uuid::Uuid;
 use zcash_client_backend::{
-    data_api::{wallet::ConfirmationsPolicy, Account as _, WalletRead},
+    data_api::{Account as _, WalletRead, wallet::ConfirmationsPolicy},
     tor,
 };
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedAddressRequest;
-use zcash_protocol::value::{Zatoshis, COIN};
+use zcash_protocol::value::{COIN, Zatoshis};
 
 use crate::{
     commands::select_account, config::get_wallet_network, data::get_db_paths, error,

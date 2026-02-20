@@ -4,18 +4,18 @@ use anyhow::anyhow;
 use clap::Args;
 use futures_util::StreamExt;
 use rand::rngs::OsRng;
-use tonic::{transport::Channel, Code};
+use tonic::{Code, transport::Channel};
 use tracing::info;
 use zcash_client_backend::{
     data_api::{
-        wallet::decrypt_and_store_transaction, TransactionDataRequest, TransactionStatus,
-        WalletRead, WalletWrite,
+        TransactionDataRequest, TransactionStatus, WalletRead, WalletWrite,
+        wallet::decrypt_and_store_transaction,
     },
     proto::service::{
-        self, compact_tx_streamer_client::CompactTxStreamerClient, BlockRange, RawTransaction,
+        self, BlockRange, RawTransaction, compact_tx_streamer_client::CompactTxStreamerClient,
     },
 };
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::encoding::AddressCodec;
 use zcash_primitives::transaction::{Transaction, TxId};
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network};

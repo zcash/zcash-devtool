@@ -104,7 +104,9 @@ impl Command {
                 )),
             }),
             (None, None) => Ok(AccountPurpose::ViewOnly),
-            _ => Err(anyhow!("Need either both (for spending) or neither (for view-only) of seed_fingerprint and hd_account_index")),
+            _ => Err(anyhow!(
+                "Need either both (for spending) or neither (for view-only) of seed_fingerprint and hd_account_index"
+            )),
         }?;
 
         // Save the wallet config to disk.
