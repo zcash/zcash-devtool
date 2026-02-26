@@ -103,6 +103,7 @@ impl Command {
             &change_strategy,
             request,
             ConfirmationsPolicy::default(),
+            None,
         )
         .map_err(error::Error::from)?;
 

@@ -6,6 +6,8 @@ use uuid::Uuid;
 
 use zip321::TransactionRequest;
 
+use zcash_primitives::transaction::TxVersion;
+
 use crate::{
     commands::wallet::send::{pay, PaymentContext},
     remote::ConnectionArgs,
@@ -69,6 +71,10 @@ impl PaymentContext for Command {
 
     fn require_confirmation(&self) -> bool {
         !self.disable_confirmation
+    }
+
+    fn tx_version(&self) -> Option<TxVersion> {
+        None
     }
 }
 
