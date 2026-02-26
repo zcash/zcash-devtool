@@ -130,7 +130,7 @@ WORKDIR ${HOME}
 # User with UID=${UID} is created above and used via setpriv in entrypoint.sh.
 
 COPY --from=release /usr/local/bin/zcash-devtool /usr/local/bin/
-COPY --chown=${UID}:${GID} ./entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --chown=${UID}:${GID} ./utils/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT [ "entrypoint.sh" ]
 CMD [ "zcash-devtool" ]
