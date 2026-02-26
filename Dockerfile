@@ -81,9 +81,7 @@ COPY --from=release /usr/local/bin/* /
 
 # This stage starts from scratch using StageX and copies the built
 # zcash-devtool binary from the `release` stage
-FROM scratch AS runtime
-COPY --from=setup /usr/bin/busybox . /
-RUN ["busybox", "--install", "-s", "usr/bin"]
+FROM busybox AS runtime
 
 ARG FEATURES
 ENV FEATURES=${FEATURES}
@@ -132,7 +130,7 @@ WORKDIR ${HOME}
 # User with UID=${UID} is created above and used via setpriv in entrypoint.sh.
 
 COPY --from=release /usr/local/bin/zcash-devtool /usr/local/bin/
-# COPY --chown=${UID}:${GID} ./docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --chown=${UID}:${GID} ./entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT [ "entrypoint.sh" ]
 CMD [ "zcash-devtool" ]
