@@ -10,12 +10,12 @@ stagex:	compat build
 
 compat:
 	@echo "Beginning Compatibility Check step."
-	@./compat.sh
+	@./utils/compat.sh
 	@echo "  [PASS]  Compatibility Check passed."
 
 build:
 	@echo "Entering Build step."
-	@./build.sh
+	@./utils/build.sh
 	@echo "Build step complete."
 
 load:
