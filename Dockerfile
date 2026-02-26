@@ -36,9 +36,6 @@ ENV CARGO_INCREMENTAL=${CARGO_INCREMENTAL:-0}
 ARG CARGO_HOME
 ENV CARGO_HOME=${CARGO_HOME}
 
-ARG FEATURES
-ENV FEATURES=${FEATURES}
-
 # This stage builds the zcash-devtool release binary.
 FROM setup AS release
 
@@ -75,7 +72,7 @@ RUN --network=none \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
     --mount=type=cache,target=${CARGO_TARGET_DIR} \
     --mount=type=cache,target=${CARGO_HOME} \
-    cargo build --frozen --release --features "${FEATURES}" --target ${TARGET_ARCH} && \
+    cargo build --frozen --release --all-features --target ${TARGET_ARCH} && \
     install -D -m 0755 ${HOME}/target/${TARGET_ARCH}/release/zcash-devtool /usr/local/bin/zcash-devtool
 
 # This stage is used to export the binary
@@ -114,13 +111,12 @@ ENV USER=${USER}
 ARG HOME
 ENV HOME=${HOME}
 
-
-COPY --chmod=644 <<-EOF /etc/passwd
+COPY --chmod=550 <<-EOF /etc/passwd
 	root:x:0:0:root:/root:/bin/sh
 	user:x:${UID}:${GID}::${HOME}:/bin/sh
 EOF
 
-COPY --chmod=644 <<-EOF /etc/group
+COPY --chmod=550 <<-EOF /etc/group
 	root:x:0:
 	user:x:${GID}:
 EOF
@@ -139,4 +135,4 @@ COPY --from=release /usr/local/bin/zcash-devtool /usr/local/bin/
 # COPY --chown=${UID}:${GID} ./docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT [ "entrypoint.sh" ]
-CMD ["zcash-devtool"]
+CMD [ "zcash-devtool" ]
