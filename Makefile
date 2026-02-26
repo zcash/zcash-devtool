@@ -3,7 +3,7 @@
 # Running `make` or `make stagex` will leverage the steps below
 # to check compatibility and build the binary via StageX.
 
-.PHONY: stagex compat build
+.PHONY: stagex compat build load
 
 stagex:	compat build
 	@echo "stagex build completed via make."
@@ -17,3 +17,8 @@ build:
 	@echo "Entering Build step."
 	@./build.sh
 	@echo "Build step complete."
+
+load:
+	@echo "Attempting to load OCI image into local docker image store."
+	@./utils/load_image.sh
+	@echo "make load step complete."
