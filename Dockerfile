@@ -121,7 +121,7 @@ EOF
 
 USER ${UID}:${GID}
 
-WORKDIR ${HOME}
+WORKDIR /usr/local/bin
 
 # We're explicitly NOT using the USER directive here.
 # Instead, we run as root initially and use setpriv in the entrypoint.sh
@@ -133,4 +133,4 @@ COPY --from=release /usr/local/bin/zcash-devtool /usr/local/bin/
 COPY --chown=${UID}:${GID} ./utils/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT [ "entrypoint.sh" ]
-CMD [ "zcash-devtool" ]
+CMD [ "./zcash-devtool" ]

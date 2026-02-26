@@ -22,3 +22,8 @@ load:
 	@echo "Attempting to load OCI image into local docker image store."
 	@./utils/load_image.sh
 	@echo "make load step complete."
+
+create:
+	@echo "Attempting to make zcash-devtool wallet, if there is none. The docker container's runtime shares the host kernel's entropy source."
+	@./utils/create_wallet.sh
+	@echo "Wallet creation script complete."
