@@ -124,8 +124,8 @@ USER ${UID}:${GID}
 WORKDIR /usr/local/bin
 
 USER root
-COPY --from=release --chown=${UID}:${GID} /usr/local/bin/zcash-devtool /usr/local/bin/
-COPY --chown=${UID}:${GID} ./utils/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --from=release /usr/local/bin/zcash-devtool /usr/local/bin/
+COPY ./utils/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN mkdir -p /usr/local/bin/zec_sqlite_wallet && chown -R ${UID}:${GID} /usr/local/bin/ && chmod -R 770 /usr/local/bin/ && chmod 550 /usr/local/bin/zcash-devtool
 USER $USER
 
