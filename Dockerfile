@@ -79,7 +79,7 @@ RUN --network=none \
 FROM scratch AS export
 COPY --from=release /usr/local/bin/* /
 
-# This stage starts from scratch using StageX and copies the built
+# This stage starts from StageX/busybox and copies the built
 # zcash-devtool binary from the `release` stage
 FROM busybox AS runtime
 
