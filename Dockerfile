@@ -14,7 +14,7 @@ ARG FEATURES=""
 
 ARG UID=10801
 ARG GID=${UID}
-ARG USER="devtool-user"
+ARG USER="user"
 ARG HOME="/home/${USER}"
 ARG CARGO_HOME="${HOME}/.cargo"
 ARG CARGO_TARGET_DIR="${HOME}/target"
@@ -123,14 +123,11 @@ USER ${UID}:${GID}
 
 WORKDIR /usr/local/bin
 
-# We're explicitly NOT using the USER directive here.
-# Instead, we run as root initially and use setpriv in the entrypoint.sh
-# to step down to the non-privileged user. This allows us to change permissions
-# on mounted volumes before running the application as a non-root user.
-# User with UID=${UID} is created above and used via setpriv in entrypoint.sh.
-
-COPY --from=release /usr/local/bin/zcash-devtool /usr/local/bin/
+USER root
+COPY --from=release --chown=${UID}:${GID} /usr/local/bin/zcash-devtool /usr/local/bin/
 COPY --chown=${UID}:${GID} ./utils/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN mkdir -p /usr/local/bin/zec_sqlite_wallet && chown -R ${UID}:${GID} /usr/local/bin/ && chmod -R 770 /usr/local/bin/ && chmod 550 /usr/local/bin/zcash-devtool
+USER $USER
 
 ENTRYPOINT [ "entrypoint.sh" ]
 CMD [ "./zcash-devtool" ]
