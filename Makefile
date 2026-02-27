@@ -3,7 +3,7 @@
 # Running `make` or `make stagex` will leverage the steps below
 # to check compatibility and build the binary via StageX.
 
-.PHONY: stagex compat build load
+.PHONY: stagex compat build load create
 
 stagex:	compat build
 	@echo "stagex build completed via make."
@@ -24,6 +24,6 @@ load:
 	@echo "make load step complete."
 
 create:
-	@echo "Attempting to make zcash-devtool wallet, if there is none. The docker container's runtime shares the host kernel's entropy source."
+	@echo "Making zcash-devtool wallet. This requires user input. The docker container's runtime shares the host kernel's entropy source."
 	@./utils/create_wallet.sh
 	@echo "Wallet creation script complete."
