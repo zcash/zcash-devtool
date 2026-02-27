@@ -3,6 +3,7 @@
 # stages:
 # - setup: sets default values
 # - release: builds release binary
+# - export: minimal binary export
 # - runtime: prepares the release image
 #
 # We first set default values for build arguments used across the stages.
