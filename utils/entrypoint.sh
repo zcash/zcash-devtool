@@ -24,7 +24,7 @@ set -eo pipefail
 echo "INFO: Using the following environment variables:"
 printenv
 
-echo "Testing zingo-cli to print version string:"
+echo "Testing zcash-devtool to print version string:"
 ./zcash-devtool help
 
 echo "now exec'ing $@ "
