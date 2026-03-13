@@ -17,10 +17,14 @@ use zcash_proofs::{default_params_folder, load_parameters, ZcashParameters};
 use zcash_protocol::{
     consensus::{BranchId, NetworkType},
     constants,
+    memo::{Memo, MemoBytes},
 };
+use zip321::TransactionRequest;
 
 mod context;
 use context::{Context, ZUint256};
+
+use crate::ui::format_zec;
 
 pub(crate) mod address;
 pub(crate) mod block;
@@ -61,6 +65,8 @@ impl Command {
         if let Ok(mnemonic) = bip0039::Mnemonic::from_phrase(&opts.data) {
             opts.data.zeroize();
             keys::inspect_mnemonic(mnemonic, opts.context);
+        } else if let Ok(request) = TransactionRequest::from_uri(&opts.data) {
+            inspect_zip321(request);
         } else if let Ok(bytes) = hex::decode(&opts.data) {
             inspect_bytes(bytes, opts.context, opts.lookup).await;
         } else if let Ok(addr) = ZcashAddress::try_from_encoded(&opts.data) {
@@ -161,6 +167,68 @@ async fn inspect_bytes(bytes: Vec<u8>, context: Option<Context>, lookup: bool) {
                 process::exit(2);
             }
         }
+    }
+}
+
+fn inspect_zip321(request: TransactionRequest) {
+    eprintln!("ZIP 321 payment request");
+
+    let payments = request.payments();
+    eprintln!(" - Payment count: {}", payments.len());
+
+    match request.total() {
+        Ok(Some(total)) => {
+            let zats = total.into_u64();
+            eprintln!(
+                " - Total: {} zatoshis ({} ZEC)",
+                zats,
+                zats as f64 / 1_0000_0000f64
+            );
+        }
+        Ok(None) => {
+            eprintln!("One or more payments does not include a value; cannot compute total.");
+        }
+        Err(e) => {
+            eprintln!("Error computing payment request total: {}", e);
+        }
+    }
+
+    for (&index, payment) in payments {
+        eprintln!();
+        eprintln!(" Payment #{index}:");
+        eprintln!("   - Address: {}", payment.recipient_address());
+        match payment.amount() {
+            Some(amount) => {
+                let zats = amount.into_u64();
+                eprintln!(
+                    "   - Amount: {} zatoshis ({} ZEC)",
+                    zats,
+                    format_zec(amount)
+                );
+            }
+            None => eprintln!("   - Amount: not specified"),
+        }
+        if let Some(memo) = payment.memo() {
+            eprintln!("   - Memo: {}", render_memo(memo));
+        }
+        if let Some(label) = payment.label() {
+            eprintln!("   - Label: {label}");
+        }
+        if let Some(message) = payment.message() {
+            eprintln!("   - Message: {message}");
+        }
+        for (key, value) in payment.other_params() {
+            eprintln!("   - {key}: {value}");
+        }
+    }
+}
+
+fn render_memo(memo_bytes: &MemoBytes) -> String {
+    match Memo::try_from(memo_bytes) {
+        Ok(Memo::Empty) => "empty".to_string(),
+        Ok(Memo::Text(memo)) => format!("'{}'", String::from(memo)),
+        Ok(memo) => format!("{memo:?}"),
+        Err(e) => format!("invalid memo: {e}"),
     }
 }
 
