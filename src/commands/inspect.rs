@@ -2,18 +2,18 @@ use std::io;
 use std::io::Cursor;
 use std::process;
 
-use bech32::primitives::decode::CheckedHrpstring;
 use bech32::Bech32;
+use bech32::primitives::decode::CheckedHrpstring;
 use clap::Args;
 use lazy_static::lazy_static;
 use secrecy::Zeroize;
 
 use zcash_address::{
-    unified::{self, Encoding},
     ZcashAddress,
+    unified::{self, Encoding},
 };
 use zcash_primitives::{block::BlockHeader, transaction::Transaction};
-use zcash_proofs::{default_params_folder, load_parameters, ZcashParameters};
+use zcash_proofs::{ZcashParameters, default_params_folder, load_parameters};
 use zcash_protocol::{
     consensus::{BranchId, NetworkType},
     constants,

@@ -2,18 +2,18 @@ use std::collections::BTreeMap;
 
 use anyhow::anyhow;
 use clap::Args;
-use pczt::{roles::verifier::Verifier, Pczt};
+use pczt::{Pczt, roles::verifier::Verifier};
 use secrecy::ExposeSecret;
-use tokio::io::{stdin, AsyncReadExt};
+use tokio::io::{AsyncReadExt, stdin};
 
 use ::transparent::sighash::SighashType;
 use transparent::address::TransparentAddress;
 use zcash_keys::encoding::AddressCodec;
 use zcash_primitives::transaction::{
+    TxVersion,
     sighash::SignableInput,
     sighash_v5::v5_signature_hash,
-    txid::{to_txid, TxIdDigester},
-    TxVersion,
+    txid::{TxIdDigester, to_txid},
 };
 use zcash_protocol::consensus::{NetworkConstants, Parameters};
 use zcash_script::solver;

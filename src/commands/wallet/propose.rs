@@ -7,13 +7,13 @@ use uuid::Uuid;
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
-        wallet::{input_selection::GreedyInputSelector, propose_transfer, ConfirmationsPolicy},
         Account as _,
+        wallet::{ConfirmationsPolicy, input_selection::GreedyInputSelector, propose_transfer},
     },
-    fees::{zip317::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
+    fees::{DustOutputPolicy, SplitPolicy, StandardFeeRule, zip317::MultiOutputChangeStrategy},
 };
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
-use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
+use zcash_protocol::{ShieldedProtocol, value::Zatoshis};
 use zip321::{Payment, TransactionRequest};
 
 use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths, error};

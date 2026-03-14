@@ -7,7 +7,7 @@ use zcash_keys::keys::UnifiedAddressRequest;
 use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths};
 
 #[cfg(feature = "qr")]
-use qrcode::{render::unicode, QrCode};
+use qrcode::{QrCode, render::unicode};
 
 // Options accepted for the `list-addresses` command
 #[derive(Debug, Args)]

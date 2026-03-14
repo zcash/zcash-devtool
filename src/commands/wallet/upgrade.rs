@@ -2,10 +2,10 @@ use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
 use zcash_client_sqlite::{
+    FsBlockDb, WalletDb,
     chain::init::init_blockmeta_db,
     util::SystemClock,
-    wallet::init::{init_wallet_db, WalletMigrationError},
-    FsBlockDb, WalletDb,
+    wallet::init::{WalletMigrationError, init_wallet_db},
 };
 
 use crate::{

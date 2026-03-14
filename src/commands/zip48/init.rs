@@ -9,7 +9,7 @@ use zcash_protocol::consensus::{self, Parameters};
 
 use crate::{
     config::WalletConfig,
-    data::{init_dbs, Network},
+    data::{Network, init_dbs},
 };
 
 // Options accepted for the `zip48 init` command

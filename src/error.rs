@@ -2,10 +2,10 @@ use std::convert::Infallible;
 use std::fmt;
 
 use zcash_client_backend::data_api::{
-    error::Error as WalletError, wallet::input_selection::GreedyInputSelectorError, BirthdayError,
+    BirthdayError, error::Error as WalletError, wallet::input_selection::GreedyInputSelectorError,
 };
 use zcash_client_sqlite::{
-    error::SqliteClientError, wallet::commitment_tree, FsBlockDbError, ReceivedNoteId,
+    FsBlockDbError, ReceivedNoteId, error::SqliteClientError, wallet::commitment_tree,
 };
 use zcash_keys::keys::DerivationError;
 use zcash_primitives::transaction::fees::zip317;

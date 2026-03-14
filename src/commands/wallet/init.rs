@@ -13,7 +13,7 @@ use zcash_protocol::consensus::{self, BlockHeight, Parameters};
 
 use crate::{
     config::WalletConfig,
-    data::{init_dbs, Network},
+    data::{Network, init_dbs},
     error,
     remote::ConnectionArgs,
 };

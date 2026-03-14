@@ -14,8 +14,8 @@ use zcash_primitives::{block::BlockHeader, transaction::Transaction};
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network, NetworkUpgrade, Parameters};
 
 use super::{
-    transaction::{extract_height_from_coinbase, is_coinbase},
     Context, ZUint256,
+    transaction::{extract_height_from_coinbase, is_coinbase},
 };
 
 const MIN_BLOCK_VERSION: i32 = 4;
@@ -277,7 +277,9 @@ fn inspect_header_inner(header: &BlockHeader, params: Option<Network>) {
             eprintln!("⚠️  Invalid Proof-of-Work: {e}");
         }
     } else {
-        eprintln!("🔎 To check contextual rules, add \"network\" to context (either \"main\" or \"test\")");
+        eprintln!(
+            "🔎 To check contextual rules, add \"network\" to context (either \"main\" or \"test\")"
+        );
     }
 }
 
@@ -385,15 +387,17 @@ pub(crate) fn inspect(block: &Block, context: Option<Context>) {
     } else if Some(height) == params.activation_height(NetworkUpgrade::Heartwood) {
         if block.header.final_sapling_root != [0; 32] {
             // zcashd: bad-heartwood-root-in-block
-            eprintln!("⚠️  This is the block that activates Heartwood but header.blockcommitments is not null");
+            eprintln!(
+                "⚠️  This is the block that activates Heartwood but header.blockcommitments is not null"
+            );
         }
     } else if params.is_nu_active(NetworkUpgrade::Heartwood, height) {
         if let Some(chain_history_root) = context.and_then(|c| c.chainhistoryroot) {
             if chain_history_root.0 != block.header.final_sapling_root {
                 // zcashd: bad-heartwood-root-in-block
                 eprintln!(
-                "⚠️  [Heartwood] header.blockcommitments doesn't match provided chain history root"
-            );
+                    "⚠️  [Heartwood] header.blockcommitments doesn't match provided chain history root"
+                );
                 eprintln!("   - chainhistoryroot:        {chain_history_root}");
                 eprintln!(
                     "   - header.blockcommitments: {}",

@@ -2,12 +2,12 @@ use anyhow::anyhow;
 use clap::Args;
 use pczt::Pczt;
 use rand::rngs::OsRng;
-use tokio::io::{stdin, AsyncReadExt};
+use tokio::io::{AsyncReadExt, stdin};
 use zcash_client_backend::{
-    data_api::{wallet::extract_and_store_transaction_from_pczt, WalletRead},
+    data_api::{WalletRead, wallet::extract_and_store_transaction_from_pczt},
     proto::service,
 };
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_proofs::prover::LocalTxProver;
 
 use crate::{config::WalletConfig, data::get_db_paths, error, remote::ConnectionArgs};

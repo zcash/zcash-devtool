@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use zcash_protocol::consensus::{self, BlockHeight, Parameters};
 
 use crate::{
-    data::{Network, DEFAULT_WALLET_DIR},
+    data::{DEFAULT_WALLET_DIR, Network},
     error,
 };
 

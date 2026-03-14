@@ -7,7 +7,7 @@ use transparent::{
 };
 use zcash_keys::address::{Address, Receiver};
 use zcash_primitives::transaction::{builder::Builder, fees::zip317};
-use zcash_protocol::{consensus, memo::MemoBytes, value::Zatoshis, PoolType};
+use zcash_protocol::{PoolType, consensus, memo::MemoBytes, value::Zatoshis};
 use zcash_script::script;
 
 use crate::error;
