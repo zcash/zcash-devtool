@@ -1,10 +1,13 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use anyhow::anyhow;
 use clap::Args;
 use pczt::{roles::verifier::Verifier, Pczt};
 use secrecy::ExposeSecret;
-use tokio::io::{stdin, AsyncReadExt};
+use tokio::{
+    fs::File,
+    io::{stdin, AsyncReadExt},
+};
 
 use ::transparent::sighash::SighashType;
 use transparent::address::TransparentAddress;
@@ -27,6 +30,9 @@ pub(crate) struct Command {
     /// age identity file to decrypt the mnemonic phrase with (if a wallet is provided)
     #[arg(short, long)]
     identity: Option<String>,
+
+    /// Path to a file from which to read the PCZT. If not provided, reads from stdin.
+    input: Option<PathBuf>,
 }
 
 impl Command {
@@ -39,7 +45,11 @@ impl Command {
         }?;
 
         let mut buf = vec![];
-        stdin().read_to_end(&mut buf).await?;
+        if let Some(input_path) = &self.input {
+            File::open(input_path).await?.read_to_end(&mut buf).await?;
+        } else {
+            stdin().read_to_end(&mut buf).await?;
+        }
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 
