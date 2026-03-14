@@ -7,8 +7,6 @@
 #
 # We first set default values for build arguments used across the stages.
 # Each stage must define the build arguments (ARGs) it uses.
-ARG FEATURES=""
-
 ARG UID=10801
 ARG GID=${UID}
 ARG USER="user"
@@ -37,7 +35,6 @@ ENV CARGO_HOME=${CARGO_HOME}
 
 ARG CARGO_TARGET_DIR
 ARG TARGET_ARCH
-ARG FEATURES
 
 ENV RUST_BACKTRACE=1
 ENV RUSTFLAGS="-C codegen-units=1"
@@ -60,7 +57,7 @@ RUN --network=none \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=${CARGO_TARGET_DIR} \
     --mount=type=cache,target=${CARGO_HOME} \
-    cargo build --frozen --release ${FEATURES:+--features ${FEATURES}} --target ${TARGET_ARCH} && \
+    cargo build --frozen --release --all-features --target ${TARGET_ARCH} && \
     install -D -m 0755 ${HOME}/target/${TARGET_ARCH}/release/zcash-devtool /usr/local/bin/zcash-devtool
 
 # This stage is used to export the binary
@@ -70,9 +67,6 @@ COPY --from=release /usr/local/bin/* /
 # This stage starts from StageX/busybox and copies the built
 # zcash-devtool binary from the `release` stage
 FROM busybox AS runtime
-
-ARG FEATURES
-ENV FEATURES=${FEATURES}
 
 # Create a non-privileged user for running `zcash-devtool`.
 #
@@ -107,6 +101,7 @@ COPY --chmod=550 <<-EOF /etc/group
 	user:x:${GID}:
 EOF
 
+USER root
 COPY --from=release /usr/local/bin/zcash-devtool /usr/local/bin/
 COPY ./utils/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN mkdir -p /usr/local/bin/zec_sqlite_wallet && chown -R ${UID}:${GID} /usr/local/bin/ && chmod -R 770 /usr/local/bin/ && chmod 550 /usr/local/bin/zcash-devtool
