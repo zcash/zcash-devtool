@@ -4,3 +4,6 @@
 # Guard against accidental commits of the `local` and `tmp` paths
 /local
 /tmp
+
+#StageX build directory
+/build
