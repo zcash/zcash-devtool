@@ -585,6 +585,20 @@ fn scan_blocks<P: Parameters + Send + 'static>(
             Ok(true)
         }
         Ok(_) => {
+            if let Some(summary) = db_data.get_wallet_summary(0)? {
+                info!(
+                    "Scan complete for range {}; progress is {}/{}",
+                    scan_range,
+                    summary.progress().scan().numerator()
+                        + summary.progress().recovery().map_or(0, |p| *p.numerator()),
+                    summary.progress().scan().denominator()
+                        + summary
+                            .progress()
+                            .recovery()
+                            .map_or(0, |p| *p.denominator()),
+                )
+            }
+
             // If scanning these blocks caused a suggested range to be added that has a
             // higher priority than the current range, invalidate the current ranges.
             let latest_ranges = db_data.suggest_scan_ranges()?;
