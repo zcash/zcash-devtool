@@ -104,7 +104,7 @@ EOF
 USER root
 COPY --from=release /usr/local/bin/zcash-devtool /usr/local/bin/
 COPY ./utils/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN mkdir -p /usr/local/bin/zec_sqlite_wallet && chown -R ${UID}:${GID} /usr/local/bin/ && chmod -R 770 /usr/local/bin/ && chmod 550 /usr/local/bin/zcash-devtool
+RUN chown -R ${UID}:${GID} /usr/local/bin/ && chmod -R 770 /usr/local/bin/ && chmod 550 /usr/local/bin/zcash-devtool
 WORKDIR /usr/local/bin
 USER ${UID}:${GID}
 
