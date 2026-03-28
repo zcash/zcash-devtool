@@ -11,24 +11,24 @@ use uuid::Uuid;
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
-        wallet::{
-            create_proposed_transactions, input_selection::GreedyInputSelector, propose_transfer,
-            ConfirmationsPolicy, SpendingKeys,
-        },
         Account, WalletRead,
+        wallet::{
+            ConfirmationsPolicy, SpendingKeys, create_proposed_transactions,
+            input_selection::GreedyInputSelector, propose_transfer,
+        },
     },
-    fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
+    fees::{DustOutputPolicy, SplitPolicy, StandardFeeRule, standard::MultiOutputChangeStrategy},
     proto::service,
     wallet::OvkPolicy,
 };
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_primitives::transaction::TxVersion;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::{
+    ShieldedProtocol,
     memo::{Memo, MemoBytes},
     value::Zatoshis,
-    ShieldedProtocol,
 };
 use zip321::{Payment, TransactionRequest};
 
@@ -149,7 +149,7 @@ impl Command {
             None,
             vec![],
         )
-        .ok_or_else(|| error::Error::TransparentMemo(0))?;
+        .map_err(|e| e.with_index(0))?;
         let request = TransactionRequest::new(vec![payment]).map_err(error::Error::from)?;
 
         pay(wallet_dir, self, request).await

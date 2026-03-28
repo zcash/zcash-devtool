@@ -7,7 +7,7 @@ use zcash_client_backend::{
     data_api::{AccountBirthday, AccountPurpose, WalletWrite, Zip32Derivation},
     proto::service,
 };
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_protocol::consensus;
 use zip32::fingerprint::SeedFingerprint;
@@ -93,7 +93,9 @@ impl Command {
                 )),
             }),
             (None, None) => Ok(AccountPurpose::ViewOnly),
-            _ => Err(anyhow!("Need either both (for spending) or neither (for view-only) of seed_fingerprint and hd_account_index")),
+            _ => Err(anyhow!(
+                "Need either both (for spending) or neither (for view-only) of seed_fingerprint and hd_account_index"
+            )),
         }?;
 
         // Import the UFVK.

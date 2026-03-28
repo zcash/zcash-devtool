@@ -3,11 +3,11 @@ use std::{collections::BTreeMap, convert::Infallible};
 use anyhow::anyhow;
 use clap::Args;
 use pczt::{
-    roles::{signer::Signer, verifier::Verifier},
     Pczt,
+    roles::{signer::Signer, verifier::Verifier},
 };
 use secrecy::ExposeSecret;
-use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, stdin, stdout};
 
 use ::transparent::{
     keys::{NonHardenedChildIndex, TransparentKeyScope},

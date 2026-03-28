@@ -2,22 +2,22 @@ use std::str::FromStr;
 
 use clap::Args;
 use rand::rngs::OsRng;
-use tokio::io::{stdout, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt, stdout};
 use uuid::Uuid;
 
 use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
-        wallet::{create_pczt_from_proposal, propose_send_max_transfer, ConfirmationsPolicy},
         Account as _, MaxSpendMode,
+        wallet::{ConfirmationsPolicy, create_pczt_from_proposal, propose_send_max_transfer},
     },
     fees::StandardFeeRule,
     wallet::OvkPolicy,
 };
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_protocol::{
-    memo::{Memo, MemoBytes},
     ShieldedProtocol,
+    memo::{Memo, MemoBytes},
 };
 
 use crate::{commands::select_account, config::WalletConfig, data::get_db_paths, error};
