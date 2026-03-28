@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::anyhow;
 use clap::Args;
-use pczt::{roles::combiner::Combiner, Pczt};
+use pczt::{Pczt, roles::combiner::Combiner};
 use tokio::{
     fs::File,
-    io::{stdout, AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt, stdout},
 };
 
 // Options accepted for the `pczt combine` command

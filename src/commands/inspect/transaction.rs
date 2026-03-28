@@ -5,7 +5,7 @@ use std::{
 
 use bellman::groth16;
 use group::GroupEncoding;
-use sapling::{note_encryption::SaplingDomain, SaplingVerificationContext};
+use sapling::{SaplingVerificationContext, note_encryption::SaplingDomain};
 use secp256k1::{Secp256k1, VerifyOnly};
 
 use ::transparent::{
@@ -15,16 +15,16 @@ use ::transparent::{
 };
 use orchard::note_encryption::OrchardDomain;
 use zcash_address::{
-    unified::{self, Encoding},
     ToAddress, ZcashAddress,
+    unified::{self, Encoding},
 };
 use zcash_note_encryption::try_output_recovery_with_ovk;
 #[allow(deprecated)]
 use zcash_primitives::transaction::{
-    components::sapling as sapling_serialization,
-    sighash::{signature_hash, SignableInput},
-    txid::TxIdDigester,
     Authorization, Transaction, TransactionData, TxId, TxVersion,
+    components::sapling as sapling_serialization,
+    sighash::{SignableInput, signature_hash},
+    txid::TxIdDigester,
 };
 use zcash_protocol::{
     consensus::BlockHeight,
@@ -34,8 +34,8 @@ use zcash_protocol::{
 use zcash_script::{script, solver};
 
 use super::{
-    context::{Context, ZTxOut},
     GROTH16_PARAMS, ORCHARD_VK,
+    context::{Context, ZTxOut},
 };
 
 pub fn is_coinbase(tx: &Transaction) -> bool {
@@ -160,7 +160,9 @@ pub(crate) fn inspect(
     ) {
         (true, coins) => coins,
         (false, Some(_)) => {
-            eprintln!("⚠️  Context was given \"transparentcoins\" but this transaction has no transparent inputs");
+            eprintln!(
+                "⚠️  Context was given \"transparentcoins\" but this transaction has no transparent inputs"
+            );
             Some(vec![])
         }
         (false, None) => Some(vec![]),
@@ -261,7 +263,9 @@ pub(crate) fn inspect(
                                     (sig, hash_type, pubkey)
                                 {
                                     if TransparentAddress::from_pubkey(&pubkey) != addr {
-                                        eprintln!("    ⚠️  Txin {i} pubkey does not match coin's script_pubkey");
+                                        eprintln!(
+                                            "    ⚠️  Txin {i} pubkey does not match coin's script_pubkey"
+                                        );
                                     }
 
                                     let sighash = signature_hash(
@@ -298,10 +302,16 @@ pub(crate) fn inspect(
                             eprintln!("  🔎 \"transparentcoins\"[{i}] is a P2SH coin.");
                         }
                         Some(solver::ScriptKind::MultiSig { required, pubkeys }) => {
-                            eprintln!("  🔎 \"transparentcoins\"[{i}] is a direct (non-P2SH) {required}-of-{} multi-sig coin.", pubkeys.len());
+                            eprintln!(
+                                "  🔎 \"transparentcoins\"[{i}] is a direct (non-P2SH) {required}-of-{} multi-sig coin.",
+                                pubkeys.len()
+                            );
                         }
                         Some(solver::ScriptKind::NullData { data }) => {
-                            eprintln!("  🔎 \"transparentcoins\"[{i}] is a null data output with {} PushDatas.", data.len());
+                            eprintln!(
+                                "  🔎 \"transparentcoins\"[{i}] is a null data output with {} PushDatas.",
+                                data.len()
+                            );
                         }
                         Some(solver::ScriptKind::PubKey { .. }) => {
                             eprintln!("  🔎 \"transparentcoins\"[{i}] is a P2PK (not P2PKH) coin.");
@@ -426,7 +436,9 @@ pub(crate) fn inspect(
                             eprintln!("  ⚠️  Output {i} is not recoverable with the all-zeros OVK");
                         }
                     } else {
-                        eprintln!("  🔎 To check Sapling coinbase rules, add \"network\" to context (either \"main\" or \"test\")");
+                        eprintln!(
+                            "  🔎 To check Sapling coinbase rules, add \"network\" to context (either \"main\" or \"test\")"
+                        );
                     }
                 }
 
@@ -500,7 +512,9 @@ pub(crate) fn inspect(
                             );
                             eprintln!("     - {zaddr}");
                         } else {
-                            eprintln!("    🔎 To show recipient address, add \"network\" to context (either \"main\" or \"test\")");
+                            eprintln!(
+                                "    🔎 To show recipient address, add \"network\" to context (either \"main\" or \"test\")"
+                            );
                         }
 
                         eprintln!("     - {}", render_value(note.value().inner()));

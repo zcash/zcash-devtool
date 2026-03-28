@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
 use zcash_client_backend::{data_api::WalletWrite, proto::service};
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 
 use crate::{commands::wallet, config::WalletConfig, data::get_db_paths, remote::ConnectionArgs};
 

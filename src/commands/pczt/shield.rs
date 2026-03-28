@@ -4,23 +4,23 @@ use std::num::NonZeroUsize;
 use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
-use tokio::io::{stdout, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt, stdout};
 use transparent::address::TransparentAddress;
 use uuid::Uuid;
 use zcash_client_backend::{
     data_api::{
-        wallet::{
-            create_pczt_from_proposal, input_selection::GreedyInputSelector, propose_shielding,
-            ConfirmationsPolicy,
-        },
         Account as _, WalletRead,
+        wallet::{
+            ConfirmationsPolicy, create_pczt_from_proposal, input_selection::GreedyInputSelector,
+            propose_shielding,
+        },
     },
-    fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
+    fees::{DustOutputPolicy, SplitPolicy, StandardFeeRule, standard::MultiOutputChangeStrategy},
     wallet::OvkPolicy,
 };
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::encoding::AddressCodec;
-use zcash_protocol::{value::Zatoshis, ShieldedProtocol};
+use zcash_protocol::{ShieldedProtocol, value::Zatoshis};
 
 use crate::{commands::select_account, config::WalletConfig, data::get_db_paths, error};
 

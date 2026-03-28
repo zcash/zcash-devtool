@@ -11,8 +11,8 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget};
 use zcash_client_backend::data_api::{
-    scanning::{ScanPriority, ScanRange},
     WalletSummary,
+    scanning::{ScanPriority, ScanRange},
 };
 use zcash_client_sqlite::AccountUuid;
 use zcash_protocol::consensus::BlockHeight;

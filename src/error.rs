@@ -2,10 +2,10 @@ use std::convert::Infallible;
 use std::fmt;
 
 use zcash_client_backend::data_api::{
-    error::Error as WalletError, wallet::input_selection::GreedyInputSelectorError, BirthdayError,
+    BirthdayError, error::Error as WalletError, wallet::input_selection::GreedyInputSelectorError,
 };
 use zcash_client_sqlite::{
-    error::SqliteClientError, wallet::commitment_tree, FsBlockDbError, ReceivedNoteId,
+    FsBlockDbError, ReceivedNoteId, error::SqliteClientError, wallet::commitment_tree,
 };
 use zcash_keys::keys::DerivationError;
 use zcash_primitives::transaction::fees::zip317;
@@ -51,7 +51,6 @@ pub enum Error {
     SendFailed { code: i32, reason: String },
     SendMax(SendMaxErrorT),
     Shield(ShieldErrorT),
-    TransparentMemo(usize),
     Wallet(WalletErrorT),
     Zip321(Zip321Error),
 }
@@ -68,9 +67,6 @@ impl fmt::Display for Error {
             Error::InvalidTreeState => write!(f, "Invalid TreeState received from server"),
             Error::SendFailed { code, reason } => write!(f, "Send failed: ({code}) {reason}"),
             Error::SendMax(e) => e.fmt(f),
-            Error::TransparentMemo(idx) => {
-                write!(f, "Payment {idx} invalid: can't send memo to a t-address")
-            }
             Error::Shield(e) => e.fmt(f),
             Error::Wallet(e) => e.fmt(f),
             Error::Zip321(e) => write!(f, "{e:?}"),

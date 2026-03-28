@@ -1,6 +1,7 @@
 use zcash_script::{
-    opcode::{push_value::LargeValue, PossiblyBad, PushValue},
-    script, solver, Opcode,
+    Opcode,
+    opcode::{PossiblyBad, PushValue, push_value::LargeValue},
+    script, solver,
 };
 
 pub(crate) fn inspect(script: script::FromChain) {

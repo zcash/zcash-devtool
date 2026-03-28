@@ -5,14 +5,13 @@ use clap::Args;
 use image::buffer::ConvertBuffer;
 use minicbor::data::{Int, Type};
 use nokhwa::{
-    nokhwa_check, nokhwa_initialize,
+    Camera, nokhwa_check, nokhwa_initialize,
     pixel_format::RgbFormat,
     utils::{RequestedFormat, RequestedFormatType, Resolution},
-    Camera,
 };
 use pczt::Pczt;
-use qrcode::{render::unicode, QrCode};
-use tokio::io::{stdin, stdout, AsyncReadExt, AsyncWriteExt, Stdout};
+use qrcode::{QrCode, render::unicode};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, Stdout, stdin, stdout};
 
 use crate::ShutdownListener;
 

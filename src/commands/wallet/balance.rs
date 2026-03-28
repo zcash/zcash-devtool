@@ -1,20 +1,20 @@
 use anyhow::anyhow;
 use clap::Args;
 use iso_currency::Currency;
-use rust_decimal::{prelude::FromPrimitive, Decimal};
+use rust_decimal::{Decimal, prelude::FromPrimitive};
 use tracing::{info, warn};
 use uuid::Uuid;
 use zcash_client_backend::{
-    data_api::{wallet::ConfirmationsPolicy, Account as _, WalletRead},
+    data_api::{Account as _, WalletRead, wallet::ConfirmationsPolicy},
     tor,
 };
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedAddressRequest;
-use zcash_protocol::value::{Zatoshis, COIN};
+use zcash_protocol::value::{COIN, Zatoshis};
 
 use crate::{
-    commands::select_account, config::get_wallet_network, data::get_db_paths, error,
-    parse_currency, remote::tor_client, ui::format_zec,
+    commands::select_account, config::get_wallet_network, data::get_db_paths, parse_currency,
+    remote::tor_client, ui::format_zec,
 };
 
 // Options accepted for the `balance` command
@@ -37,12 +37,10 @@ impl Command {
         let db_data = WalletDb::for_path(db_data, params, (), ())?;
         let account = select_account(&db_data, self.account_id)?;
 
-        let address = db_data
-            .get_last_generated_address_matching(
-                account.id(),
-                UnifiedAddressRequest::AllAvailableKeys,
-            )?
-            .ok_or(error::Error::InvalidRecipient)?;
+        let address = db_data.get_last_generated_address_matching(
+            account.id(),
+            UnifiedAddressRequest::AllAvailableKeys,
+        )?;
 
         let printer = if let Some(currency) = self.convert {
             let tor = tor_client(wallet_dir.as_ref()).await?;
@@ -57,7 +55,8 @@ impl Command {
                 .get(&account.id())
                 .ok_or_else(|| anyhow!("Missing account 0"))?;
 
-            println!("{}", address.encode(&params));
+            println!("{:#?}", wallet_summary);
+            println!("{:?}", address.map(|a| a.encode(&params)));
             println!("     Height: {}", wallet_summary.chain_tip_height());
             let scan_progress = wallet_summary.progress().scan();
             println!(
