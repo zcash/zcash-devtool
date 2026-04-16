@@ -2,7 +2,7 @@ use clap::Args;
 use rand::rngs::OsRng;
 use uuid::Uuid;
 use zcash_client_backend::data_api::{Account, WalletWrite};
-use zcash_client_sqlite::{util::SystemClock, WalletDb};
+use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::{address::Address, keys::UnifiedAddressRequest};
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
 };
 
 #[cfg(feature = "qr")]
-use qrcode::{render::unicode, QrCode};
+use qrcode::{QrCode, render::unicode};
 
 // Options accepted for the `generate-address` command
 #[derive(Debug, Args)]

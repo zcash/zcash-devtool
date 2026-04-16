@@ -12,27 +12,28 @@ use tonic::transport::Channel;
 use tracing::{debug, error, info};
 use zcash_client_backend::{
     data_api::{
+        WalletCommitmentTrees, WalletRead, WalletWrite,
         chain::{
-            error::Error as ChainError, scan_cached_blocks, BlockSource, ChainState,
-            CommitmentTreeRoot,
+            BlockSource, ChainState, CommitmentTreeRoot, error::Error as ChainError,
+            scan_cached_blocks,
         },
         scanning::{ScanPriority, ScanRange},
-        WalletCommitmentTrees, WalletRead, WalletWrite,
+        wallet::ConfirmationsPolicy,
     },
-    proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient, BlockId},
+    proto::service::{self, BlockId, compact_tx_streamer_client::CompactTxStreamerClient},
 };
 use zcash_client_sqlite::{
-    chain::BlockMeta, util::SystemClock, FsBlockDb, FsBlockDbError, WalletDb,
+    FsBlockDb, FsBlockDbError, WalletDb, chain::BlockMeta, util::SystemClock,
 };
 use zcash_primitives::merkle_tree::HashSer;
 use zcash_protocol::consensus::{BlockHeight, Parameters};
 
 use crate::{
+    ShutdownListener,
     config::get_wallet_network,
     data::{get_block_path, get_db_paths},
     error,
     remote::ConnectionArgs,
-    ShutdownListener,
 };
 
 #[cfg(feature = "transparent-inputs")]
@@ -49,10 +50,7 @@ use {
 };
 
 #[cfg(feature = "tui")]
-use {
-    zcash_client_backend::data_api::wallet::ConfirmationsPolicy,
-    zcash_protocol::consensus::NetworkUpgrade,
-};
+use zcash_protocol::consensus::NetworkUpgrade;
 
 #[cfg(feature = "tui")]
 use crate::tui::Tui;
@@ -585,6 +583,20 @@ fn scan_blocks<P: Parameters + Send + 'static>(
             Ok(true)
         }
         Ok(_) => {
+            if let Some(summary) = db_data.get_wallet_summary(ConfirmationsPolicy::MIN)? {
+                info!(
+                    "Scan complete for range {}; progress is {}/{}",
+                    scan_range,
+                    summary.progress().scan().numerator()
+                        + summary.progress().recovery().map_or(0, |p| *p.numerator()),
+                    summary.progress().scan().denominator()
+                        + summary
+                            .progress()
+                            .recovery()
+                            .map_or(0, |p| *p.denominator()),
+                )
+            }
+
             // If scanning these blocks caused a suggested range to be added that has a
             // higher priority than the current range, invalidate the current ranges.
             let latest_ranges = db_data.suggest_scan_ranges()?;

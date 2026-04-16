@@ -9,7 +9,7 @@ use zip321::TransactionRequest;
 use zcash_primitives::transaction::TxVersion;
 
 use crate::{
-    commands::wallet::send::{pay, PaymentContext},
+    commands::wallet::send::{PaymentContext, pay},
     remote::ConnectionArgs,
 };
 

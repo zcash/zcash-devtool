@@ -8,30 +8,30 @@ use crossterm::event::KeyCode;
 use futures_util::FutureExt;
 use incrementalmerkletree::{Address, Level};
 use ratatui::{
+    Frame,
     layout::{Constraint, Layout},
     style::Color,
     widgets::{
-        canvas::{Canvas, Circle, Context, Line},
         Block, Paragraph, Widget,
+        canvas::{Canvas, Circle, Context, Line},
     },
-    Frame,
 };
-use shardtree::{error::ShardTreeError, store::ShardStore, LocatedTree, RetentionFlags};
+use shardtree::{LocatedTree, RetentionFlags, error::ShardTreeError, store::ShardStore};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{info, warn};
 use zcash_client_backend::data_api::{WalletCommitmentTrees, WalletRead};
-use zcash_client_sqlite::{wallet::commitment_tree::SqliteShardStore, WalletDb};
+use zcash_client_sqlite::{WalletDb, wallet::commitment_tree::SqliteShardStore};
 use zcash_primitives::merkle_tree::HashSer;
 use zcash_protocol::{
-    consensus::{BlockHeight, Network},
     ShieldedProtocol,
+    consensus::{BlockHeight, Network},
 };
 
 use crate::{
+    ShutdownListener,
     config::get_wallet_network,
     data::get_db_paths,
     tui::{self, Tui},
-    ShutdownListener,
 };
 
 fn parse_pool(data: &str) -> Result<ShieldedProtocol, String> {
