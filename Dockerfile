@@ -7,8 +7,6 @@
 #
 # We first set default values for build arguments used across the stages.
 # Each stage must define the build arguments (ARGs) it uses.
-ARG UID=10801
-ARG GID=${UID}
 ARG USER="user"
 ARG HOME="/home/${USER}"
 ARG CARGO_HOME="/usr/local/cargo"
@@ -50,7 +48,8 @@ COPY src/ src/
 RUN --mount=type=cache,target=/usr/local/cargo/registry/ \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=${CARGO_HOME} \
-    cargo fetch --locked --target $TARGET_ARCH
+    cargo fetch --locked --target ${TARGET_ARCH} && \
+		cargo metadata --locked --format-version=1 > /dev/null 2>&1
     
 RUN --network=none \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
@@ -82,31 +81,27 @@ FROM busybox AS runtime
 #
 # The high UID/GID values provide an additional security boundary in containers
 # where user namespaces are shared with the host.
-ARG UID
-ENV UID=${UID}
-ARG GID
-ENV GID=${GID}
-ARG USER
-ENV USER=${USER}
-ARG HOME
-ENV HOME=${HOME}
+ENV UID=10801
+ENV GID=10801
+ENV USER=user
+ENV HOME=/home/user
 
 COPY --chmod=550 <<-EOF /etc/passwd
 	root:x:0:0:root:/root:/bin/sh
-	user:x:${UID}:${GID}::${HOME}:/bin/sh
+	user:x:10801:10801::/home/user:/bin/sh
 EOF
 
 COPY --chmod=550 <<-EOF /etc/group
 	root:x:0:
-	user:x:${GID}:
+	user:x:10801:
 EOF
 
 USER root
 COPY --from=release /usr/local/bin/zcash-devtool /usr/local/bin/
 COPY ./utils/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chown -R ${UID}:${GID} /usr/local/bin/ && chmod -R 770 /usr/local/bin/ && chmod 550 /usr/local/bin/zcash-devtool
+RUN chown -R 10801:10801 /usr/local/bin/ && chmod -R 770 /usr/local/bin/ && chmod 550 /usr/local/bin/zcash-devtool
 WORKDIR /usr/local/bin
-USER ${UID}:${GID}
+USER 10801:10801
 
 ENTRYPOINT [ "entrypoint.sh" ]
 CMD [ "./zcash-devtool" ]
