@@ -272,13 +272,15 @@ pub(crate) fn inspect(
                                         tx,
                                         &SignableInput::Transparent(
                                             ::transparent::sighash::SignableInput::from_parts(
+                                                bundle,
                                                 hash_type,
                                                 i,
                                                 // For P2PKH these are the same.
                                                 coin.script_pubkey(),
                                                 coin.script_pubkey(),
                                                 coin.value(),
-                                            ),
+                                            )
+                                            .expect("input index is within bundle bounds"),
                                         ),
                                         txid_parts,
                                     );

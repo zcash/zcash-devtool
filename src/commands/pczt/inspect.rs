@@ -390,7 +390,7 @@ impl Command {
                         );
                     }
 
-                    if tx_data.transparent_bundle().is_some() {
+                    if let Some(transparent_bundle) = tx_data.transparent_bundle() {
                         println!("Sighashes for each transparent input:");
                         for (index, (hash_type, redeem_script, script_pubkey, value, _, _)) in
                             transparent_inputs.into_iter().enumerate()
@@ -399,12 +399,14 @@ impl Command {
                                 &tx_data,
                                 &SignableInput::Transparent(
                                     transparent::sighash::SignableInput::from_parts(
+                                        transparent_bundle,
                                         hash_type,
                                         index,
                                         &redeem_script.as_ref().unwrap_or(&script_pubkey).into(), // for p2pkh, always the same as script_pubkey
                                         &script_pubkey.into(),
                                         value,
-                                    ),
+                                    )
+                                    .expect("input index is within bundle bounds"),
                                 ),
                                 &txid_parts,
                             );

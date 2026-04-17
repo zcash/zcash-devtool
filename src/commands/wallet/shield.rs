@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use zcash_client_backend::{
     data_api::{
-        Account, WalletRead,
+        Account, TransparentOutputFilter, WalletRead,
         wallet::{
             ConfirmationsPolicy, SpendingKeys, create_proposed_transactions,
             input_selection::GreedyInputSelector, propose_shielding,
@@ -130,6 +130,7 @@ impl Command {
             &from_addrs,
             account.id(),
             confirmations_policy,
+            TransparentOutputFilter::All,
         )
         .map_err(error::Error::Shield)?;
 
