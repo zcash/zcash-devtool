@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 
 use anyhow::anyhow;
@@ -58,7 +58,7 @@ impl Command {
             .address
             .into_iter()
             .map(|address| TransparentAddress::decode(&params, &address))
-            .collect::<Result<HashSet<_>, _>>()?;
+            .collect::<Result<BTreeSet<_>, _>>()?;
 
         // Create the PCZT.
         let change_strategy = MultiOutputChangeStrategy::new(

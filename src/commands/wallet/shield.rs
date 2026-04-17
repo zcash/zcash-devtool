@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 
 use anyhow::anyhow;
@@ -74,7 +74,7 @@ impl Command {
             .address
             .into_iter()
             .map(|address| TransparentAddress::decode(&params, &address))
-            .collect::<Result<HashSet<_>, _>>()?;
+            .collect::<Result<BTreeSet<_>, _>>()?;
 
         // Decrypt the mnemonic to access the seed.
         let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
