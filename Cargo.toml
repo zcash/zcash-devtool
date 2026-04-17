@@ -56,7 +56,10 @@ clap = { version = "4.5", features = ["derive", "string", "unstable-styles"] }
 rand = { version = "0.8", default-features = false }
 
 # Seed encryption
-age = { version = "0.11", features = ["armor", "plugin"] }
+# original rage causing non-determinism
+#age = { version = "0.11", features = ["armor", "plugin"] }
+# patched version
+age = { git="https://github.com/antonleviathan/rage.git", branch="deterministic-iteration", features = ["armor", "plugin"] }
 chrono = "0.4"
 rpassword = "7"
 
