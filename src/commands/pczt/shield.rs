@@ -9,7 +9,7 @@ use transparent::address::TransparentAddress;
 use uuid::Uuid;
 use zcash_client_backend::{
     data_api::{
-        Account as _, WalletRead,
+        Account as _, TransparentOutputFilter, WalletRead,
         wallet::{
             ConfirmationsPolicy, create_pczt_from_proposal, input_selection::GreedyInputSelector,
             propose_shielding,
@@ -97,6 +97,7 @@ impl Command {
             &from_addrs,
             account.id(),
             confirmations_policy,
+            TransparentOutputFilter::All,
         )
         .map_err(error::Error::Shield)?;
 
