@@ -1,5 +1,7 @@
 use zcash_protocol::value::ZatBalance;
 
+pub(crate) mod proposal;
+
 const COIN: u64 = 1_0000_0000;
 
 pub(crate) fn format_zec(value: impl TryInto<ZatBalance>) -> String {

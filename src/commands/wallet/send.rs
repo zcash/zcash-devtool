@@ -34,7 +34,7 @@ use zip321::{Payment, TransactionRequest};
 
 use crate::{
     commands::select_account, config::WalletConfig, data::get_db_paths, error,
-    remote::ConnectionArgs,
+    remote::ConnectionArgs, ui::proposal::print_proposal,
 };
 
 // Options accepted for the `send` command
@@ -215,7 +215,7 @@ pub(crate) async fn pay<C: PaymentContext>(
     )
     .map_err(error::Error::from)?;
 
-    println!("Proposed transfer: {proposal:#?}");
+    print_proposal("Proposed transfer", &proposal, &params);
     let confirmed = !context.require_confirmation() || {
         print!("Continue? [y/n]: ");
         let stdin = std::io::stdin();
