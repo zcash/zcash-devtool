@@ -17,7 +17,11 @@ impl Command {
         for account_id in db_data.get_account_ids()?.iter() {
             let account = db_data.get_account(*account_id)?.unwrap();
 
-            println!("Account {}", account_id.expose_uuid());
+            println!(
+                "Account {} (birthday height {})",
+                account_id.expose_uuid(),
+                u32::from(account.birthday_height())
+            );
             if let Some(name) = account.name() {
                 println!("     Name: {name}");
             }
