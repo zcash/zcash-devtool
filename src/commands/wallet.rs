@@ -1,6 +1,7 @@
 use clap::Subcommand;
 
 pub(crate) mod balance;
+pub(crate) mod delete_account;
 pub(crate) mod derive_path;
 pub(crate) mod display_mnemonic;
 pub(crate) mod enhance;
@@ -53,6 +54,9 @@ pub(crate) enum Command {
 
     /// Generate a new account in the wallet
     GenerateAccount(gen_account::Command),
+
+    /// Delete an account from the wallet (destructive; permanently removes account-only data)
+    DeleteAccount(delete_account::Command),
 
     /// List the accounts in the wallet
     ListAccounts(list_accounts::Command),
