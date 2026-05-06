@@ -34,20 +34,20 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = "1"
 
 # Zcash
-orchard = { version = "0.12", default-features = false }
-pczt = "0.5"
-sapling = { package = "sapling-crypto", version = "0.6" }
-transparent = { package = "zcash_transparent", version = "0.6", features = ["test-dependencies"] }
-zcash_address = "0.10"
-zcash_client_backend = { version = "0.21", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "pczt", "tor", "unstable"] }
-zcash_client_sqlite = { version = "0.19", features = ["unstable", "orchard", "serde", "test-dependencies"] }
-zcash_keys = { version = "0.12", features = ["orchard", "unstable", "unstable-frost"] }
-zcash_primitives = "0.26"
-zcash_proofs = { version = "0.26", features = ["bundled-prover"] }
-zcash_protocol = { version = "0.7", features = ["local-consensus"] }
+orchard = { version = "0.13", default-features = false }
+pczt = "0.6"
+sapling = { package = "sapling-crypto", version = "0.7" }
+transparent = { package = "zcash_transparent", version = "0.7", features = ["test-dependencies"] }
+zcash_address = "0.11"
+zcash_client_backend = { version = "0.22", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "pczt", "tor", "unstable"] }
+zcash_client_sqlite = { version = "0.20", features = ["unstable", "orchard", "serde", "test-dependencies"] }
+zcash_keys = { version = "0.13", features = ["orchard", "unstable", "unstable-frost"] }
+zcash_primitives = "0.27"
+zcash_proofs = { version = "0.27", features = ["bundled-prover"] }
+zcash_protocol = { version = "0.8", features = ["local-consensus"] }
 zcash_script = "0.4"
 zip32 = "0.2"
-zip321 = "0.6"
+zip321 = "0.7"
 
 # CLI
 clap = { version = "4.5", features = ["derive", "string", "unstable-styles"] }
@@ -76,7 +76,7 @@ lazy_static = "1"
 serde_json = "1"
 sha2 = "0.10"
 uint = "0.9"
-zcash_encoding = "0.3"
+zcash_encoding = "0.4"
 zcash_note_encryption = "0.4.1"
 
 # PCZT QR codes
@@ -112,20 +112,3 @@ tui = [
     "dep:tokio-util",
     "dep:tui-logger",
 ]
-
-[patch.crates-io]
-equihash = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-f4jumble = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-pczt = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-orchard = { package = "orchard", git = "https://github.com/zcash/orchard.git", rev = "b0bf2670e248958c6ce7c1deed466032e0dbd4d9" }
-sapling = { package = "sapling-crypto", git = "https://github.com/zcash/sapling-crypto.git", rev = "b8a81c22f034d68f9bbd6cba728aab807b9ba2ea" }
-transparent = { package = "zcash_transparent", git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-zcash_address = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-zcash_encoding = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
-zip321 = { git = "https://github.com/zcash/librustzcash.git", rev = "d84915121e43f07e024aaafde0f54040b10fb56a" }
