@@ -16,7 +16,10 @@ use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_protocol::{ShieldedProtocol, value::Zatoshis};
 use zip321::{Payment, TransactionRequest};
 
-use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths, error};
+use crate::{
+    commands::select_account, config::get_wallet_network, data::get_db_paths, error,
+    ui::proposal::print_proposal,
+};
 
 // Options accepted for the `propose` command
 #[derive(Debug, Args)]
@@ -83,7 +86,7 @@ impl Command {
         .map_err(error::Error::from)?;
 
         // Display the proposal
-        println!("Proposal: {proposal:#?}");
+        print_proposal("Proposal", &proposal, &params);
 
         Ok(())
     }
