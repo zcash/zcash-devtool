@@ -120,6 +120,7 @@ pub(crate) fn inspect_sapling_extfvk(data: Vec<u8>, network: NetworkType) {
                         nu5: None,
                         nu6: None,
                         nu6_1: None,
+                        nu6_2: None,
                     }),
                 };
                 eprintln!("- Equivalent UFVK: {encoded_ufvk}");
@@ -139,6 +140,7 @@ pub(crate) fn inspect_sapling_extfvk(data: Vec<u8>, network: NetworkType) {
                         nu5: None,
                         nu6: None,
                         nu6_1: None,
+                        nu6_2: None,
                     }),
                 };
                 eprintln!("  - Default address: {encoded_ua}");

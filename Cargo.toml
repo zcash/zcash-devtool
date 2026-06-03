@@ -34,20 +34,20 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = "1"
 
 # Zcash
-orchard = { version = "0.13", default-features = false }
-pczt = "0.6"
+orchard = { version = "0.14", default-features = false }
+pczt = "0.7"
 sapling = { package = "sapling-crypto", version = "0.7" }
-transparent = { package = "zcash_transparent", version = "0.7", features = ["test-dependencies"] }
-zcash_address = "0.11"
-zcash_client_backend = { version = "0.22", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "pczt", "tor", "unstable"] }
-zcash_client_sqlite = { version = "0.20", features = ["unstable", "orchard", "serde", "test-dependencies"] }
-zcash_keys = { version = "0.13", features = ["orchard", "unstable", "unstable-frost"] }
-zcash_primitives = "0.27"
-zcash_proofs = { version = "0.27", features = ["bundled-prover"] }
-zcash_protocol = { version = "0.8", features = ["local-consensus"] }
+transparent = { package = "zcash_transparent", version = "0.8", features = ["test-dependencies"] }
+zcash_address = "0.12"
+zcash_client_backend = { version = "0.23", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "pczt", "tor", "unstable"] }
+zcash_client_sqlite = { version = "0.21", features = ["unstable", "orchard", "serde", "test-dependencies"] }
+zcash_keys = { version = "0.14", features = ["orchard", "unstable", "unstable-frost"] }
+zcash_primitives = "0.28"
+zcash_proofs = { version = "0.28", features = ["bundled-prover"] }
+zcash_protocol = { version = "0.9", features = ["local-consensus"] }
 zcash_script = "0.4"
 zip32 = "0.2"
-zip321 = "0.7"
+zip321 = "0.8"
 
 # CLI
 clap = { version = "4.5", features = ["derive", "string", "unstable-styles"] }
