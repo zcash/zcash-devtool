@@ -52,7 +52,7 @@ impl PaymentContext for Command {
         self.account_id
     }
 
-    fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity>>> {
+    fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity + std::marker::Send + Sync>>> {
         let identities = age::IdentityFile::from_file(self.identity.clone())?.into_identities()?;
         Ok(identities)
     }
