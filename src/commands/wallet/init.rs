@@ -2,6 +2,7 @@ use age::secrecy::ExposeSecret;
 use bip0039::{Count, English, Mnemonic};
 use clap::Args;
 use secrecy::{ExposeSecret as _, SecretString, SecretVec, Zeroize};
+use std::io::{stdin, stdout};
 use tokio::io::AsyncWriteExt;
 use tonic::transport::Channel;
 
@@ -85,7 +86,9 @@ impl Command {
         };
 
         // Parse or create the wallet's mnemonic phrase.
-        let phrase = SecretString::new(rpassword::prompt_password(
+        let phrase = SecretString::new(rpassword::prompt_password_from_bufread(
+            &mut stdin().lock(),
+            &mut stdout(),
             "Enter mnemonic (or just press Enter to generate a new one):",
         )?);
         let (mnemonic, recover_until) = if !phrase.expose_secret().is_empty() {
