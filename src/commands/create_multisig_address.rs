@@ -15,7 +15,6 @@ use sha2::{Digest, Sha256};
 
 use transparent::address::TransparentAddress;
 use zcash_keys::encoding::AddressCodec;
-use zcash_protocol::consensus::Network;
 use zcash_script::{
     pattern::check_multisig,
     script::{self, Evaluable},
@@ -54,7 +53,7 @@ impl Command {
         } = self;
 
         let (multisig_script, addr) = multisig_script(threshold, pub_keys)?;
-        let addr = addr.encode(&Network::from(network));
+        let addr = addr.encode(&network);
         println!("Created multisig address: {addr}");
         println!("Redeem script: {}", hex::encode(multisig_script.to_bytes()));
 

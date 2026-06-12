@@ -8,7 +8,9 @@ use zcash_client_sqlite::{FsBlockDb, WalletDb};
 use tracing::error;
 
 use zcash_client_sqlite::chain::BlockMeta;
-use zcash_protocol::consensus::{self, Parameters};
+use zcash_protocol::consensus::{self, BlockHeight, Parameters};
+#[cfg(feature = "regtest_support")]
+use zcash_protocol::local_consensus::LocalNetwork;
 
 use crate::error;
 
@@ -22,6 +24,8 @@ pub(crate) enum Network {
     #[default]
     Test,
     Main,
+    #[cfg(feature = "regtest_support")]
+    Regtest,
 }
 
 impl Network {
@@ -29,6 +33,8 @@ impl Network {
         match name {
             "main" => Ok(Network::Main),
             "test" => Ok(Network::Test),
+            #[cfg(feature = "regtest_support")]
+            "regtest" => Ok(Network::Regtest),
             other => Err(format!("Unsupported network: {other}")),
         }
     }
@@ -37,24 +43,54 @@ impl Network {
         match self {
             Network::Test => "test",
             Network::Main => "main",
+            #[cfg(feature = "regtest_support")]
+            Network::Regtest => "regtest",
         }
     }
 }
 
-impl From<Network> for consensus::Network {
-    fn from(value: Network) -> Self {
-        match value {
-            Network::Test => consensus::Network::TestNetwork,
-            Network::Main => consensus::Network::MainNetwork,
+/// Activation heights matching the regtest configuration used by zebrad
+/// sessions launched via `zcash_local_net`: pre-NU5 upgrades active at
+/// height 1, NU5/NU6 at height 2, NU6.1/NU6.2 at height 5.
+///
+/// NU6.1/NU6.2 sit at height 5 (not 2) because zebrad's
+/// `subsidy_is_valid` rejects the NU6.1 activation block unless the
+/// deferred (lockbox) pool already holds enough to cover the configured
+/// disbursements — `zcash_local_net` leaves three NU6 blocks (2–4) for
+/// its funding stream to deposit into the pool. The authoritative tuple
+/// is `zcash_local_net::validator::regtest_test_activation_heights`;
+/// transaction construction picks the consensus branch ID from these
+/// heights, so any drift makes the validator reject wallet transactions
+/// built while the tip is inside the drifted window.
+#[cfg(feature = "regtest_support")]
+const REGTEST: LocalNetwork = LocalNetwork {
+    overwinter: Some(BlockHeight::from_u32(1)),
+    sapling: Some(BlockHeight::from_u32(1)),
+    blossom: Some(BlockHeight::from_u32(1)),
+    heartwood: Some(BlockHeight::from_u32(1)),
+    canopy: Some(BlockHeight::from_u32(1)),
+    nu5: Some(BlockHeight::from_u32(2)),
+    nu6: Some(BlockHeight::from_u32(2)),
+    nu6_1: Some(BlockHeight::from_u32(5)),
+    nu6_2: Some(BlockHeight::from_u32(5)),
+};
+
+impl Parameters for Network {
+    fn network_type(&self) -> consensus::NetworkType {
+        match self {
+            Network::Test => consensus::Network::TestNetwork.network_type(),
+            Network::Main => consensus::Network::MainNetwork.network_type(),
+            #[cfg(feature = "regtest_support")]
+            Network::Regtest => REGTEST.network_type(),
         }
     }
-}
 
-impl From<consensus::Network> for Network {
-    fn from(value: consensus::Network) -> Self {
-        match value {
-            consensus::Network::TestNetwork => Network::Test,
-            consensus::Network::MainNetwork => Network::Main,
+    fn activation_height(&self, nu: consensus::NetworkUpgrade) -> Option<BlockHeight> {
+        match self {
+            Network::Test => consensus::Network::TestNetwork.activation_height(nu),
+            Network::Main => consensus::Network::MainNetwork.activation_height(nu),
+            #[cfg(feature = "regtest_support")]
+            Network::Regtest => REGTEST.activation_height(nu),
         }
     }
 }

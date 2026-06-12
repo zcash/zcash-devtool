@@ -17,7 +17,7 @@ use crate::{
 const KEYS_FILE: &str = "keys.toml";
 
 pub(crate) struct WalletConfig {
-    network: consensus::Network,
+    network: Network,
     seed_ciphertext: Option<String>,
     birthday: BlockHeight,
 }
@@ -28,7 +28,7 @@ impl WalletConfig {
         recipients: impl Iterator<Item = &'a dyn age::Recipient>,
         mnemonic: &Mnemonic,
         birthday: BlockHeight,
-        network: consensus::Network,
+        network: Network,
     ) -> Result<(), anyhow::Error> {
         init_wallet_config(
             wallet_dir,
@@ -41,7 +41,7 @@ impl WalletConfig {
     pub(crate) fn init_without_mnemonic<P: AsRef<Path>>(
         wallet_dir: Option<P>,
         birthday: BlockHeight,
-        network: consensus::Network,
+        network: Network,
     ) -> Result<(), anyhow::Error> {
         init_wallet_config(wallet_dir, None, birthday, network)
     }
@@ -66,7 +66,7 @@ impl WalletConfig {
             .transpose()
     }
 
-    pub(crate) fn network(&self) -> consensus::Network {
+    pub(crate) fn network(&self) -> Network {
         self.network
     }
 
@@ -79,7 +79,7 @@ fn init_wallet_config<P: AsRef<Path>>(
     wallet_dir: Option<P>,
     mnemonic: Option<String>,
     birthday: BlockHeight,
-    network: consensus::Network,
+    network: Network,
 ) -> Result<(), anyhow::Error> {
     // Create the wallet directory.
     let wallet_dir = wallet_dir
@@ -97,7 +97,7 @@ fn init_wallet_config<P: AsRef<Path>>(
 
     let config = ConfigEncoding {
         mnemonic,
-        network: Some(Network::from(network).name().to_string()),
+        network: Some(network.name().to_string()),
         birthday: Some(u32::from(birthday)),
     };
 
@@ -126,11 +126,9 @@ impl WalletConfig {
         let config: ConfigEncoding = toml::from_str(&conf_str)?;
 
         let network = config.network.map_or_else(
-            || Ok(consensus::Network::TestNetwork),
+            || Ok(Network::Test),
             |network_name| {
-                Network::parse(network_name.trim())
-                    .map(consensus::Network::from)
-                    .map_err(|_| error::Error::InvalidKeysFile)
+                Network::parse(network_name.trim()).map_err(|_| error::Error::InvalidKeysFile)
             },
         )?;
 
@@ -203,7 +201,7 @@ fn decrypt_seed<'a>(
 
 pub(crate) fn get_wallet_network<P: AsRef<Path>>(
     wallet_dir: Option<P>,
-) -> Result<consensus::Network, anyhow::Error> {
+) -> Result<Network, anyhow::Error> {
     Ok(WalletConfig::read(wallet_dir)?.network)
 }
 
