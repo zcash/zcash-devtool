@@ -49,19 +49,26 @@ impl Network {
     }
 }
 
-/// Activation heights matching the regtest configuration used by zebrad
-/// sessions launched via `zcash_local_net`: pre-NU5 upgrades active at
-/// height 1, NU5/NU6 at height 2, NU6.1/NU6.2 at height 5.
+/// Activation heights matching the regtest configuration used by
+/// wallet-funding zebrad sessions launched via `zcash_local_net`:
+/// pre-NU5 upgrades active at height 1, everything NU5 and later at
+/// height 2.
 ///
-/// NU6.1/NU6.2 sit at height 5 (not 2) because zebrad's
-/// `subsidy_is_valid` rejects the NU6.1 activation block unless the
-/// deferred (lockbox) pool already holds enough to cover the configured
-/// disbursements — `zcash_local_net` leaves three NU6 blocks (2–4) for
-/// its funding stream to deposit into the pool. The authoritative tuple
-/// is `zcash_local_net::validator::regtest_test_activation_heights`;
-/// transaction construction picks the consensus branch ID from these
-/// heights, so any drift makes the validator reject wallet transactions
+/// Transaction construction picks the consensus branch ID from these
+/// heights, so any drift between this constant and the launched
+/// validator's heights makes the validator reject wallet transactions
 /// built while the tip is inside the drifted window.
+///
+/// Why all-at-2 and not `zcash_local_net`'s *default* fixture (which
+/// puts NU6.1/NU6.2 at height 5): zebra 5.1.0's shielded-coinbase
+/// block templates fail their own orchard-proof verification when a
+/// configured-but-not-yet-active upgrade exists above the template
+/// height ("could not validate orchard proof" on submitblock), so
+/// orchard-mining sessions — the ones wallets are funded from — must
+/// activate every configured upgrade before mining begins. The
+/// harness-side mirror of this constant is
+/// `zcash_local_net::client::zcash_devtool::supported_regtest_activation_heights`,
+/// and its integration tests pin the alignment live.
 #[cfg(feature = "regtest_support")]
 const REGTEST: LocalNetwork = LocalNetwork {
     overwinter: Some(BlockHeight::from_u32(1)),
@@ -71,8 +78,8 @@ const REGTEST: LocalNetwork = LocalNetwork {
     canopy: Some(BlockHeight::from_u32(1)),
     nu5: Some(BlockHeight::from_u32(2)),
     nu6: Some(BlockHeight::from_u32(2)),
-    nu6_1: Some(BlockHeight::from_u32(5)),
-    nu6_2: Some(BlockHeight::from_u32(5)),
+    nu6_1: Some(BlockHeight::from_u32(2)),
+    nu6_2: Some(BlockHeight::from_u32(2)),
 };
 
 impl Parameters for Network {

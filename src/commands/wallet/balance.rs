@@ -27,6 +27,12 @@ pub(crate) struct Command {
     #[arg(long)]
     #[arg(value_parser = parse_currency)]
     convert: Option<Currency>,
+
+    /// Minimum confirmations required for notes to count as spendable,
+    /// applied to trusted and untrusted notes alike. Defaults to the
+    /// standard policy (3 trusted / 10 untrusted).
+    #[arg(long)]
+    min_confirmations: Option<std::num::NonZeroU32>,
 }
 
 impl Command {
@@ -49,7 +55,12 @@ impl Command {
             ValuePrinter::ZecOnly
         };
 
-        if let Some(wallet_summary) = db_data.get_wallet_summary(ConfirmationsPolicy::default())? {
+        let confirmations_policy = self
+            .min_confirmations
+            .map_or_else(ConfirmationsPolicy::default, |n| {
+                ConfirmationsPolicy::new_symmetrical(n, true)
+            });
+        if let Some(wallet_summary) = db_data.get_wallet_summary(confirmations_policy)? {
             let balance = wallet_summary
                 .account_balances()
                 .get(&account.id())
