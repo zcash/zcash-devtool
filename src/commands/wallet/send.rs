@@ -77,6 +77,15 @@ pub(crate) struct Command {
     #[arg(long)]
     #[arg(value_parser = crate::commands::wallet::send::parse_tx_version)]
     tx_version: Option<TxVersion>,
+
+    /// Minimum confirmations required for notes to be spendable,
+    /// applied to trusted and untrusted notes alike. Defaults to the
+    /// standard policy (3 trusted / 10 untrusted). Lowering this aids
+    /// regtest automation on shallow chains but weakens transaction
+    /// distinguishability protections; prefer the default on public
+    /// networks.
+    #[arg(long)]
+    min_confirmations: Option<std::num::NonZeroU32>,
 }
 
 pub(crate) trait PaymentContext {
@@ -87,6 +96,9 @@ pub(crate) trait PaymentContext {
     fn min_split_output_value(&self) -> u64;
     fn require_confirmation(&self) -> bool;
     fn tx_version(&self) -> Option<TxVersion>;
+    fn confirmations_policy(&self) -> ConfirmationsPolicy {
+        ConfirmationsPolicy::default()
+    }
 }
 
 impl PaymentContext for Command {
@@ -117,6 +129,14 @@ impl PaymentContext for Command {
 
     fn tx_version(&self) -> Option<TxVersion> {
         self.tx_version
+    }
+
+    fn confirmations_policy(&self) -> ConfirmationsPolicy {
+        self.min_confirmations.map_or_else(
+            ConfirmationsPolicy::default,
+            // Allowing zero-conf shielding matches `ConfirmationsPolicy::MIN`.
+            |n| ConfirmationsPolicy::new_symmetrical(n, true),
+        )
     }
 }
 
@@ -210,7 +230,7 @@ pub(crate) async fn pay<C: PaymentContext>(
         &input_selector,
         &change_strategy,
         request,
-        ConfirmationsPolicy::default(),
+        context.confirmations_policy(),
         context.tx_version(),
     )
     .map_err(error::Error::from)?;

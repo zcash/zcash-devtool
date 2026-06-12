@@ -85,10 +85,23 @@ impl Command {
             vec![Box::new(recipient) as _]
         };
 
-        // Parse or create the wallet's mnemonic phrase.
-        let phrase = SecretString::new(rpassword::prompt_password(
-            "Enter mnemonic (or just press Enter to generate a new one):",
-        )?);
+        // Parse or create the wallet's mnemonic phrase. `rpassword`
+        // requires a controlling terminal (it prompts and reads via
+        // /dev/tty, failing with ENXIO when there is none), so when
+        // stdin is not a terminal — automation piping the phrase in,
+        // e.g. the `zcash_local_net` test harness — read a line from
+        // stdin instead.
+        let phrase = if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            SecretString::new(rpassword::prompt_password(
+                "Enter mnemonic (or just press Enter to generate a new one):",
+            )?)
+        } else {
+            let mut line = String::new();
+            std::io::BufRead::read_line(&mut std::io::stdin().lock(), &mut line)?;
+            let phrase = SecretString::new(line.trim().to_string());
+            line.zeroize();
+            phrase
+        };
         let (mnemonic, recover_until) = if !phrase.expose_secret().is_empty() {
             (
                 <Mnemonic<English>>::from_phrase(phrase.expose_secret())?,
