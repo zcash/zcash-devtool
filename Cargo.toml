@@ -107,6 +107,7 @@ tui-logger = { version = "0.17", optional = true, features = ["tracing-support"]
 [features]
 default = ["transparent-inputs"]
 qr = ["dep:qrcode"]
+regtest_support = ["zcash_protocol/local-consensus"]
 pczt-qr = ["dep:image", "dep:minicbor", "dep:nokhwa", "dep:qrcode", "dep:rqrr", "dep:ur"]
 transparent-inputs = [
     "zcash_client_sqlite/transparent-inputs",

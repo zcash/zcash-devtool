@@ -12,7 +12,11 @@ use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_protocol::consensus;
 use zip32::fingerprint::SeedFingerprint;
 
-use crate::{data::get_db_paths, error, parse_hex, remote::ConnectionArgs};
+use crate::{
+    data::{Network, get_db_paths},
+    error, parse_hex,
+    remote::ConnectionArgs,
+};
 
 // Options accepted for the `import-ufvk` command
 #[derive(Debug, Args)]
@@ -46,12 +50,17 @@ impl Command {
         let ufvk = UnifiedFullViewingKey::parse(&ufvk).map_err(|e| anyhow!("{e}"))?;
 
         let params = match network {
-            consensus::NetworkType::Main => Ok(consensus::Network::MainNetwork),
-            consensus::NetworkType::Test => Ok(consensus::Network::TestNetwork),
+            consensus::NetworkType::Main => Network::Main,
+            consensus::NetworkType::Test => Network::Test,
+            #[cfg(feature = "regtest_support")]
+            consensus::NetworkType::Regtest => Network::Regtest,
+            #[cfg(not(feature = "regtest_support"))]
             consensus::NetworkType::Regtest => {
-                Err(anyhow!("UFVK is for regtest, which is unsupported"))
+                return Err(anyhow!(
+                    "UFVK is for regtest, which requires the `regtest_support` feature"
+                ));
             }
-        }?;
+        };
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
