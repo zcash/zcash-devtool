@@ -33,6 +33,11 @@ pub(crate) struct Command {
     /// standard policy (3 trusted / 10 untrusted).
     #[arg(long)]
     min_confirmations: Option<std::num::NonZeroU32>,
+
+    /// Emit a single-line JSON object with raw zatoshi values instead of the
+    /// human-readable summary. Ignores `--convert`.
+    #[arg(long)]
+    json: bool,
 }
 
 impl Command {
@@ -48,11 +53,14 @@ impl Command {
             UnifiedAddressRequest::AllAvailableKeys,
         )?;
 
-        let printer = if let Some(currency) = self.convert {
-            let tor = tor_client(wallet_dir.as_ref()).await?;
-            ValuePrinter::with_exchange_rate(&tor, currency).await?
-        } else {
-            ValuePrinter::ZecOnly
+        // In JSON mode we emit raw zatoshis, so skip the exchange-rate fetch
+        // (which would otherwise spin up a Tor client) entirely.
+        let printer = match self.convert {
+            Some(currency) if !self.json => {
+                let tor = tor_client(wallet_dir.as_ref()).await?;
+                ValuePrinter::with_exchange_rate(&tor, currency).await?
+            }
+            _ => ValuePrinter::ZecOnly,
         };
 
         let confirmations_policy = self
@@ -60,6 +68,27 @@ impl Command {
             .map_or_else(ConfirmationsPolicy::default, |n| {
                 ConfirmationsPolicy::new_symmetrical(n, true)
             });
+
+        if self.json {
+            let wallet_summary = db_data
+                .get_wallet_summary(confirmations_policy)?
+                .ok_or_else(|| anyhow!("Insufficient information to build a wallet summary."))?;
+            let balance = wallet_summary
+                .account_balances()
+                .get(&account.id())
+                .ok_or_else(|| anyhow!("Missing account 0"))?;
+
+            let json = serde_json::json!({
+                "total": balance.total().into_u64(),
+                "sapling_spendable": balance.sapling_balance().spendable_value().into_u64(),
+                "orchard_spendable": balance.orchard_balance().spendable_value().into_u64(),
+                "transparent_spendable": balance.unshielded_balance().spendable_value().into_u64(),
+                "chain_tip_height": u32::from(wallet_summary.chain_tip_height()),
+            });
+            println!("{}", serde_json::to_string(&json)?);
+            return Ok(());
+        }
+
         if let Some(wallet_summary) = db_data.get_wallet_summary(confirmations_policy)? {
             let balance = wallet_summary
                 .account_balances()

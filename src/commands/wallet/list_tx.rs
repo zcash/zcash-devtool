@@ -24,6 +24,12 @@ pub(crate) struct Command {
     /// with one record per output row. Defaults to "text".
     #[arg(short, long)]
     mode: Option<String>,
+
+    /// Emit a single-line JSON array of `{"txid", "mined_height"}` objects
+    /// (`mined_height` is null for unmined transactions). Takes precedence
+    /// over `--mode`.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -98,16 +104,20 @@ impl Command {
              WHERE txid = :txid",
         )?;
 
-        match mode {
-            ListMode::Text => {
-                println!("Transactions:");
-            }
-            ListMode::Csv => {
-                println!(
-                    "Date,Action,Symbol,Volume,Currency,Account,Total,Price,Fee,FeeCurrency,Memo"
-                );
+        if !self.json {
+            match mode {
+                ListMode::Text => {
+                    println!("Transactions:");
+                }
+                ListMode::Csv => {
+                    println!(
+                        "Date,Action,Symbol,Volume,Currency,Account,Total,Price,Fee,FeeCurrency,Memo"
+                    );
+                }
             }
         }
+
+        let mut json_txs = Vec::new();
         for row in stmt_txs.query_and_then(
             named_params! {":account_uuid": self.account_id },
             |row| -> anyhow::Result<_> {
@@ -150,7 +160,18 @@ impl Command {
             },
         )? {
             let tx = row?;
-            tx.print(mode)?;
+            if self.json {
+                json_txs.push(serde_json::json!({
+                    "txid": tx.txid.to_string(),
+                    "mined_height": tx.mined_height.map(u32::from),
+                }));
+            } else {
+                tx.print(mode)?;
+            }
+        }
+
+        if self.json {
+            println!("{}", serde_json::to_string(&json_txs)?);
         }
 
         Ok(())
