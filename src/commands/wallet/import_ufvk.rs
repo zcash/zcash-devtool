@@ -53,7 +53,7 @@ impl Command {
             consensus::NetworkType::Main => Network::Main,
             consensus::NetworkType::Test => Network::Test,
             #[cfg(feature = "regtest_support")]
-            consensus::NetworkType::Regtest => Network::Regtest,
+            consensus::NetworkType::Regtest => Network::default_regtest(),
             #[cfg(not(feature = "regtest_support"))]
             consensus::NetworkType::Regtest => {
                 return Err(anyhow!(
