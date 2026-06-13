@@ -53,7 +53,7 @@ impl ServerOperator {
             (ServerOperator::ZecRocks, Network::Test) => ZEC_ROCKS_TESTNET,
             // No operator hosts regtest; users must pass a custom host:port.
             #[cfg(feature = "regtest_support")]
-            (_, Network::Regtest) => &[],
+            (_, Network::Regtest(_)) => &[],
         }
     }
 }

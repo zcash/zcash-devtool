@@ -69,7 +69,7 @@ impl Command {
             NetworkType::Main => Network::Main,
             NetworkType::Test => Network::Test,
             #[cfg(feature = "regtest_support")]
-            NetworkType::Regtest => Network::Regtest,
+            NetworkType::Regtest => Network::default_regtest(),
             #[cfg(not(feature = "regtest_support"))]
             NetworkType::Regtest => {
                 return Err(anyhow!(
