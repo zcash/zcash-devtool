@@ -133,6 +133,12 @@ impl Server<'_> {
             && !self.host.ends_with(".onion")
     }
 
+    /// The server's connection URI (scheme included), as reported by
+    /// `wallet get-info`.
+    pub(crate) fn uri(&self) -> String {
+        self.endpoint()
+    }
+
     fn endpoint(&self) -> String {
         format!(
             "{}://{}:{}",
