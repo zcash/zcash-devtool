@@ -98,7 +98,7 @@ pub(crate) fn handle_recipient<C, T>(
 }
 
 pub(crate) fn add_inputs<P: consensus::Parameters, U: sapling::builder::ProverProgress>(
-    builder: &mut Builder<'_, P, U>,
+    builder: &mut Builder<P, U>,
     transparent_inputs: Vec<TransparentInputInfo>,
 ) -> anyhow::Result<()> {
     for input in transparent_inputs.into_iter() {
@@ -108,7 +108,7 @@ pub(crate) fn add_inputs<P: consensus::Parameters, U: sapling::builder::ProverPr
 }
 
 pub(crate) fn add_recipient<P: consensus::Parameters, U: sapling::builder::ProverProgress>(
-    builder: &mut Builder<'_, P, U>,
+    builder: &mut Builder<P, U>,
     recipient: Address,
     value: Zatoshis,
     memo: Option<MemoBytes>,

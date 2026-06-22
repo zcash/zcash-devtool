@@ -118,3 +118,19 @@ tui = [
     "dep:tokio-util",
     "dep:tui-logger",
 ]
+
+# Track librustzcash main (TZE removal merged) until the next crates.io release.
+[patch.crates-io]
+equihash = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+f4jumble = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_encoding = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zip321 = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+pczt = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_transparent = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
