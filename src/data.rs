@@ -84,6 +84,8 @@ const DEFAULT_REGTEST: LocalNetwork = LocalNetwork {
     nu6: Some(BlockHeight::from_u32(2)),
     nu6_1: Some(BlockHeight::from_u32(2)),
     nu6_2: Some(BlockHeight::from_u32(2)),
+    #[cfg(zcash_unstable = "nu7")]
+    nu7: Some(BlockHeight::from_u32(2)),
 };
 
 /// A `LocalNetwork`-shaped set of regtest activation heights, one optional
@@ -105,6 +107,8 @@ pub(crate) struct ActivationHeights {
     pub(crate) nu6: Option<u32>,
     pub(crate) nu6_1: Option<u32>,
     pub(crate) nu6_2: Option<u32>,
+    #[cfg(zcash_unstable = "nu7")]
+    pub(crate) nu7: Option<u32>,
 }
 
 #[cfg(feature = "regtest_support")]
@@ -121,6 +125,8 @@ impl ActivationHeights {
             nu6: h(self.nu6),
             nu6_1: h(self.nu6_1),
             nu6_2: h(self.nu6_2),
+            #[cfg(zcash_unstable = "nu7")]
+            nu7: h(self.nu7),
         }
     }
 
@@ -136,6 +142,8 @@ impl ActivationHeights {
             nu6: h(local.nu6),
             nu6_1: h(local.nu6_1),
             nu6_2: h(local.nu6_2),
+            #[cfg(zcash_unstable = "nu7")]
+            nu7: h(local.nu7),
         }
     }
 }

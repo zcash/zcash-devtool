@@ -76,7 +76,12 @@ impl Command {
             let balance = wallet_summary
                 .account_balances()
                 .get(&account.id())
-                .ok_or_else(|| anyhow!("Missing account 0"))?;
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Selected account {:?} not found in wallet summary",
+                        account.id()
+                    )
+                })?;
 
             let json = serde_json::json!({
                 "total": balance.total().into_u64(),
@@ -93,7 +98,12 @@ impl Command {
             let balance = wallet_summary
                 .account_balances()
                 .get(&account.id())
-                .ok_or_else(|| anyhow!("Missing account 0"))?;
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Selected account {:?} not found in wallet summary",
+                        account.id()
+                    )
+                })?;
 
             println!("{:#?}", wallet_summary);
             println!("{:?}", address.map(|a| a.encode(&params)));
