@@ -144,6 +144,10 @@ pub(crate) fn inspect(
         TxVersion::V5 => {
             eprintln!(" - Consensus branch ID: {:?}", tx.consensus_branch_id());
         }
+        #[cfg(zcash_unstable = "nu7")]
+        TxVersion::V6 => {
+            eprintln!(" - Consensus branch ID: {:?}", tx.consensus_branch_id());
+        }
     }
 
     let is_coinbase = is_coinbase(&tx);

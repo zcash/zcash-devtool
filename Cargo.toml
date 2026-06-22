@@ -6,6 +6,12 @@ rust-version = "1.87"
 license = "MIT OR Apache-2.0"
 publish = false
 
+[lints.rust]
+# `zcash_unstable` is a `--cfg` set via RUSTFLAGS (not a Cargo feature) by the
+# zcash crates to opt in to in-development network upgrades; declared here so the
+# inspect code can gate on NU7 without tripping the `unexpected_cfgs` lint.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(zcash_unstable, values("nu7"))'] }
+
 [dependencies]
 anyhow = "1"
 bip0039 = { version = "0.12", features = ["std", "all-languages"] }
