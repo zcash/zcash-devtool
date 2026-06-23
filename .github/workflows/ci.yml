@@ -2,6 +2,10 @@ name: CI checks
 
 on: [push, pull_request]
 
+# Restrict the default GITHUB_TOKEN to read-only; jobs that need more opt in below.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build on ${{ matrix.os }}
@@ -48,6 +52,10 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    # auguwu/clippy-action writes clippy results as check runs.
+    permissions:
+      contents: read
+      checks: write
     steps:
       - uses: actions/checkout@v4
       - name: Run Clippy
