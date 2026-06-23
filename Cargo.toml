@@ -9,7 +9,7 @@ publish = false
 [lints.rust]
 # `zcash_unstable` is a `--cfg` set via RUSTFLAGS (not a Cargo feature) by the
 # zcash crates to opt in to in-development network upgrades; declared here so the
-# inspect code can gate on NU7 without tripping the `unexpected_cfgs` lint.
+# regtest/inspect code can gate on NU7 without tripping the `unexpected_cfgs` lint.
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(zcash_unstable, values("nu7"))'] }
 
 [dependencies]
@@ -46,7 +46,11 @@ sapling = { package = "sapling-crypto", version = "0.7" }
 transparent = { package = "zcash_transparent", version = "0.8", features = ["test-dependencies"] }
 zcash_address = "0.12"
 zcash_client_backend = { version = "0.23", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "pczt", "tor", "unstable"] }
-zcash_client_sqlite = { version = "0.21", features = ["unstable", "orchard", "serde", "test-dependencies"] }
+# `transparent-inputs` is enabled unconditionally: `zcash_client_backend`'s `pczt`
+# feature (always on here) already forces `zcash_client_backend/transparent-inputs`,
+# so `zcash_client_sqlite` must match or its `WalletRead`/`WalletWrite` impls fail to
+# cover the trait's transparent methods.
+zcash_client_sqlite = { version = "0.21", features = ["transparent-inputs", "unstable", "orchard", "serde", "test-dependencies"] }
 zcash_keys = { version = "0.14", features = ["orchard", "unstable", "unstable-frost"] }
 zcash_primitives = "0.28"
 zcash_proofs = { version = "0.28", features = ["bundled-prover"] }
@@ -107,6 +111,7 @@ tui-logger = { version = "0.17", optional = true, features = ["tracing-support"]
 [features]
 default = ["transparent-inputs"]
 qr = ["dep:qrcode"]
+regtest_support = ["zcash_protocol/local-consensus"]
 pczt-qr = ["dep:image", "dep:minicbor", "dep:nokhwa", "dep:qrcode", "dep:rqrr", "dep:ur"]
 transparent-inputs = [
     "zcash_client_sqlite/transparent-inputs",

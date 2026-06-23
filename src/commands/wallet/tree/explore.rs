@@ -22,15 +22,12 @@ use tracing::{info, warn};
 use zcash_client_backend::data_api::{WalletCommitmentTrees, WalletRead};
 use zcash_client_sqlite::{WalletDb, wallet::commitment_tree::SqliteShardStore};
 use zcash_primitives::merkle_tree::HashSer;
-use zcash_protocol::{
-    ShieldedProtocol,
-    consensus::{BlockHeight, Network},
-};
+use zcash_protocol::{ShieldedProtocol, consensus::BlockHeight};
 
 use crate::{
     ShutdownListener,
     config::get_wallet_network,
-    data::get_db_paths,
+    data::{Network, get_db_paths},
     tui::{self, Tui},
 };
 

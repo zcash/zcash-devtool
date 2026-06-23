@@ -23,7 +23,8 @@ pub(crate) struct Command {
     #[arg(long, required = false)]
     new: bool,
 
-    /// The network the wallet will be used with: \"test\" or \"main\"
+    /// The network the wallet will be used with: \"test\", \"main\", or \"regtest\"
+    /// (requires the `regtest_support` feature)
     #[arg(short, long)]
     #[arg(value_parser = Network::parse)]
     network: Network,
@@ -31,7 +32,7 @@ pub(crate) struct Command {
 
 impl Command {
     pub(crate) fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
-        let params = consensus::Network::from(self.network);
+        let params = self.network;
 
         let recipients = if fs::exists(&self.identity)? {
             age::IdentityFile::from_file(self.identity)?.to_recipients()?
@@ -77,7 +78,7 @@ impl Command {
             params
                 .activation_height(consensus::NetworkUpgrade::Nu6)
                 .expect("active"),
-            self.network.into(),
+            self.network,
         )?;
 
         // Initialise the block and wallet DBs.

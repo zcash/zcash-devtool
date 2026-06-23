@@ -7,6 +7,7 @@ pub(crate) mod display_mnemonic;
 pub(crate) mod enhance;
 pub(crate) mod gen_account;
 pub(crate) mod gen_addr;
+pub(crate) mod get_info;
 pub(crate) mod import_ufvk;
 pub(crate) mod init;
 pub(crate) mod init_fvk;
@@ -42,6 +43,9 @@ pub(crate) enum Command {
 
     /// Upgrade an existing light wallet
     Upgrade(upgrade::Command),
+
+    /// Report server and chain info as JSON (server URI, chain name, chain tip height)
+    GetInfo(get_info::Command),
 
     /// Scan the chain and sync the wallet
     Sync(sync::Command),

@@ -9,7 +9,7 @@ use zcash_client_backend::{
     data_api::{AccountBirthday, WalletWrite},
     proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
 };
-use zcash_protocol::consensus::{self, BlockHeight, Parameters};
+use zcash_protocol::consensus::{BlockHeight, Parameters};
 
 use crate::{
     config::WalletConfig,
@@ -33,10 +33,20 @@ pub(crate) struct Command {
     #[arg(long)]
     birthday: Option<u32>,
 
-    /// The network the wallet will be used with: \"test\" or \"main\" (default is \"test\")
+    /// The network the wallet will be used with: \"test\", \"main\", or \"regtest\"
+    /// (requires the `regtest_support` feature). Default is \"test\".
     #[arg(short, long)]
     #[arg(value_parser = Network::parse)]
     network: Network,
+
+    /// Required for `-n regtest`: a TOML file giving the validator's
+    /// activation height per network upgrade (keys: overwinter, sapling,
+    /// blossom, heartwood, canopy, nu5, nu6, nu6_1, nu6_2; a missing key
+    /// means the upgrade is inactive). The heights are persisted in the
+    /// wallet config so later commands agree. Rejected for main/test.
+    #[cfg(feature = "regtest_support")]
+    #[arg(long)]
+    activation_heights: Option<std::path::PathBuf>,
 
     #[command(flatten)]
     connection: ConnectionArgs,
@@ -45,7 +55,28 @@ pub(crate) struct Command {
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
         let opts = self;
-        let params = consensus::Network::from(opts.network);
+
+        // Regtest requires explicit activation heights (persisted below so
+        // later commands agree); they are rejected for main/test.
+        #[cfg(feature = "regtest_support")]
+        let params = match opts.network {
+            Network::Regtest(_) => {
+                let path = opts.activation_heights.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("`-n regtest` requires --activation-heights <file>")
+                })?;
+                Network::Regtest(crate::data::load_activation_heights(path)?)
+            }
+            other => {
+                if opts.activation_heights.is_some() {
+                    return Err(anyhow::anyhow!(
+                        "--activation-heights is only valid with `-n regtest`"
+                    ));
+                }
+                other
+            }
+        };
+        #[cfg(not(feature = "regtest_support"))]
+        let params = opts.network;
 
         let mut client = opts.connection.connect(params, wallet_dir.as_ref()).await?;
 
@@ -84,10 +115,23 @@ impl Command {
             vec![Box::new(recipient) as _]
         };
 
-        // Parse or create the wallet's mnemonic phrase.
-        let phrase = SecretString::new(rpassword::prompt_password(
-            "Enter mnemonic (or just press Enter to generate a new one):",
-        )?);
+        // Parse or create the wallet's mnemonic phrase. `rpassword`
+        // requires a controlling terminal (it prompts and reads via
+        // /dev/tty, failing with ENXIO when there is none), so when
+        // stdin is not a terminal — automation piping the phrase in,
+        // e.g. the `zcash_local_net` test harness — read a line from
+        // stdin instead.
+        let phrase = if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            SecretString::new(rpassword::prompt_password(
+                "Enter mnemonic (or just press Enter to generate a new one):",
+            )?)
+        } else {
+            let mut line = String::new();
+            std::io::BufRead::read_line(&mut std::io::stdin().lock(), &mut line)?;
+            let phrase = SecretString::new(line.trim().to_string());
+            line.zeroize();
+            phrase
+        };
         let (mnemonic, recover_until) = if !phrase.expose_secret().is_empty() {
             (
                 <Mnemonic<English>>::from_phrase(phrase.expose_secret())?,
@@ -112,7 +156,7 @@ impl Command {
             recipients.iter().map(|r| r.as_ref() as _),
             &mnemonic,
             birthday.height(),
-            opts.network.into(),
+            params,
         )?;
 
         let seed = {

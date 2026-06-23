@@ -4,13 +4,14 @@ use anyhow::anyhow;
 use clap::Args;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint, Uri};
 
+use crate::{
+    data::{Network, get_tor_dir},
+    socks::SocksConnector,
+};
 use tracing::{info, warn};
 use zcash_client_backend::{
     proto::service::compact_tx_streamer_client::CompactTxStreamerClient, tor,
 };
-use zcash_protocol::consensus::Network;
-
-use crate::{data::get_tor_dir, socks::SocksConnector};
 
 const ECC_TESTNET: &[Server<'_>] = &[Server::fixed("lightwalletd.testnet.electriccoin.co", 9067)];
 
@@ -44,12 +45,15 @@ pub(crate) enum ServerOperator {
 impl ServerOperator {
     fn servers(&self, network: Network) -> &[Server<'_>] {
         match (self, network) {
-            (ServerOperator::Ecc, Network::MainNetwork) => &[],
-            (ServerOperator::Ecc, Network::TestNetwork) => ECC_TESTNET,
-            (ServerOperator::YWallet, Network::MainNetwork) => YWALLET_MAINNET,
-            (ServerOperator::YWallet, Network::TestNetwork) => &[],
-            (ServerOperator::ZecRocks, Network::MainNetwork) => ZEC_ROCKS_MAINNET,
-            (ServerOperator::ZecRocks, Network::TestNetwork) => ZEC_ROCKS_TESTNET,
+            (ServerOperator::Ecc, Network::Main) => &[],
+            (ServerOperator::Ecc, Network::Test) => ECC_TESTNET,
+            (ServerOperator::YWallet, Network::Main) => YWALLET_MAINNET,
+            (ServerOperator::YWallet, Network::Test) => &[],
+            (ServerOperator::ZecRocks, Network::Main) => ZEC_ROCKS_MAINNET,
+            (ServerOperator::ZecRocks, Network::Test) => ZEC_ROCKS_TESTNET,
+            // No operator hosts regtest; users must pass a custom host:port.
+            #[cfg(feature = "regtest_support")]
+            (_, Network::Regtest(_)) => &[],
         }
     }
 }
@@ -127,6 +131,12 @@ impl Server<'_> {
         // localhost never has a cert, .onion uses Tor's encryption, remotes need TLS
         !matches!(self.host.as_ref(), "localhost" | "127.0.0.1" | "::1")
             && !self.host.ends_with(".onion")
+    }
+
+    /// The server's connection URI (scheme included), as reported by
+    /// `wallet get-info`.
+    pub(crate) fn uri(&self) -> String {
+        self.endpoint()
     }
 
     fn endpoint(&self) -> String {

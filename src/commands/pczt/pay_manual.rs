@@ -56,7 +56,8 @@ pub(crate) struct Command {
     #[arg(long)]
     change_address: String,
 
-    /// The network the coins are from: \"test\" or \"main\".
+    /// The network the coins are from: \"test\", \"main\", or \"regtest\" (requires
+    /// the `regtest_support` feature).
     ///
     /// If unset, uses the network of the provided wallet.
     #[arg(short, long)]
@@ -70,7 +71,7 @@ pub(crate) struct Command {
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> anyhow::Result<()> {
         let params = if let Some(network) = self.network {
-            consensus::Network::from(network)
+            network
         } else {
             let config = WalletConfig::read(wallet_dir.as_ref())?;
             config.network()

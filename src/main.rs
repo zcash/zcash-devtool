@@ -151,6 +151,7 @@ fn main() -> Result<(), anyhow::Error> {
                         )
                         .await
                 }
+                commands::wallet::Command::GetInfo(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::Enhance(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::Balance(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::GenerateAccount(command) => {

@@ -33,6 +33,18 @@ jobs:
       - name: Verify working directory is clean (excluding lockfile)
         run: git diff --exit-code ':!Cargo.lock'
 
+  regtest-support:
+    name: Build, test, and lint with regtest_support
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with regtest_support
+        run: cargo build --features regtest_support
+      - name: Test with regtest_support
+        run: cargo test --features regtest_support
+      - name: Clippy with regtest_support
+        run: cargo clippy --all-targets --features regtest_support -- -D warnings
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest

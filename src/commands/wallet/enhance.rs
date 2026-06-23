@@ -18,7 +18,7 @@ use zcash_client_backend::{
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::encoding::AddressCodec;
 use zcash_primitives::transaction::{Transaction, TxId};
-use zcash_protocol::consensus::{BlockHeight, BranchId, Network};
+use zcash_protocol::consensus::{BlockHeight, BranchId, Parameters};
 
 use crate::{config::get_wallet_network, data::get_db_paths, remote::ConnectionArgs};
 
@@ -29,8 +29,8 @@ pub(crate) struct Command {
     connection: ConnectionArgs,
 }
 
-fn parse_raw_transaction(
-    params: &Network,
+fn parse_raw_transaction<P: Parameters>(
+    params: &P,
     chain_tip: BlockHeight,
     tx: RawTransaction,
 ) -> Result<(Transaction, Option<BlockHeight>), anyhow::Error> {
@@ -46,9 +46,9 @@ fn parse_raw_transaction(
     Ok((tx, mined_height))
 }
 
-async fn fetch_transaction(
+async fn fetch_transaction<P: Parameters>(
     client: &mut CompactTxStreamerClient<Channel>,
-    params: &Network,
+    params: &P,
     chain_tip: BlockHeight,
     txid: TxId,
 ) -> Result<Option<(Transaction, Option<BlockHeight>)>, anyhow::Error> {
