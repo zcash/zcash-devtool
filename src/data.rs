@@ -32,6 +32,11 @@ pub(crate) enum Network {
 }
 
 impl Network {
+    #[cfg(feature = "regtest_support")]
+    const VALID_NAMES: [&str; 3] = ["main", "test", "regtest"];
+    #[cfg(not(feature = "regtest_support"))]
+    const VALID_NAMES: [&str; 2] = ["main", "test"];
+
     pub(crate) fn parse(name: &str) -> Result<Network, String> {
         match name {
             "main" => Ok(Network::Main),
@@ -42,7 +47,10 @@ impl Network {
             // (e.g. address encoding) are unaffected by the heights.
             #[cfg(feature = "regtest_support")]
             "regtest" => Ok(Network::Regtest(DEFAULT_REGTEST)),
-            other => Err(format!("Unsupported network: {other}")),
+            other => Err(format!(
+                "Unsupported network: \"{other}\". Valid options are: {}",
+                Self::VALID_NAMES.join(", "),
+            )),
         }
     }
 
