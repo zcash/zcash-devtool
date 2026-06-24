@@ -13,8 +13,6 @@ use zcash_client_backend::{
     proto::service::compact_tx_streamer_client::CompactTxStreamerClient, tor,
 };
 
-const ECC_TESTNET: &[Server<'_>] = &[Server::fixed("lightwalletd.testnet.electriccoin.co", 9067)];
-
 const YWALLET_MAINNET: &[Server<'_>] = &[
     Server::fixed("lwd1.zcash-infra.com", 9067),
     Server::fixed("lwd2.zcash-infra.com", 9067),
@@ -37,7 +35,6 @@ const ZEC_ROCKS_TESTNET: &[Server<'_>] = &[Server::fixed("testnet.zec.rocks", 44
 
 #[derive(Clone, Debug)]
 pub(crate) enum ServerOperator {
-    Ecc,
     YWallet,
     ZecRocks,
 }
@@ -45,8 +42,6 @@ pub(crate) enum ServerOperator {
 impl ServerOperator {
     fn servers(&self, network: Network) -> &[Server<'_>] {
         match (self, network) {
-            (ServerOperator::Ecc, Network::Main) => &[],
-            (ServerOperator::Ecc, Network::Test) => ECC_TESTNET,
             (ServerOperator::YWallet, Network::Main) => YWALLET_MAINNET,
             (ServerOperator::YWallet, Network::Test) => &[],
             (ServerOperator::ZecRocks, Network::Main) => ZEC_ROCKS_MAINNET,
@@ -67,7 +62,6 @@ pub(crate) enum Servers {
 impl Servers {
     pub(crate) fn parse(s: &str) -> anyhow::Result<Self> {
         match s {
-            "ecc" => Ok(Self::Hosted(ServerOperator::Ecc)),
             "ywallet" => Ok(Self::Hosted(ServerOperator::YWallet)),
             "zecrocks" => Ok(Self::Hosted(ServerOperator::ZecRocks)),
             _ => s
@@ -82,7 +76,7 @@ impl Servers {
                 })
                 .collect::<Option<_>>()
                 .map(Self::Custom)
-                .ok_or(anyhow!("'{}' must be one of ['ecc', 'ywallet', 'zecrocks'], or a comma-separated list of host:port", s)),
+                .ok_or(anyhow!("'{}' must be one of ['ywallet', 'zecrocks'], or a comma-separated list of host:port", s)),
         }
     }
 
@@ -264,8 +258,8 @@ fn parse_connection_mode(s: &str) -> Result<ConnectionMode, String> {
 /// CLI arguments for server connection configuration.
 #[derive(Debug, Args, Clone)]
 pub(crate) struct ConnectionArgs {
-    /// The server to connect to (default is "ecc")
-    #[arg(short, long, default_value = "ecc", value_parser = Servers::parse)]
+    /// The server to connect to (default is "zecrocks")
+    #[arg(short, long, default_value = "zecrocks", value_parser = Servers::parse)]
     pub(crate) server: Servers,
 
     /// Connection mode: "direct", "tor" (default), or "socks5://<host>:<port>"
