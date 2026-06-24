@@ -102,6 +102,69 @@ network = "test"
 birthday = 3274265
 ```
 
+Restoring a Wallet from a Mnemonic
+----------------------------------
+
+If you already have a mnemonic seed phrase — for example one produced by a
+previous `init`, or by another wallet — you can recover the wallet with the
+`restore-mnemonic` command instead of `init`. This re-derives the wallet's keys
+from the phrase and sets up the same set of files and databases.
+
+We'll restore into a fresh `../restored-wallet` directory. As with `init`, the
+`-i` parameter points at an `age` identity file used to encrypt the mnemonic at
+rest; if the file doesn't exist yet it will be generated for you (you'll see a
+`Generating a new age identity to encrypt the mnemonic phrase` message), and the
+public key written to it is what `keys.toml` is encrypted to.
+
+```bash
+λ cargo run --release --all-features -- wallet -w ../restored-wallet restore-mnemonic \
+  --name "ZDevRestored" -i ../restored-wallet/dev-key.txt -n test -s zecrocks
+```
+
+The command then prompts for the phrase to restore. The input is read without
+echoing it back to the terminal:
+
+```bash
+Enter mnemonic to restore:
+```
+
+Paste (or type) the 24-word mnemonic and press Enter. The command derives the
+keys, writes the encrypted mnemonic and wallet metadata to `keys.toml`, and
+initializes the wallet databases — the same `../restored-wallet` layout you saw
+after running `init`:
+
+```bash
+λ ll ../restored-wallet/
+total 352
+-rw-r--r-- 1 ... ...  16384 Mar  3 17:48 blockmeta.sqlite
+drwxrwxr-x 2 ... ...   4096 Mar  3 17:48 blocks/
+-rw-r--r-- 1 ... ... 323584 Mar  3 17:48 data.sqlite
+-rw------- 1 ... ...    189 Mar  3 16:59 dev-key.txt
+-rw-rw-r-- 1 ... ...    786 Mar  3 17:48 keys.toml
+drwxrwxr-x 4 ... ...   4096 Mar  3 17:43 tor/
+```
+
+A note on the wallet's birthday: `init` assumes a brand-new wallet and defaults
+the birthday to roughly the current chain tip, but a restored wallet may have
+received funds at any point in its past. For that reason `restore-mnemonic`
+defaults the birthday to the network's Sapling activation height, so that a
+subsequent `sync` scans the entire history in which the wallet could have
+received funds. If you know a more recent birthday height, pass it explicitly to
+avoid scanning unnecessary history:
+
+```bash
+λ cargo run --release --all-features -- wallet -w ../restored-wallet restore-mnemonic \
+  --name "ZDevRestored" -i ../restored-wallet/dev-key.txt --birthday 3274265 -n test -s zecrocks
+```
+
+Once restored, the wallet behaves exactly like any other; sync it to discover
+its funds:
+
+```bash
+λ cargo run --release --all-features -- wallet -w ../restored-wallet sync -s zecrocks
+λ cargo run --release --all-features -- wallet -w ../restored-wallet balance
+```
+
 Receiving Payments
 ------------------
 
