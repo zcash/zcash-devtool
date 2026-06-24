@@ -85,7 +85,7 @@ group = "0.13"
 lazy_static = "1"
 serde_json = "1"
 sha2 = "0.10"
-uint = "0.9"
+uint = "0.10"
 zcash_encoding = "0.4"
 zcash_note_encryption = "0.4.1"
 
