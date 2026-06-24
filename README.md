@@ -45,6 +45,18 @@ cargo run --release -- wallet -w <wallet_dir> init --name "<account_name>" -i <i
 cargo run --release -- wallet -w <wallet_dir> sync -s zecrocks
 ```
 
+To restore an existing wallet from a mnemonic seed phrase, use `restore-mnemonic`:
+```
+cargo run --release -- wallet -w <wallet_dir> restore-mnemonic --name "<account_name>" -i <identity_file> -n test
+cargo run --release -- wallet -w <wallet_dir> sync
+```
+You will be prompted to enter the mnemonic phrase to restore. As with `init`,
+the `-i` (identity) parameter specifies an age identity file used to encrypt the
+mnemonic phrase, and the file will be generated if it doesn't exist. Unless you
+pass `--birthday`, the wallet's birthday defaults to the network's Sapling
+activation height so that the entire history in which it could have received
+funds is scanned.
+
 Whenever you update the `zcash_client_sqlite` dependency, in order to run
 necessary migrations:
 ```
