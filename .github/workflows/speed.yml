@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: bencherdev/bencher@main
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: zcash-devtool
       - run: chmod +x zcash-devtool
