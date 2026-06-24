@@ -6,10 +6,10 @@ use tokio::io::AsyncWriteExt;
 use tonic::transport::Channel;
 
 use zcash_client_backend::{
-    data_api::{AccountBirthday, WalletWrite},
+    data_api::{AccountBirthday, WalletWrite, chain::ChainState},
     proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
 };
-use zcash_protocol::consensus::{BlockHeight, Parameters};
+use zcash_protocol::consensus::{BlockHeight, NetworkUpgrade, Parameters};
 
 use crate::{
     config::WalletConfig,
@@ -143,6 +143,7 @@ impl Command {
 
         let birthday = Self::get_wallet_birthday(
             client,
+            &params,
             opts.birthday
                 .unwrap_or(chain_tip.saturating_sub(100))
                 .into(),
@@ -176,20 +177,52 @@ impl Command {
         )
     }
 
-    pub(crate) async fn get_wallet_birthday(
+    pub(crate) async fn get_wallet_birthday<P: Parameters>(
         mut client: CompactTxStreamerClient<Channel>,
+        params: &P,
         birthday_height: BlockHeight,
         recover_until: Option<BlockHeight>,
     ) -> Result<AccountBirthday, anyhow::Error> {
-        // Fetch the tree state corresponding to the last block prior to the wallet's
-        // birthday height. NOTE: THIS APPROACH LEAKS THE BIRTHDAY TO THE SERVER!
-        let request = service::BlockId {
-            height: u64::from(birthday_height).saturating_sub(1),
-            ..Default::default()
+        // A shielded wallet's birthday cannot meaningfully precede Sapling
+        // activation: there is no note commitment tree before then, and
+        // lightwalletd rejects `GetTreeState` for any height below it.
+        let sapling_activation = params
+            .activation_height(NetworkUpgrade::Sapling)
+            .expect("Sapling activation height is known");
+        let birthday_height = birthday_height.max(sapling_activation);
+
+        // The birthday is defined by the chain state (note commitment tree
+        // frontiers and block hash) as of the block *prior* to the birthday
+        // height.
+        let birthday = if birthday_height == sapling_activation {
+            // Edge case: the block prior to the birthday is the last pre-Sapling
+            // block, whose note commitment trees are empty and whose tree state
+            // the server cannot serve (`GetTreeState` below Sapling activation
+            // is rejected). Construct an empty chain state directly, taking the
+            // prior block's hash from the birthday block's `prev_hash` so block
+            // scanning can still verify chain continuity.
+            let birthday_block = client
+                .get_block(service::BlockId {
+                    height: u64::from(birthday_height),
+                    ..Default::default()
+                })
+                .await?
+                .into_inner();
+            AccountBirthday::from_parts(
+                ChainState::empty(birthday_height - 1, birthday_block.prev_hash()),
+                recover_until,
+            )
+        } else {
+            // Fetch the tree state corresponding to the last block prior to the
+            // wallet's birthday height. NOTE: THIS APPROACH LEAKS THE BIRTHDAY
+            // TO THE SERVER!
+            let request = service::BlockId {
+                height: u64::from(birthday_height) - 1,
+                ..Default::default()
+            };
+            let treestate = client.get_tree_state(request).await?.into_inner();
+            AccountBirthday::from_treestate(treestate, recover_until).map_err(error::Error::from)?
         };
-        let treestate = client.get_tree_state(request).await?.into_inner();
-        let birthday = AccountBirthday::from_treestate(treestate, recover_until)
-            .map_err(error::Error::from)?;
 
         Ok(birthday)
     }
