@@ -90,7 +90,7 @@ pub(crate) struct Command {
 
 pub(crate) trait PaymentContext {
     fn spending_account(&self) -> Option<Uuid>;
-    fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity>>>;
+    fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity + std::marker::Send + Sync>>>;
     fn connection_args(&self) -> &ConnectionArgs;
     fn target_note_count(&self) -> usize;
     fn min_split_output_value(&self) -> u64;
@@ -106,7 +106,7 @@ impl PaymentContext for Command {
         self.account_id
     }
 
-    fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity>>> {
+    fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity + std::marker::Send + Sync>>> {
         let identities = age::IdentityFile::from_file(self.identity.clone())?.into_identities()?;
         Ok(identities)
     }
