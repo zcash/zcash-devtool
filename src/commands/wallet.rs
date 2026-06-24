@@ -18,6 +18,7 @@ pub(crate) mod list_unspent;
 pub(crate) mod pay;
 pub(crate) mod propose;
 pub(crate) mod reset;
+pub(crate) mod restore_mnemonic;
 pub(crate) mod send;
 pub(crate) mod shield;
 pub(crate) mod sync;
@@ -31,6 +32,9 @@ pub(crate) enum Command {
 
     /// Initialise a new view-only light wallet
     InitFvk(init_fvk::Command),
+
+    /// Restore a wallet from an existing mnemonic phrase
+    RestoreMnemonic(restore_mnemonic::Command),
 
     /// Decrypt and display the wallet's mnemonic recovery phrase, if any.
     DisplayMnemonic(display_mnemonic::Command),
