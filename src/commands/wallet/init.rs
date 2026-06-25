@@ -188,7 +188,9 @@ impl Command {
         // lightwalletd rejects `GetTreeState` for any height below it.
         let sapling_activation = params
             .activation_height(NetworkUpgrade::Sapling)
-            .ok_or_else(|| anyhow::anyhow!("Sapling activation height is not set for this network"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("Sapling activation height is not set for this network")
+            })?;
         let birthday_height = birthday_height.max(sapling_activation);
 
         // The birthday is defined by the chain state (note commitment tree
@@ -209,7 +211,10 @@ impl Command {
                 .await?
                 .into_inner();
             AccountBirthday::from_parts(
-                ChainState::empty(birthday_height.saturating_sub(1), birthday_block.prev_hash()),
+                ChainState::empty(
+                    birthday_height.saturating_sub(1),
+                    birthday_block.prev_hash(),
+                ),
                 recover_until,
             )
         } else {
