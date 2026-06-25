@@ -138,6 +138,7 @@ impl Command {
 
         let birthday = super::init::Command::get_wallet_birthday(
             client,
+            &params,
             birthday_height,
             Some(chain_tip.into()),
         )

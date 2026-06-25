@@ -94,6 +94,7 @@ impl Command {
 
         let birthday = super::init::Command::get_wallet_birthday(
             client,
+            &network,
             opts.birthday
                 .unwrap_or(chain_tip.saturating_sub(100))
                 .into(),

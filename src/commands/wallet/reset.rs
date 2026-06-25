@@ -59,9 +59,13 @@ impl Command {
             )
         };
 
-        let birthday =
-            super::init::Command::get_wallet_birthday(client, config.birthday(), Some(chain_tip))
-                .await?;
+        let birthday = super::init::Command::get_wallet_birthday(
+            client,
+            &params,
+            config.birthday(),
+            Some(chain_tip),
+        )
+        .await?;
 
         // Erase the wallet state (excluding key material).
         erase_wallet_state(wallet_dir.as_ref()).await;

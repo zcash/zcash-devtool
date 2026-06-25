@@ -50,6 +50,7 @@ impl Command {
 
         let birthday = wallet::init::Command::get_wallet_birthday(
             client,
+            &params,
             chain_tip.saturating_sub(100).into(),
             None,
         )
