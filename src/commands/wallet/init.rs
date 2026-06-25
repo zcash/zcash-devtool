@@ -209,7 +209,7 @@ impl Command {
                 .await?
                 .into_inner();
             AccountBirthday::from_parts(
-                ChainState::empty(birthday_height - 1, birthday_block.prev_hash()),
+                ChainState::empty(birthday_height.saturating_sub(1), birthday_block.prev_hash()),
                 recover_until,
             )
         } else {
