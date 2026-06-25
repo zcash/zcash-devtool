@@ -188,7 +188,7 @@ impl Command {
         // lightwalletd rejects `GetTreeState` for any height below it.
         let sapling_activation = params
             .activation_height(NetworkUpgrade::Sapling)
-            .expect("Sapling activation height is known");
+            .ok_or_else(|| anyhow::anyhow!("Sapling activation height is not set for this network"))?;
         let birthday_height = birthday_height.max(sapling_activation);
 
         // The birthday is defined by the chain state (note commitment tree
