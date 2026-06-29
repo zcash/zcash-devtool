@@ -235,8 +235,8 @@ pub(crate) enum ConnectionMode {
 /// Parse a connection mode from a string.
 ///
 /// Supported formats:
-/// - `direct` - Direct TCP connection
-/// - `tor` - Use the built-in Tor client (default)
+/// - `direct` - Direct TCP connection (default)
+/// - `tor` - Use the built-in Tor client (opt-in)
 /// - `socks5://<host>:<port>` - Route through a SOCKS5 proxy
 fn parse_connection_mode(s: &str) -> Result<ConnectionMode, String> {
     match s {
@@ -262,8 +262,10 @@ pub(crate) struct ConnectionArgs {
     #[arg(short, long, default_value = "zecrocks", value_parser = Servers::parse)]
     pub(crate) server: Servers,
 
-    /// Connection mode: "direct", "tor" (default), or "socks5://<host>:<port>"
-    #[arg(long, default_value = "tor", value_parser = parse_connection_mode)]
+    /// Connection mode: "direct" (default), "tor", or "socks5://<host>:<port>".
+    /// Tor is opt-in: pass "--connection tor" to route over the built-in Tor
+    /// client.
+    #[arg(long, default_value = "direct", value_parser = parse_connection_mode)]
     pub(crate) connection: ConnectionMode,
 
     /// Deprecated: use --connection direct instead
