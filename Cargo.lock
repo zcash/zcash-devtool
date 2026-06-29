@@ -1770,7 +1770,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "sha3",
- "strum 0.26.3",
+ "strum 0.27.2",
  "syn 2.0.117",
  "void",
 ]
@@ -6376,9 +6376,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-socks"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d4770b8024672c1101b3f6733eab95b18007dbe0847a8afe341fcf79e06043f"
+checksum = "a7e2948f60dbe26b35f2c7fb74ac2854c1fddded0fe9d7548fcc674a246f7615"
 dependencies = [
  "either",
  "futures-util",
