@@ -21,6 +21,9 @@ pub(crate) type WalletErrorT = WalletError<
     ReceivedNoteId,
 >;
 
+// `propose_send_max_transfer` returns `ProposeSendMaxErrT`, whose
+// input-selection error slot is `BalanceError` (not `GreedyInputSelectorError`
+// like the greedy `propose_transfer`/`propose_shielding` paths).
 pub(crate) type SendMaxErrorT = WalletError<
     SqliteClientError,
     commitment_tree::Error,

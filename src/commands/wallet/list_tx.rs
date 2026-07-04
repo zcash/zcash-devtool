@@ -200,6 +200,7 @@ impl WalletTxOutput {
             0 => Some(PoolType::Transparent),
             2 => Some(PoolType::SAPLING),
             3 => Some(PoolType::ORCHARD),
+            4 => Some(PoolType::IRONWOOD),
             _ => None,
         }
     }

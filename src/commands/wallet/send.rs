@@ -148,8 +148,9 @@ pub(crate) fn parse_tx_version(s: &str) -> anyhow::Result<TxVersion> {
     match v {
         4 => Ok(TxVersion::V4),
         5 => Ok(TxVersion::V5),
+        6 => Ok(TxVersion::V6),
         other => Err(anyhow!(
-            "Unsupported transaction version {}; expected 4 or 5",
+            "Unsupported transaction version {}; expected 4, 5 or 6",
             other
         )),
     }
