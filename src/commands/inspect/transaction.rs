@@ -34,7 +34,7 @@ use zcash_protocol::{
 use zcash_script::{script, solver};
 
 use super::{
-    GROTH16_PARAMS, ORCHARD_VK,
+    GROTH16_PARAMS,
     context::{Context, ZTxOut},
 };
 
@@ -141,11 +141,7 @@ pub(crate) fn inspect(
     match tx.version() {
         // TODO: If pre-v5 and no branch ID provided in context, disable signature checks.
         TxVersion::Sprout(_) | TxVersion::V3 | TxVersion::V4 => (),
-        TxVersion::V5 => {
-            eprintln!(" - Consensus branch ID: {:?}", tx.consensus_branch_id());
-        }
-        #[cfg(zcash_unstable = "nu7")]
-        TxVersion::V6 => {
+        TxVersion::V5 | TxVersion::V6 => {
             eprintln!(" - Consensus branch ID: {:?}", tx.consensus_branch_id());
         }
     }
@@ -547,7 +543,11 @@ pub(crate) fn inspect(
             );
         }
 
-        if let Err(e) = bundle.verify_proof(&ORCHARD_VK) {
+        // The circuit version (and thus the verifying key) is fixed by the
+        // bundle's own version, which the parser derives from the tx era.
+        let orchard_vk =
+            orchard::circuit::VerifyingKey::build(bundle.bundle_version().circuit_version());
+        if let Err(e) = bundle.verify_proof(&orchard_vk) {
             eprintln!("⚠️  Orchard proof is invalid: {e:?}");
         }
     }

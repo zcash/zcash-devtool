@@ -150,6 +150,7 @@ impl App {
                     if let Some(key) = match pool {
                         ShieldedProtocol::Sapling => block.sapling_tree_size(),
                         ShieldedProtocol::Orchard => block.orchard_tree_size(),
+                        ShieldedProtocol::Ironwood => None,
                     } {
                         block_boundaries.entry(key).or_insert(block.block_height());
                     }
@@ -284,6 +285,8 @@ impl App {
                 Ok(None) => false,
                 Err(e) => todo!("{}", e),
             },
+            // The explorer's pool argument only parses "sapling"/"orchard".
+            ShieldedProtocol::Ironwood => false,
         }
     }
 
@@ -313,6 +316,10 @@ impl App {
                     )
                 })
                 .unwrap(),
+            // The explorer's pool argument only parses "sapling"/"orchard".
+            ShieldedProtocol::Ironwood => {
+                unreachable!("the tree explorer only supports Sapling and Orchard")
+            }
         };
 
         let mut address = self.address;
@@ -658,6 +665,7 @@ impl Region {
             .block(Block::bordered().title(match self.pool {
                 ShieldedProtocol::Sapling => "Sapling tree",
                 ShieldedProtocol::Orchard => "Orchard tree",
+                ShieldedProtocol::Ironwood => "Ironwood tree",
             }))
             .x_bounds([-90.0, 90.0])
             .y_bounds([-30.0, 50.0])

@@ -157,6 +157,7 @@ impl Command {
                 zcash_primitives::transaction::builder::BuildConfig::Standard {
                     sapling_anchor,
                     orchard_anchor,
+                    ironwood_anchor: None,
                 },
             );
             add_inputs(&mut builder, transparent_inputs)?;
@@ -255,7 +256,10 @@ impl Command {
         )?
         .finish();
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }

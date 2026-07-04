@@ -9,7 +9,7 @@ use zcash_keys::{
     keys::{UnifiedAddressRequest, UnifiedFullViewingKey},
 };
 use zcash_protocol::{
-    PoolType,
+    PoolType, ShieldedPool,
     consensus::{NetworkConstants, Parameters},
 };
 
@@ -288,6 +288,9 @@ impl Command {
                     println!(" - UFVK: {}", ufvk.encode(&params));
                     println!(" - Default address: {}", ua.encode(&params));
                 }
+            }
+            PoolType::Shielded(ShieldedPool::Ironwood) => {
+                return Err(anyhow!("Ironwood derivation is not yet supported"));
             }
         }
 

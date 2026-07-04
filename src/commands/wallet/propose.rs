@@ -8,7 +8,11 @@ use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
         Account as _,
-        wallet::{ConfirmationsPolicy, input_selection::GreedyInputSelector, propose_transfer},
+        wallet::{
+            ConfirmationsPolicy,
+            input_selection::{GreedyInputSelector, TransparentSpendPolicy},
+            propose_transfer,
+        },
     },
     fees::{DustOutputPolicy, SplitPolicy, StandardFeeRule, zip317::MultiOutputChangeStrategy},
 };
@@ -81,6 +85,9 @@ impl Command {
             &change_strategy,
             request,
             ConfirmationsPolicy::default(),
+            // Preserve the pre-upgrade behavior: transfers never spend
+            // transparent UTXOs; they must be shielded first.
+            &TransparentSpendPolicy::ShieldedOnly,
             None,
         )
         .map_err(error::Error::from)?;

@@ -101,9 +101,11 @@ fn init_wallet_config<P: AsRef<Path>>(
         mnemonic,
         network: Some(network.name().to_string()),
         birthday: Some(u32::from(birthday)),
+        // Persisted verbatim from what the operator's file stated, so an
+        // explicit "never" and an absent key survive distinctly.
         #[cfg(feature = "regtest_support")]
         activation_heights: match network {
-            Network::Regtest(local) => Some(ActivationHeights::from_local_network(local)),
+            Network::Regtest(heights) => Some(heights),
             _ => None,
         },
     };
@@ -143,12 +145,13 @@ impl WalletConfig {
         // persisted at `init` so this command agrees with the wallet's chain.
         #[cfg(feature = "regtest_support")]
         let network = match network {
-            Network::Regtest(_) => Network::Regtest(
-                config
+            Network::Regtest(_) => {
+                let heights = config
                     .activation_heights
-                    .ok_or(error::Error::InvalidKeysFile)?
-                    .to_local_network(),
-            ),
+                    .ok_or(error::Error::InvalidKeysFile)?;
+                heights.warn_on_implicitly_inactive("wallet config [activation_heights]");
+                Network::Regtest(heights)
+            }
             other => other,
         };
 
@@ -253,29 +256,35 @@ mod tests {
 
         let heights: ActivationHeights = toml::from_str(
             "overwinter = 1\nsapling = 1\nblossom = 1\nheartwood = 1\ncanopy = 1\n\
-             nu5 = 2\nnu6 = 2\nnu6_1 = 5\n",
+             nu5 = 2\nnu6 = 2\nnu6_1 = 5\nnu6_2 = \"never\"\n",
         )
         .unwrap();
-        let network = Network::Regtest(heights.to_local_network());
+        let network = Network::Regtest(heights);
 
         WalletConfig::init_without_mnemonic(Some(&dir), BlockHeight::from_u32(0), network).unwrap();
 
-        // The persisted file records the heights as a table.
+        // The persisted file records the heights as a table, verbatim: the
+        // explicit "never" survives and the absent nu6_3 stays absent.
         let keys_toml = fs::read_to_string(Path::new(&dir).join(KEYS_FILE)).unwrap();
         assert!(keys_toml.contains("[activation_heights]"), "{keys_toml}");
+        assert!(keys_toml.contains("nu6_2 = \"never\""), "{keys_toml}");
+        assert!(!keys_toml.contains("nu6_3"), "{keys_toml}");
 
         let reloaded = WalletConfig::read(Some(&dir)).unwrap();
         match reloaded.network {
-            Network::Regtest(local) => {
+            net @ Network::Regtest(heights) => {
                 assert_eq!(
-                    local.activation_height(NetworkUpgrade::Nu5),
+                    net.activation_height(NetworkUpgrade::Nu5),
                     Some(BlockHeight::from_u32(2))
                 );
                 assert_eq!(
-                    local.activation_height(NetworkUpgrade::Nu6_1),
+                    net.activation_height(NetworkUpgrade::Nu6_1),
                     Some(BlockHeight::from_u32(5))
                 );
-                assert_eq!(local.activation_height(NetworkUpgrade::Nu6_2), None);
+                assert_eq!(net.activation_height(NetworkUpgrade::Nu6_2), None);
+                assert_eq!(net.activation_height(NetworkUpgrade::Nu6_3), None);
+                assert_eq!(heights.nu6_2, Some(crate::data::HeightSetting::Never));
+                assert_eq!(heights.nu6_3, None);
             }
             other => panic!("expected regtest, got {other:?}"),
         }

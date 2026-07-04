@@ -9,7 +9,7 @@ use transparent::address::TransparentAddress;
 use uuid::Uuid;
 use zcash_client_backend::{
     data_api::{
-        Account as _, TransparentOutputFilter, WalletRead,
+        Account as _, CoinbaseFilter, WalletRead,
         wallet::{
             ConfirmationsPolicy, create_pczt_from_proposal, input_selection::GreedyInputSelector,
             propose_shielding,
@@ -97,7 +97,7 @@ impl Command {
             &from_addrs,
             account.id(),
             confirmations_policy,
-            TransparentOutputFilter::All,
+            CoinbaseFilter::AllTransparentOutputs,
         )
         .map_err(error::Error::Shield)?;
 
@@ -110,7 +110,10 @@ impl Command {
         )
         .map_err(error::Error::Shield)?;
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }

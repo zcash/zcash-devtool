@@ -8,7 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, stdin, stdout};
 use transparent::{address::TransparentAddress, pczt::Bip32Derivation, zip48};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_protocol::{
-    PoolType,
+    PoolType, ShieldedPool,
     consensus::{self, NetworkConstants, Parameters},
 };
 use zcash_script::solver;
@@ -149,12 +149,18 @@ impl Command {
 
                 add_orchard(updater, fvk, derivation)
             }
+            PoolType::Shielded(ShieldedPool::Ironwood) => {
+                return Err(anyhow!("Ironwood is not yet supported"));
+            }
         }
         .map_err(|e| anyhow!("{e:?}"))?;
 
         let pczt = updater.finish();
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }

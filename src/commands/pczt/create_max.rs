@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
 use tokio::io::{AsyncWriteExt, stdout};
@@ -91,7 +92,10 @@ impl Command {
         )
         .map_err(error::Error::from)?;
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }

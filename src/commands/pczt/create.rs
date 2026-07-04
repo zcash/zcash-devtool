@@ -12,7 +12,8 @@ use zcash_client_backend::{
     data_api::{
         Account as _,
         wallet::{
-            ConfirmationsPolicy, create_pczt_from_proposal, input_selection::GreedyInputSelector,
+            ConfirmationsPolicy, create_pczt_from_proposal,
+            input_selection::{GreedyInputSelector, TransparentSpendPolicy},
             propose_transfer,
         },
     },
@@ -106,6 +107,9 @@ impl Command {
             &change_strategy,
             request,
             ConfirmationsPolicy::default(),
+            // Preserve the pre-upgrade behavior: transfers never spend
+            // transparent UTXOs; they must be shielded first.
+            &TransparentSpendPolicy::ShieldedOnly,
             None,
         )
         .map_err(error::Error::from)?;
@@ -119,7 +123,10 @@ impl Command {
         )
         .map_err(error::Error::from)?;
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }

@@ -9,7 +9,8 @@ use tokio::io::{AsyncWriteExt, stdout};
 use transparent::{builder::TransparentInputInfo, bundle::TxOut};
 use zcash_client_backend::{
     fees::{
-        ChangeError, ChangeStrategy as _, DustOutputPolicy, zip317::SingleOutputChangeStrategy,
+        ChangeError, ChangeStrategy as _, DustOutputPolicy, orchard::EmptyBundleView,
+        zip317::SingleOutputChangeStrategy,
     },
     proto::service::{ChainSpec, TxFilter},
 };
@@ -210,6 +211,15 @@ impl Command {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        // Fee rules depend on the Orchard bundle version, which is fixed by
+        // the consensus branch the transaction targets.
+        let orchard_bundle_version =
+            zcash_primitives::transaction::components::orchard::bundle_version_for_branch(
+                consensus::BranchId::for_height(&params, target_height),
+                orchard::ValuePool::Orchard,
+            )
+            .ok_or_else(|| anyhow!("Target height's consensus branch does not support Orchard"))?;
+
         let balance = change_strategy
             .compute_balance::<_, Infallible>(
                 &params,
@@ -222,10 +232,13 @@ impl Command {
                     &sapling_output_values[..],
                 ),
                 &(
-                    orchard::builder::BundleType::DEFAULT,
+                    orchard_bundle_version,
                     &[][..] as &[Infallible],
                     &orchard_output_values[..],
                 ),
+                // No Ironwood bundle, and change stays in the Orchard pool.
+                &EmptyBundleView,
+                false,
                 None,
                 &(),
             )
@@ -239,6 +252,7 @@ impl Command {
             zcash_primitives::transaction::builder::BuildConfig::Standard {
                 sapling_anchor,
                 orchard_anchor,
+                ironwood_anchor: None,
             },
         );
         add_inputs(&mut builder, transparent_inputs)?;
@@ -277,6 +291,7 @@ impl Command {
             pczt_parts,
             sapling_meta,
             orchard_meta,
+            ironwood_meta: _,
         } = builder.build_for_pczt(rng, &zip317::FeeRule::standard())?;
         let created = Creator::build_from_parts(pczt_parts)
             .ok_or_else(|| anyhow!("Transaction version is incompatible with PCZTs"))?;
@@ -352,7 +367,10 @@ impl Command {
         }
 
         let pczt = updater.finish();
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }

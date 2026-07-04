@@ -172,14 +172,36 @@ impl Command {
 
         let prover = LocalTxProver::bundled();
 
+        // The Orchard proving key must be for the circuit version that the
+        // PCZT's consensus branch requires (pre- vs post-NU6.3 circuits
+        // differ), so derive it from the PCZT's own branch ID.
+        let orchard_pk = {
+            let branch_id =
+                zcash_protocol::consensus::BranchId::try_from(*pczt.global().consensus_branch_id())
+                    .map_err(|_| anyhow!("PCZT has an unknown consensus branch ID"))?;
+            orchard::circuit::ProvingKey::build(
+                zcash_primitives::transaction::components::orchard::bundle_version_for_branch(
+                    branch_id,
+                    orchard::ValuePool::Orchard,
+                )
+                .ok_or_else(|| {
+                    anyhow!("PCZT's consensus branch {branch_id:?} does not support Orchard")
+                })?
+                .circuit_version(),
+            )
+        };
+
         let pczt = Prover::new(pczt)
-            .create_orchard_proof(&orchard::circuit::ProvingKey::build())
+            .create_orchard_proof(&orchard_pk)
             .map_err(|e| anyhow!("Failed to create Orchard proof: {:?}", e))?
             .create_sapling_proofs(&prover, &prover)
             .map_err(|e| anyhow!("Failed to create Sapling proofs: {:?}", e))?
             .finish();
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }

@@ -42,7 +42,6 @@ lazy_static! {
             Some(&folder.join("sprout-groth16.params")),
         )
     };
-    static ref ORCHARD_VK: orchard::circuit::VerifyingKey = orchard::circuit::VerifyingKey::build();
 }
 
 #[derive(Debug, Args)]

@@ -41,7 +41,10 @@ impl Command {
             &mut db_data,
             pczt,
             Some((&spend_vk, &output_vk)),
-            Some(&orchard::circuit::VerifyingKey::build()),
+            // Passing `None` makes the extractor build an Orchard verifying
+            // key for the circuit version the PCZT's consensus branch
+            // requires (pre- vs post-NU6.3 circuits differ).
+            None,
         )
         .map_err(|e| anyhow!("Failed to extract and store transaction from PCZT: {:?}", e))?;
 

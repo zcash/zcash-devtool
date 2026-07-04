@@ -10,7 +10,7 @@ use zcash_primitives::transaction::{
     TransactionData, TxDigests, sighash::SignableInput, sighash_v5::v5_signature_hash,
     txid::TxIdDigester,
 };
-use zcash_protocol::PoolType;
+use zcash_protocol::{PoolType, ShieldedPool};
 
 // Options accepted for the `pczt update-with-signature` command
 #[derive(Debug, Args)]
@@ -46,12 +46,18 @@ impl Command {
             }
             PoolType::SAPLING => Err(anyhow!("TODO: Maybe support this")),
             PoolType::ORCHARD => Err(anyhow!("TODO: Maybe support this")),
+            PoolType::Shielded(ShieldedPool::Ironwood) => {
+                Err(anyhow!("Ironwood is not yet supported"))
+            }
         }
         .map_err(|e| anyhow!("{e:?}"))?;
 
         let pczt = signer.finish();
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }
