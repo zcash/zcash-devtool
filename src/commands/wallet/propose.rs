@@ -17,7 +17,7 @@ use zcash_client_backend::{
     fees::{DustOutputPolicy, SplitPolicy, StandardFeeRule, zip317::MultiOutputChangeStrategy},
 };
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
-use zcash_protocol::{ShieldedProtocol, value::Zatoshis};
+use zcash_protocol::{ShieldedPool, value::Zatoshis};
 use zip321::{Payment, TransactionRequest};
 
 use crate::{
@@ -61,7 +61,7 @@ impl Command {
         let change_strategy = MultiOutputChangeStrategy::new(
             StandardFeeRule::Zip317,
             None,
-            ShieldedProtocol::Orchard,
+            ShieldedPool::Orchard,
             DustOutputPolicy::default(),
             SplitPolicy::with_min_output_value(
                 NonZeroUsize::new(self.target_note_count)

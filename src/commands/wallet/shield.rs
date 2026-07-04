@@ -23,7 +23,7 @@ use zcash_client_backend::{
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::{encoding::AddressCodec, keys::UnifiedSpendingKey};
 use zcash_proofs::prover::LocalTxProver;
-use zcash_protocol::{ShieldedProtocol, value::Zatoshis};
+use zcash_protocol::{ShieldedPool, value::Zatoshis};
 
 use crate::{
     commands::select_account, config::WalletConfig, data::get_db_paths, error,
@@ -97,7 +97,7 @@ impl Command {
         let change_strategy = MultiOutputChangeStrategy::new(
             StandardFeeRule::Zip317,
             None,
-            ShieldedProtocol::Orchard,
+            ShieldedPool::Orchard,
             DustOutputPolicy::default(),
             SplitPolicy::with_min_output_value(
                 NonZeroUsize::new(self.target_note_count)

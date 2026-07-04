@@ -27,7 +27,7 @@ use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_primitives::transaction::TxVersion;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::{
-    ShieldedProtocol,
+    ShieldedPool,
     memo::{Memo, MemoBytes},
     value::Zatoshis,
 };
@@ -214,7 +214,7 @@ pub(crate) async fn pay<C: PaymentContext>(
     let change_strategy = MultiOutputChangeStrategy::new(
         StandardFeeRule::Zip317,
         None,
-        ShieldedProtocol::Orchard,
+        ShieldedPool::Orchard,
         DustOutputPolicy::default(),
         SplitPolicy::with_min_output_value(
             NonZeroUsize::new(context.target_note_count())

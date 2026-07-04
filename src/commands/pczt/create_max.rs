@@ -17,7 +17,7 @@ use zcash_client_backend::{
 };
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_protocol::{
-    ShieldedProtocol,
+    ShieldedPool,
     memo::{Memo, MemoBytes},
 };
 
@@ -74,7 +74,7 @@ impl Command {
             &mut db_data,
             &params,
             account.id(),
-            &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard],
+            &[ShieldedPool::Sapling, ShieldedPool::Orchard],
             &StandardFeeRule::Zip317,
             recipient,
             memo,

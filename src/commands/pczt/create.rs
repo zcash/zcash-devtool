@@ -22,7 +22,7 @@ use zcash_client_backend::{
 };
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_protocol::{
-    ShieldedProtocol,
+    ShieldedPool,
     memo::{Memo, MemoBytes},
     value::Zatoshis,
 };
@@ -72,7 +72,7 @@ impl Command {
         let change_strategy = MultiOutputChangeStrategy::new(
             StandardFeeRule::Zip317,
             None,
-            ShieldedProtocol::Orchard,
+            ShieldedPool::Orchard,
             DustOutputPolicy::default(),
             SplitPolicy::with_min_output_value(
                 NonZeroUsize::new(self.target_note_count)

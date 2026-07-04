@@ -21,7 +21,7 @@ use zcash_primitives::transaction::{
     fees::zip317,
 };
 use zcash_protocol::{
-    PoolType, ShieldedProtocol,
+    PoolType, ShieldedPool,
     consensus::{self, Parameters as _},
 };
 use zip321::TransactionRequest;
@@ -146,7 +146,7 @@ impl Command {
         let change_strategy = SingleOutputChangeStrategy::<_, Infallible>::new(
             zip317::FeeRule::standard(),
             None,
-            ShieldedProtocol::Orchard,
+            ShieldedPool::Orchard,
             DustOutputPolicy::default(),
         );
 
