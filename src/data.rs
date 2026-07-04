@@ -160,6 +160,10 @@ pub(crate) struct ActivationHeights {
 
 #[cfg(feature = "regtest_support")]
 impl ActivationHeights {
+    /// Consensus queries deliberately route through [`LocalNetwork`] rather
+    /// than a local `Parameters` impl (see `docs/adr/0002`): its exhaustive
+    /// struct literal is the compile-time tripwire that surfaces new network
+    /// upgrades at dependency bumps.
     pub(crate) fn to_local_network(self) -> LocalNetwork {
         let h = |v: Option<HeightSetting>| match v {
             Some(HeightSetting::At(height)) => Some(BlockHeight::from_u32(height)),
