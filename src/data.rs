@@ -193,6 +193,12 @@ pub(crate) fn get_block_path(fsblockdb_root: &Path, meta: &BlockMeta) -> PathBuf
     meta.block_file_path(&fsblockdb_root.join(BLOCKS_FOLDER))
 }
 
+/// The directory holding the cached compact-block files (named
+/// `<height>-<hash>-compactblock`).
+pub(crate) fn get_blocks_dir(fsblockdb_root: &Path) -> PathBuf {
+    fsblockdb_root.join(BLOCKS_FOLDER)
+}
+
 pub(crate) fn get_tor_dir<P: AsRef<Path>>(wallet_dir: Option<P>) -> PathBuf {
     wallet_dir
         .as_ref()

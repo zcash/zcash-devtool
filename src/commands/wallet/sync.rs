@@ -9,29 +9,27 @@ use rand::rngs::OsRng;
 use tokio::{fs::File, io::AsyncWriteExt, task::JoinHandle};
 
 use tonic::transport::Channel;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use zcash_client_backend::{
     data_api::{
         WalletCommitmentTrees, WalletRead, WalletWrite,
-        chain::{
-            BlockSource, ChainState, CommitmentTreeRoot, error::Error as ChainError,
-            scan_cached_blocks,
-        },
+        chain::{ChainState, CommitmentTreeRoot, error::Error as ChainError, scan_cached_blocks},
         scanning::{ScanPriority, ScanRange},
         wallet::ConfirmationsPolicy,
     },
     proto::service::{self, BlockId, compact_tx_streamer_client::CompactTxStreamerClient},
 };
 use zcash_client_sqlite::{
-    FsBlockDb, FsBlockDbError, WalletDb, chain::BlockMeta, util::SystemClock,
+    FsBlockDb, WalletDb, chain::BlockMeta, error::SqliteClientError, util::SystemClock,
 };
+use zcash_primitives::block::BlockHash;
 use zcash_primitives::merkle_tree::HashSer;
 use zcash_protocol::consensus::{BlockHeight, Parameters};
 
 use crate::{
     ShutdownListener,
     config::get_wallet_network,
-    data::{get_block_path, get_db_paths},
+    data::{get_block_path, get_blocks_dir, get_db_paths},
     error,
     remote::ConnectionArgs,
 };
@@ -59,6 +57,10 @@ use crate::tui::Tui;
 mod defrag;
 
 const BATCH_SIZE: u32 = 10_000;
+
+/// When a reorg is detected, rewind this many blocks below the reorg point
+/// before re-scanning, to give a margin for re-crossing the actual fork height.
+const REORG_REWIND_MARGIN: u32 = 10;
 
 // Options accepted for the `sync` command
 #[derive(Debug, Args)]
@@ -121,7 +123,43 @@ impl Command {
         ) -> Result<bool, anyhow::Error> {
             // 3) Download chain tip metadata from lightwalletd
             // 4) Notify the wallet of the updated chain tip.
-            let _chain_tip = update_chain_tip(client, db_data).await?;
+            let (_chain_tip, tip_hash) = update_chain_tip(client, db_data).await?;
+
+            // The wallet's `update_chain_tip` intentionally does nothing when the
+            // reported tip is below our maximum scanned height: it leaves reorg
+            // detection to the scanner's block-continuity check. But when we are
+            // already fully synced there are no ranges left to scan, so a reorg
+            // that shortens the chain below our scanned height would go unnoticed
+            // until the chain grew back past it (as zecd, which is reactive-only,
+            // also would). Detect that case here — but only for a *genuine* reorg.
+            //
+            // A reported tip below our scanned height is either a real reorg (the
+            // chain was rolled back) or merely a node that is lagging / briefly
+            // disagreeing (common when a light client hops between servers during
+            // a reorg). Distinguish them by comparing the node's tip hash against
+            // our stored hash at that height: a bare height comparison rewinds on
+            // a lagging node too, which ratchets the wallet backwards. Only rewind
+            // when the hashes actually differ (or we no longer hold that block).
+            if let Some(max_scanned) = db_data.block_max_scanned()?.map(|b| b.block_height()) {
+                let diverged = _chain_tip < max_scanned
+                    && db_data.block_metadata(_chain_tip)?.map(|m| m.block_hash())
+                        != Some(tip_hash);
+                if diverged {
+                    let rewind_height = _chain_tip.saturating_sub(REORG_REWIND_MARGIN);
+                    warn!(
+                        "Chain tip {} diverges from our history (max scanned {}); reorg detected, rewinding to {}",
+                        _chain_tip, max_scanned, rewind_height,
+                    );
+                    rewind(
+                        db_data,
+                        db_cache,
+                        fsblockdb_root,
+                        _chain_tip,
+                        rewind_height,
+                        _chain_tip,
+                    )?;
+                }
+            }
             #[cfg(feature = "tui")]
             if let Some(handle) = tui_handle {
                 handle.set_wallet_summary(
@@ -199,7 +237,6 @@ impl Command {
                             scan_range,
                             #[cfg(feature = "tui")]
                             tui_handle,
-                            #[cfg(feature = "tui")]
                             _chain_tip,
                         )?;
 
@@ -297,7 +334,6 @@ impl Command {
                     &scan_range,
                     #[cfg(feature = "tui")]
                     tui_handle,
-                    #[cfg(feature = "tui")]
                     _chain_tip,
                 )?;
 
@@ -387,20 +423,117 @@ async fn update_subtree_roots<P: Parameters>(
 async fn update_chain_tip<P: Parameters>(
     client: &mut CompactTxStreamerClient<Channel>,
     db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
-) -> Result<BlockHeight, anyhow::Error> {
-    let tip_height: BlockHeight = client
+) -> Result<(BlockHeight, BlockHash), anyhow::Error> {
+    let latest = client
         .get_latest_block(service::ChainSpec::default())
         .await?
-        .get_ref()
+        .into_inner();
+    let tip_height: BlockHeight = latest
         .height
         .try_into()
         // TODO
         .map_err(|_| error::Error::InvalidAmount)?;
+    let tip_hash = BlockHash(
+        latest
+            .hash
+            .as_slice()
+            .try_into()
+            .map_err(|_| anyhow!("chain tip block hash was not 32 bytes"))?,
+    );
 
     info!("Latest block height is {}", tip_height);
     db_data.update_chain_tip(tip_height)?;
 
-    Ok(tip_height)
+    Ok((tip_height, tip_hash))
+}
+
+/// Recovers from a chain reorg detected at `at_height` (the height whose linkage
+/// contradicts our stored history) by rewinding the wallet and block cache to
+/// `requested` (typically `at_height - REORG_REWIND_MARGIN`).
+///
+/// This mirrors the audited zecd implementation: `truncate_to_height` can only
+/// rewind to a height carrying a note-commitment-tree checkpoint, so if
+/// `requested` has none we retry at `at_height - 2` (strictly below the stale
+/// block at `at_height - 1`, which also guarantees forward progress). If even
+/// that has no checkpoint the reorg is deeper than our rewindable history and we
+/// return an actionable "reset the wallet" error rather than silently wedging.
+fn rewind<P: Parameters>(
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
+    db_cache: &mut FsBlockDb,
+    fsblockdb_root: &Path,
+    at_height: BlockHeight,
+    requested: BlockHeight,
+    chain_tip: BlockHeight,
+) -> Result<(), anyhow::Error> {
+    // Rewind the wallet, retrying shallower if `requested` has no checkpoint.
+    // `truncate_to_height` returns the height it actually rewound to (the
+    // nearest valid checkpoint at or below the request).
+    let rewind_height = match db_data.truncate_to_height(requested) {
+        Ok(h) => h,
+        Err(SqliteClientError::RequestedRewindInvalid { .. }) => {
+            let bound = at_height.saturating_sub(2);
+            match db_data.truncate_to_height(bound) {
+                Ok(h) => {
+                    info!("Requested rewind to {requested} had no checkpoint; rewound to {h}");
+                    h
+                }
+                Err(SqliteClientError::RequestedRewindInvalid { .. }) => {
+                    return Err(anyhow!(
+                        "unrecoverable reorg at {at_height}: no note-commitment-tree \
+                         checkpoint with a scanned block exists below the conflict \
+                         (requested rewind to {requested}); reset the wallet to resync \
+                         from its birthday"
+                    ));
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    // Delete cached compact-block files above the rewind height, then truncate
+    // the block metadata to match.
+    delete_block_files_above(fsblockdb_root, rewind_height);
+    db_cache
+        .truncate_to_height(rewind_height)
+        .map_err(|e| anyhow!("{:?}", e))?;
+
+    // Re-apply the chain tip. `truncate_to_height` trims the scan queue down to
+    // the rewound height, so without this the wallet would believe it has
+    // nothing left to scan and would stop at the rewind height instead of
+    // re-scanning the replacement chain up to the tip.
+    db_data.update_chain_tip(chain_tip)?;
+
+    Ok(())
+}
+
+/// Deletes cached compact-block files whose height is above `height`, tolerating
+/// files that are already gone.
+///
+/// We enumerate the blocks directory directly rather than using
+/// `FsBlockDb::with_blocks`, because that opens each block file and would fail on
+/// any file already deleted after scanning — the common case when rewinding
+/// while fully synced, where the metadata outlives the file. Files are named
+/// `<height>-<hash>-compactblock`, so the height is the leading component.
+fn delete_block_files_above(fsblockdb_root: &Path, height: BlockHeight) {
+    let Ok(entries) = std::fs::read_dir(get_blocks_dir(fsblockdb_root)) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file_height = entry
+            .file_name()
+            .to_str()
+            .and_then(|n| n.split('-').next())
+            .and_then(|h| h.parse::<u32>().ok());
+        if file_height.is_some_and(|h| h > u32::from(height)) {
+            // Best-effort: a missing file has already served our purpose.
+            if let Err(e) = std::fs::remove_file(entry.path()) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    error!("Failed to delete cached block {:?}: {}", entry.path(), e);
+                }
+            }
+        }
+    }
 }
 
 async fn download_blocks(
@@ -500,7 +633,11 @@ fn delete_cached_blocks(fsblockdb_root: &Path, block_meta: Vec<BlockMeta>) -> Jo
     tokio::spawn(async move {
         for meta in block_meta {
             if let Err(e) = tokio::fs::remove_file(get_block_path(&fsblockdb_root, &meta)).await {
-                error!("Failed to remove {:?}: {}", meta, e);
+                // A file already removed (e.g. by a reorg rewind that deleted the
+                // orphaned suffix) is not an error worth reporting.
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    error!("Failed to remove {:?}: {}", meta, e);
+                }
             }
         }
     })
@@ -519,7 +656,7 @@ fn scan_blocks<P: Parameters + Send + 'static>(
     initial_chain_state: &ChainState,
     scan_range: &ScanRange,
     #[cfg(feature = "tui")] tui_handle: Option<&defrag::AppHandle>,
-    #[cfg(feature = "tui")] chain_tip: BlockHeight,
+    chain_tip: BlockHeight,
 ) -> Result<bool, anyhow::Error> {
     info!("Scanning {}", scan_range);
     #[cfg(feature = "tui")]
@@ -546,38 +683,21 @@ fn scan_blocks<P: Parameters + Send + 'static>(
             // height at which the error occurred, but may be an earlier height determined
             // based on heuristics such as the platform, available bandwidth, size of
             // recent CompactBlocks, etc.
-            let rewind_height = err.at_height().saturating_sub(10);
+            let rewind_height = err.at_height().saturating_sub(REORG_REWIND_MARGIN);
             info!(
                 "Chain reorg detected at {}, rewinding to {}",
                 err.at_height(),
                 rewind_height,
             );
 
-            // Rewind to the chosen height.
-            db_data.truncate_to_height(rewind_height)?;
-
-            // Delete cached blocks from rewind_height onwards.
-            //
-            // This does imply that assumed-valid blocks will be re-downloaded, but it is
-            // also possible that in the intervening time, a chain reorg has occurred that
-            // orphaned some of those blocks.
-            db_cache
-                .with_blocks(Some(rewind_height + 1), None, |block| {
-                    let meta = BlockMeta {
-                        height: block.height(),
-                        block_hash: block.hash(),
-                        block_time: block.time,
-                        // These values don't matter for deletion.
-                        sapling_outputs_count: 0,
-                        orchard_actions_count: 0,
-                    };
-                    std::fs::remove_file(get_block_path(fsblockdb_root, &meta))
-                        .map_err(|e| ChainError::<(), _>::BlockSource(FsBlockDbError::Fs(e)))
-                })
-                .map_err(|e| anyhow!("{:?}", e))?;
-            db_cache
-                .truncate_to_height(rewind_height)
-                .map_err(|e| anyhow!("{:?}", e))?;
+            rewind(
+                db_data,
+                db_cache,
+                fsblockdb_root,
+                err.at_height(),
+                rewind_height,
+                chain_tip,
+            )?;
 
             // The database was truncated, invalidating prior suggested ranges.
             Ok(true)
