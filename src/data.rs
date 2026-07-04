@@ -355,4 +355,89 @@ nu6_2 = \"never\"
     fn activation_heights_reject_words_other_than_never() {
         assert!(toml::from_str::<ActivationHeights>("nu5 = \"nevr\"\n").is_err());
     }
+
+    /// Regression: a heights file written before NU6.3 support (integer
+    /// values only, no `nu6_3` key) must keep parsing, with the identical
+    /// consensus view it had under the old binary.
+    #[test]
+    fn legacy_integer_only_heights_file_still_parses() {
+        // Verbatim shape of a pre-NU6.3 operator file.
+        let legacy = "\
+overwinter = 1
+sapling = 1
+blossom = 1
+heartwood = 1
+canopy = 1
+nu5 = 2
+nu6 = 2
+nu6_1 = 2
+nu6_2 = 2
+";
+        let heights: ActivationHeights = toml::from_str(legacy).unwrap();
+        let net = Network::Regtest(heights);
+
+        for (nu, expected) in [
+            (NetworkUpgrade::Overwinter, 1),
+            (NetworkUpgrade::Sapling, 1),
+            (NetworkUpgrade::Blossom, 1),
+            (NetworkUpgrade::Heartwood, 1),
+            (NetworkUpgrade::Canopy, 1),
+            (NetworkUpgrade::Nu5, 2),
+            (NetworkUpgrade::Nu6, 2),
+            (NetworkUpgrade::Nu6_1, 2),
+            (NetworkUpgrade::Nu6_2, 2),
+        ] {
+            assert_eq!(
+                net.activation_height(nu),
+                Some(BlockHeight::from_u32(expected)),
+                "{nu:?}"
+            );
+        }
+        assert_eq!(net.activation_height(NetworkUpgrade::Nu6_3), None);
+    }
+
+    /// Regression: heights that use no `"never"` entries must serialize in
+    /// the legacy integer-only format, so a wallet config that predates
+    /// NU6.3 support re-persists byte-compatibly and remains readable by
+    /// older binaries (whose `deny_unknown_fields` would reject new keys).
+    #[test]
+    fn integer_heights_serialize_in_legacy_format() {
+        let heights: ActivationHeights = toml::from_str("nu5 = 2\nnu6 = 2\n").unwrap();
+        let serialized = toml::to_string(&heights).unwrap();
+        assert_eq!(serialized, "nu5 = 2\nnu6 = 2\n");
+    }
+
+    /// Regression: unknown keys are still rejected, as before the upgrade.
+    #[test]
+    fn unknown_upgrade_keys_still_rejected() {
+        assert!(toml::from_str::<ActivationHeights>("nu9 = 1\n").is_err());
+    }
+
+    /// Regression: the built-in fallback heights still match the
+    /// `zcash_local_net` wallet-funding zebrad fixture (pre-NU5 at 1,
+    /// everything NU5+ at 2) for all upgrades that predate NU6.3 support,
+    /// and the network still reports itself as regtest.
+    #[test]
+    fn default_regtest_fallback_heights_unchanged() {
+        let net = Network::parse("regtest").unwrap();
+
+        assert_eq!(net.network_type(), consensus::NetworkType::Regtest);
+        for (nu, expected) in [
+            (NetworkUpgrade::Overwinter, 1),
+            (NetworkUpgrade::Sapling, 1),
+            (NetworkUpgrade::Blossom, 1),
+            (NetworkUpgrade::Heartwood, 1),
+            (NetworkUpgrade::Canopy, 1),
+            (NetworkUpgrade::Nu5, 2),
+            (NetworkUpgrade::Nu6, 2),
+            (NetworkUpgrade::Nu6_1, 2),
+            (NetworkUpgrade::Nu6_2, 2),
+        ] {
+            assert_eq!(
+                net.activation_height(nu),
+                Some(BlockHeight::from_u32(expected)),
+                "{nu:?}"
+            );
+        }
+    }
 }

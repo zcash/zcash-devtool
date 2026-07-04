@@ -291,4 +291,88 @@ mod tests {
 
         fs::remove_dir_all(&dir).unwrap();
     }
+
+    /// Regression: a `keys.toml` persisted by a pre-NU6.3 binary (integer
+    /// heights, no `nu6_3` key) must keep loading, with the same consensus
+    /// view it had under that binary; the absent `nu6_3` reads as inactive.
+    #[test]
+    fn legacy_keys_toml_without_nu6_3_loads() {
+        let dir = std::env::temp_dir().join(format!(
+            "zcash-devtool-cfg-legacy-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // Verbatim shape of a wallet config written before NU6.3 support.
+        fs::write(
+            dir.join(KEYS_FILE),
+            "network = \"regtest\"\n\
+             birthday = 0\n\
+             \n\
+             [activation_heights]\n\
+             overwinter = 1\n\
+             sapling = 1\n\
+             blossom = 1\n\
+             heartwood = 1\n\
+             canopy = 1\n\
+             nu5 = 2\n\
+             nu6 = 2\n\
+             nu6_1 = 2\n\
+             nu6_2 = 2\n",
+        )
+        .unwrap();
+
+        let config = WalletConfig::read(Some(&dir)).unwrap();
+        let net = config.network();
+        assert_eq!(
+            net.activation_height(NetworkUpgrade::Nu6_2),
+            Some(BlockHeight::from_u32(2))
+        );
+        assert_eq!(net.activation_height(NetworkUpgrade::Nu6_3), None);
+        assert_eq!(config.birthday(), BlockHeight::from_u32(0));
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Regression: a regtest wallet config with no `[activation_heights]`
+    /// table at all is still rejected outright, as before the upgrade.
+    #[test]
+    fn regtest_keys_toml_missing_heights_table_still_errors() {
+        let dir = std::env::temp_dir().join(format!(
+            "zcash-devtool-cfg-noheights-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        fs::write(dir.join(KEYS_FILE), "network = \"regtest\"\nbirthday = 0\n").unwrap();
+        assert!(WalletConfig::read(Some(&dir)).is_err());
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Regression: non-regtest wallet configs never carried activation
+    /// heights and must keep loading without them, defaulting the birthday
+    /// to the network's Sapling activation height when unset.
+    #[test]
+    fn test_network_keys_toml_loads_without_heights() {
+        let dir = std::env::temp_dir().join(format!(
+            "zcash-devtool-cfg-testnet-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        fs::write(dir.join(KEYS_FILE), "network = \"test\"\n").unwrap();
+        let config = WalletConfig::read(Some(&dir)).unwrap();
+        assert_eq!(
+            Some(config.birthday()),
+            config
+                .network()
+                .activation_height(consensus::NetworkUpgrade::Sapling)
+        );
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }
