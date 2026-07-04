@@ -2,6 +2,7 @@ use clap::Subcommand;
 
 pub(crate) mod balance;
 pub(crate) mod delete_account;
+pub(crate) mod derive_address;
 pub(crate) mod derive_path;
 pub(crate) mod display_mnemonic;
 pub(crate) mod enhance;
@@ -74,6 +75,11 @@ pub(crate) enum Command {
 
     /// List the addresses for an account in the wallet
     ListAddresses(list_addresses::Command),
+
+    /// Derive a mnemonic's default unified and transparent addresses, offline
+    /// (no wallet or server required). Prints `Unified Address: <ua>` and
+    /// `Transparent Address: <t-addr>`.
+    DeriveAddress(derive_address::Command),
 
     /// Derive key material at a particular path below the wallet seed
     DerivePath(derive_path::Command),
