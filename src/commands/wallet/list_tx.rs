@@ -6,12 +6,16 @@ use uuid::Uuid;
 
 use zcash_protocol::{
     PoolType, TxId,
-    consensus::BlockHeight,
+    consensus::{BlockHeight, NetworkType, Parameters},
     memo::{Memo, MemoBytes},
     value::{ZatBalance, Zatoshis},
 };
 
-use crate::{data::get_db_paths, ui::format_zec};
+use crate::{
+    config::get_wallet_network,
+    data::get_db_paths,
+    ui::{format_zec, ticker},
+};
 
 // Options accepted for the `list-tx` command
 #[derive(Debug, Args)]
@@ -50,6 +54,7 @@ impl ListMode {
 
 impl Command {
     pub(crate) fn run(self, wallet_dir: Option<String>) -> anyhow::Result<()> {
+        let net = get_wallet_network(wallet_dir.as_ref())?.network_type();
         let (_, db_data) = get_db_paths(wallet_dir);
         let mode = self
             .mode
@@ -166,7 +171,7 @@ impl Command {
                     "mined_height": tx.mined_height.map(u32::from),
                 }));
             } else {
-                tx.print(mode)?;
+                tx.print(mode, net)?;
             }
         }
 
@@ -227,11 +232,11 @@ impl WalletTxOutput {
         })
     }
 
-    fn print_text(&self) {
+    fn print_text(&self, net: NetworkType) {
         println!("  Output {} ({})", self.output_index, self.pool);
         println!(
             "    Value: {}{}",
-            format_zec(self.value),
+            format_zec(self.value, net),
             if self.is_change {
                 " (Change)"
             } else if self.from_account.is_some() && self.to_account.is_some() {
@@ -265,7 +270,7 @@ impl WalletTxOutput {
         }
     }
 
-    fn print_csv(&self, context: &WalletTx) -> Result<(), anyhow::Error> {
+    fn print_csv(&self, context: &WalletTx, net: NetworkType) -> Result<(), anyhow::Error> {
         if self.is_change {
             //neither send nor receive, skip
             return Ok(());
@@ -290,8 +295,8 @@ impl WalletTxOutput {
                 .map(time::OffsetDateTime::from_unix_timestamp)
                 .transpose()?
                 .map_or(Ok("".to_string()), |t| t.format(format))?;
-            let symbol = "ZEC";
-            let volume = format_zec(self.value);
+            let symbol = ticker(net);
+            let volume = format_zec(self.value, net);
             let currency = "USD";
             let (account_id, account_name) = self
                 .to_account
@@ -303,8 +308,11 @@ impl WalletTxOutput {
                 .map_or("".to_string(), |n| format!(" ({n})"));
             let total = "";
             let price = "";
-            let fee = context.fee_paid.map(format_zec).unwrap_or("".to_string());
-            let fee_currency = "ZEC";
+            let fee = context
+                .fee_paid
+                .map(|f| format_zec(f, net))
+                .unwrap_or("".to_string());
+            let fee_currency = ticker(net);
             let memo = self.memo.as_ref().map_or("".to_string(), |m| match m {
                 Memo::Empty => "".to_string(),
                 Memo::Text(text_memo) => text_memo.to_string(),
@@ -367,17 +375,17 @@ impl WalletTx {
         })
     }
 
-    fn print(&self, mode: ListMode) -> Result<(), anyhow::Error> {
+    fn print(&self, mode: ListMode, net: NetworkType) -> Result<(), anyhow::Error> {
         match mode {
             ListMode::Text => {
-                self.print_text();
+                self.print_text(net);
                 Ok(())
             }
-            ListMode::Csv => self.print_csv(),
+            ListMode::Csv => self.print_csv(net),
         }
     }
 
-    fn print_text(&self) {
+    fn print_text(&self, net: NetworkType) {
         let height_to_str = |height: Option<BlockHeight>, def: &str| {
             height.map(|h| h.to_string()).unwrap_or(def.to_owned())
         };
@@ -399,11 +407,14 @@ impl WalletTx {
                 height_to_str(self.expiry_height, "Unknown"),
             );
         }
-        println!("    Amount: {}", format_zec(self.account_balance_delta));
+        println!(
+            "    Amount: {}",
+            format_zec(self.account_balance_delta, net)
+        );
         println!(
             "  Fee paid: {}",
             self.fee_paid
-                .map(format_zec)
+                .map(|f| format_zec(f, net))
                 .as_deref()
                 .unwrap_or("Unknown"),
         );
@@ -412,13 +423,13 @@ impl WalletTx {
             self.sent_note_count, self.received_note_count, self.memo_count,
         );
         for output in &self.outputs {
-            output.print_text()
+            output.print_text(net)
         }
     }
 
-    fn print_csv(&self) -> Result<(), anyhow::Error> {
+    fn print_csv(&self, net: NetworkType) -> Result<(), anyhow::Error> {
         for output in &self.outputs {
-            output.print_csv(self)?;
+            output.print_csv(self, net)?;
         }
 
         Ok(())

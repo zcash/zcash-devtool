@@ -1,10 +1,22 @@
+use zcash_protocol::consensus::NetworkType;
 use zcash_protocol::value::ZatBalance;
 
 pub(crate) mod proposal;
 
 const COIN: u64 = 1_0000_0000;
 
-pub(crate) fn format_zec(value: impl TryInto<ZatBalance>) -> String {
+/// The display ticker for amounts on the given network, matching the
+/// zcashd/zebra convention: `ZEC` on mainnet, `TAZ` on testnet, `REG` on
+/// regtest.
+pub(crate) fn ticker(network: NetworkType) -> &'static str {
+    match network {
+        NetworkType::Main => "ZEC",
+        NetworkType::Test => "TAZ",
+        NetworkType::Regtest => "REG",
+    }
+}
+
+pub(crate) fn format_zec(value: impl TryInto<ZatBalance>, network: NetworkType) -> String {
     let value = i64::from(
         value
             .try_into()
@@ -19,5 +31,5 @@ pub(crate) fn format_zec(value: impl TryInto<ZatBalance>) -> String {
     } else {
         abs_zec as i64
     };
-    format!("{zec:3}.{frac:08} ZEC")
+    format!("{zec:3}.{frac:08} {}", ticker(network))
 }

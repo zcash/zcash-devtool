@@ -9,7 +9,7 @@ use zcash_client_backend::{
 };
 use zcash_protocol::{
     PoolType,
-    consensus::Parameters,
+    consensus::{NetworkType, Parameters},
     memo::{Memo, MemoBytes},
 };
 use zip321::TransactionRequest;
@@ -30,22 +30,32 @@ pub(crate) fn print_proposal<P: Parameters, FeeRuleT: Debug, NoteRef>(
     println!("  Fee rule: {:?}", proposal.fee_rule());
     let steps = proposal.steps();
     println!("  Steps ({}):", steps.len());
+    let net = params.network_type();
     for (i, step) in steps.iter().enumerate() {
-        print_step(i, step, params);
+        print_step(i, step, params, net);
     }
 }
 
-fn print_step<P: Parameters, NoteRef>(index: usize, step: &Step<NoteRef>, params: &P) {
+fn print_step<P: Parameters, NoteRef>(
+    index: usize,
+    step: &Step<NoteRef>,
+    params: &P,
+    net: NetworkType,
+) {
     println!("    Step {index}:");
     println!("      Shielding: {}", step.is_shielding());
-    print_payments(step.transaction_request(), step.payment_pools());
-    print_transparent_inputs(step.transparent_inputs(), params);
-    print_shielded_inputs(step.shielded_inputs());
+    print_payments(step.transaction_request(), step.payment_pools(), net);
+    print_transparent_inputs(step.transparent_inputs(), params, net);
+    print_shielded_inputs(step.shielded_inputs(), net);
     print_prior_step_inputs(step.prior_step_inputs());
-    print_balance(step.balance());
+    print_balance(step.balance(), net);
 }
 
-fn print_payments(request: &TransactionRequest, payment_pools: &BTreeMap<usize, PoolType>) {
+fn print_payments(
+    request: &TransactionRequest,
+    payment_pools: &BTreeMap<usize, PoolType>,
+    net: NetworkType,
+) {
     let payments = request.payments();
     println!("      Payments ({}):", payments.len());
     for (idx, payment) in payments {
@@ -58,7 +68,7 @@ fn print_payments(request: &TransactionRequest, payment_pools: &BTreeMap<usize, 
             "            Amount: {}",
             payment
                 .amount()
-                .map(format_zec)
+                .map(|v| format_zec(v, net))
                 .unwrap_or_else(|| "<unspecified>".to_owned()),
         );
         println!("            Pool: {pool}");
@@ -77,7 +87,11 @@ fn print_payments(request: &TransactionRequest, payment_pools: &BTreeMap<usize, 
     }
 }
 
-fn print_transparent_inputs<P: Parameters, A>(inputs: &[WalletTransparentOutput<A>], params: &P) {
+fn print_transparent_inputs<P: Parameters, A>(
+    inputs: &[WalletTransparentOutput<A>],
+    params: &P,
+    net: NetworkType,
+) {
     if inputs.is_empty() {
         return;
     }
@@ -88,13 +102,13 @@ fn print_transparent_inputs<P: Parameters, A>(inputs: &[WalletTransparentOutput<
             "        - {}:{}  {}  -> {}",
             outpoint.txid(),
             outpoint.n(),
-            format_zec(input.value()),
+            format_zec(input.value(), net),
             input.recipient_address().encode(params),
         );
     }
 }
 
-fn print_shielded_inputs<NoteRef>(inputs: Option<&ShieldedInputs<NoteRef>>) {
+fn print_shielded_inputs<NoteRef>(inputs: Option<&ShieldedInputs<NoteRef>>, net: NetworkType) {
     let Some(inputs) = inputs else {
         return;
     };
@@ -105,11 +119,11 @@ fn print_shielded_inputs<NoteRef>(inputs: Option<&ShieldedInputs<NoteRef>>) {
         u32::from(inputs.anchor_height()),
     );
     for received in notes.iter() {
-        print_received_note(received);
+        print_received_note(received, net);
     }
 }
 
-fn print_received_note<NoteRef>(received: &ReceivedNote<NoteRef, Note>) {
+fn print_received_note<NoteRef>(received: &ReceivedNote<NoteRef, Note>, net: NetworkType) {
     let pool = match received.note() {
         Note::Sapling(_) => "Sapling",
         Note::Orchard(_) => "Orchard",
@@ -118,7 +132,7 @@ fn print_received_note<NoteRef>(received: &ReceivedNote<NoteRef, Note>) {
         "        - {pool} {}:{}  {}",
         received.txid(),
         received.output_index(),
-        format_zec(received.note().value()),
+        format_zec(received.note().value(), net),
     );
 }
 
@@ -136,14 +150,14 @@ fn print_prior_step_inputs(refs: &[StepOutput]) {
     }
 }
 
-fn print_balance(balance: &TransactionBalance) {
+fn print_balance(balance: &TransactionBalance, net: NetworkType) {
     let changes = balance.proposed_change();
     println!("      Change outputs ({}):", changes.len());
     for change in changes {
         let mut line = format!(
             "        - {} {}",
             change.output_pool(),
-            format_zec(change.value()),
+            format_zec(change.value(), net),
         );
         if change.is_ephemeral() {
             line.push_str(" [ephemeral]");
@@ -153,7 +167,7 @@ fn print_balance(balance: &TransactionBalance) {
             print_memo(12, memo);
         }
     }
-    println!("      Fee: {}", format_zec(balance.fee_required()));
+    println!("      Fee: {}", format_zec(balance.fee_required(), net));
 }
 
 fn print_memo(indent: usize, memo: &MemoBytes) {
