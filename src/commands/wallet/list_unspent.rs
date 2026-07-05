@@ -33,7 +33,11 @@ impl Command {
 
         let notes = db_data.select_unspent_notes(
             account.id(),
-            &[ShieldedPool::Sapling, ShieldedPool::Orchard],
+            &[
+                ShieldedPool::Sapling,
+                ShieldedPool::Orchard,
+                ShieldedPool::Ironwood,
+            ],
             target_height,
             &[],
         )?;

@@ -74,7 +74,11 @@ impl Command {
             &mut db_data,
             &params,
             account.id(),
-            &[ShieldedPool::Sapling, ShieldedPool::Orchard],
+            &[
+                ShieldedPool::Sapling,
+                ShieldedPool::Orchard,
+                ShieldedPool::Ironwood,
+            ],
             &StandardFeeRule::Zip317,
             recipient,
             memo,

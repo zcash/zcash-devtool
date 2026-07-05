@@ -88,6 +88,7 @@ impl Command {
                 "total": balance.total().into_u64(),
                 "sapling_spendable": balance.sapling_balance().spendable_value().into_u64(),
                 "orchard_spendable": balance.orchard_balance().spendable_value().into_u64(),
+                "ironwood_spendable": balance.ironwood_balance().spendable_value().into_u64(),
                 "transparent_spendable": balance.unshielded_balance().spendable_value().into_u64(),
                 "chain_tip_height": u32::from(wallet_summary.chain_tip_height()),
             });
@@ -130,6 +131,10 @@ impl Command {
             println!(
                 "     Orchard Spendable: {}",
                 printer.format(balance.orchard_balance().spendable_value(), net),
+            );
+            println!(
+                "    Ironwood Spendable: {}",
+                printer.format(balance.ironwood_balance().spendable_value(), net),
             );
             #[cfg(feature = "transparent-inputs")]
             println!(
