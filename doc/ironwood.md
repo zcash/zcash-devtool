@@ -15,22 +15,27 @@ and friends — which this tool does not use.)
 
 ## What this tool depends on
 
-Ironwood support comes from `librustzcash` main, pulled in via
-`[patch.crates-io]` in `Cargo.toml`: every `librustzcash` crate we use
-(directly or transitively) is repointed to
-[`zcash/librustzcash`](https://github.com/zcash/librustzcash) at a single
-pinned rev. The higher-level crates (`zcash_client_backend 0.23`,
-`zcash_client_sqlite 0.21`, `pczt 0.7`, `zip321 0.8`) keep their crates.io
-version numbers but depend on `-pre` lower crates, so a git source is required
-— the crates.io releases can't be used directly. `orchard` is **not** patched:
-it resolves to `orchard 0.15.0-pre.1` from crates.io for us and for the
-patched crates alike.
+Ironwood support comes from `librustzcash`, pulled in via `[patch.crates-io]`
+in `Cargo.toml`: every `librustzcash` crate we use (directly or transitively)
+is repointed to one `librustzcash` source:
+[`zingolabs/librustzcash`](https://github.com/zingolabs/librustzcash) branch
+`basic_ironwood` @ `d7270910`, which is upstream `dw/ironwood-scan-model` @
+`70bdaeef` plus the `OutputManifest`/`select_change_pool` Ironwood-change
+commit. Once that work merges upstream, repoint the patch section to a
+pinned rev of
+[`zcash/librustzcash`](https://github.com/zcash/librustzcash). The
+higher-level crates (`zcash_client_backend 0.23`, `zcash_client_sqlite 0.21`,
+`pczt 0.7`, `zip321 0.8`) keep their crates.io version numbers but depend on
+`-pre` lower crates, so a patched source is required — the crates.io releases
+can't be used directly. `orchard` is **not** patched: it resolves to
+`orchard 0.15.0-pre.2` from crates.io for us and for the patched crates
+alike.
 
 Pre-release crate versions currently in the tree:
 
 | Crate | Version |
 |---|---|
-| `orchard` | `0.15.0-pre.1` (crates.io) |
+| `orchard` | `0.15.0-pre.2` (crates.io) |
 | `zcash_primitives` | `0.29.0-pre.0` |
 | `zcash_proofs` | `0.29.0-pre.0` |
 | `zcash_keys` | `0.15.0-pre.0` |
@@ -169,6 +174,20 @@ must agree.
 The regtest walkthrough, funder workflow, and offline derivation sections were
 adapted from the `zecrocks/zcash-devtool` `ironwood-valar` branch, which
 pioneered end-to-end Ironwood testing against the librustzcash Ironwood release
-candidates. Wallet-level Ironwood balances and spending remain on that branch;
-they depend on `zcash_client_backend` APIs (e.g. `ironwood_balance()`) that
-have not yet merged to librustzcash main.
+candidates.
+
+The two branches have since converged on the same wallet data model: both ride
+librustzcash `dw/ironwood-scan-model`. `ironwood-valar` pins
+`zcash/librustzcash @ 96ba3ae4` ("the last green commit" of that branch, per
+its Cargo.toml); this repo pins `zingolabs/librustzcash` `basic_ironwood` @
+`d7270910` — one commit ahead ("Explicitly pass pool data with notes") plus
+the `OutputManifest`/`select_change_pool` change-output commit. Wallet-level Ironwood
+balances and spending, originally valar-only, now live here too (`balance`,
+`list-unspent`, `send-max` surface the Ironwood pool), as do the funder
+tooling and network-aware tickers (ported as `ironwood-valar-portables`).
+The remaining divergence is small: valar's regtest heights handling predates
+this repo's height-or-`"never"` schema, and its prover hardcodes the
+post-NU6.3 circuit where this repo derives it from the consensus branch.
+
+Caveat: the Ironwood wallet APIs have not merged to librustzcash **main**, so
+both branches remain hostage to `dw/ironwood-scan-model` landing upstream.
