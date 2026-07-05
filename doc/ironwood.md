@@ -1,8 +1,9 @@
 # Ironwood (NU6.3 / V6) support
 
 `zcash-devtool` tracks the **Zcash Ironwood** upgrade so it can create, inspect,
-and exercise **V6 (Ironwood) transactions** end to end — talking to
-`lightwalletd` over gRPC as the *funder* in a local harness, and as a general
+and exercise **V6 (Ironwood) transactions** end to end — acting as the *funder*
+in a local harness, speaking the lightwalletd gRPC interface
+(`CompactTxStreamer`) to an indexer (`zainod` in our stack), and as a general
 inspection/PCZT tool.
 
 Ironwood is the **NU6.3** network upgrade. In `librustzcash` the network
@@ -50,7 +51,7 @@ network's activation schedule decides this:
 | Network | NU6.3 (Ironwood) activation | Notes |
 |---|---|---|
 | **mainnet** | not yet scheduled (`None`) | V6 is inactive until NU6.3 is assigned a mainnet height in a future `zcash_protocol` release. Nothing to configure here; the tool follows the schedule baked into `zcash_protocol`. |
-| **testnet** | height **4,134,000** | Scheduled in `zcash_protocol`. Point the wallet at a testnet `lightwalletd` (`-n test -s zecrocks`) and it produces V6 transactions once the tip passes 4,134,000. |
+| **testnet** | height **4,134,000** | Scheduled in `zcash_protocol`. Point the wallet at a testnet indexer (`-n test -s zecrocks`) and it produces V6 transactions once the tip passes 4,134,000. |
 | **regtest** | **operator-chosen** | Set via the `--activation-heights` file at `init` (see below). This is how you get a chain where Ironwood is active from the start for local testing. |
 
 Because activation is driven entirely by the network parameters, **testnet works
@@ -86,7 +87,7 @@ about on every load, since absence may just mean the file predates the tool's
 knowledge of that upgrade. `nu6_3` is the Ironwood key:
 
 ```toml
-# regtest-heights.toml — must match the validator (zebra) and lightwalletd.
+# regtest-heights.toml — must match the validator (zebra) and zainod.
 overwinter = 1
 sapling    = 1
 blossom    = 1
@@ -99,7 +100,7 @@ nu6_2      = 1
 nu6_3      = 1   # Ironwood / V6 active from height 1; write "never" to disable
 ```
 
-**3. Initialise the wallet against your local `lightwalletd`.** Regtest has no
+**3. Initialise the wallet against your local `zainod`.** Regtest has no
 hosted server, so an explicit `--server host:port` is required. `-n regtest`
 *requires* `--activation-heights`; the heights are persisted verbatim into the
 wallet's `keys.toml` (as an `[activation_heights]` table) so every later
@@ -124,7 +125,7 @@ the wallet builds are V6.
 ### The cross-component invariant
 
 The `--activation-heights` file **must** be identical to the validator's
-schedule (zebra's `configured_activation_heights`) and to what `lightwalletd`
+schedule (zebra's `configured_activation_heights`) and to what `zainod`
 serves. Transaction construction derives the consensus branch ID from these
 heights; any drift makes the validator reject transactions built while the tip
 is inside the drifted window.
@@ -149,15 +150,15 @@ is visible in the process list; use this for ephemeral test wallets only.)
 
 ## Companion node / indexer
 
-The funder is a `lightwalletd` client, and `lightwalletd` follows a Zebra node;
-both must understand Ironwood/V6 for the end-to-end flow. Use the official
-Ironwood release candidates:
+The funder speaks the lightwalletd gRPC interface to an indexer that follows
+a Zebra node; both must understand Ironwood/V6 for the end-to-end flow. In our
+stack the indexer is `zainod`. Use the official Ironwood release candidates:
 
 | Component | Ironwood RC |
 |---|---|
 | Zebra | [`v6.0.0-rc.0`](https://github.com/ZcashFoundation/zebra/releases/tag/v6.0.0-rc.0) (replaces the older `zfnd/zebra:5.x`) |
-| lightwalletd | a build whose transaction parser understands V6 |
-| Zaino | [zingolabs/zaino#1362](https://github.com/zingolabs/zaino/pull/1362) (`feat/ironwood_nu6_3`) — zaino `dev` does not yet parse V6 |
+| `zainod` | [zingolabs/zaino#1362](https://github.com/zingolabs/zaino/pull/1362) (`feat/ironwood_nu6_3`) — zaino `dev` does not yet parse V6 |
+| lightwalletd (alternative) | only if not using `zainod`: a build whose transaction parser understands V6 |
 
 Confirm the exact node/indexer tags against the pinned librustzcash rev before
 a run — the crate versions above and the node's supported transaction format
