@@ -23,7 +23,11 @@ use zcash_client_backend::{
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::{encoding::AddressCodec, keys::UnifiedSpendingKey};
 use zcash_proofs::prover::LocalTxProver;
-use zcash_protocol::{ShieldedPool, value::Zatoshis};
+use zcash_protocol::{
+    ShieldedPool,
+    consensus::{self, Parameters as _},
+    value::Zatoshis,
+};
 
 use crate::{
     commands::select_account, config::WalletConfig, data::get_db_paths, error,
@@ -91,13 +95,32 @@ impl Command {
 
         let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
+        // For this dev tool, shield all funds immediately.
+        let target_height = match db_data.chain_height()? {
+            Some(chain_height) => (chain_height + 1).into(),
+            // If we haven't scanned anything, there's nothing to do.
+            None => return Ok(()),
+        };
+
+        // From NU6.3 onward consensus forbids value flowing *into* the
+        // Orchard pool (its value balance must be non-negative), so newly
+        // shielded funds must land in Ironwood instead.
+        let shield_pool = if params
+            .activation_height(consensus::NetworkUpgrade::Nu6_3)
+            .is_some_and(|activation| target_height >= activation.into())
+        {
+            ShieldedPool::Ironwood
+        } else {
+            ShieldedPool::Orchard
+        };
+
         // Create the transaction.
         println!("Creating transaction...");
         let prover = LocalTxProver::bundled();
         let change_strategy = MultiOutputChangeStrategy::new(
             StandardFeeRule::Zip317,
             None,
-            ShieldedPool::Orchard,
+            shield_pool,
             DustOutputPolicy::default(),
             SplitPolicy::with_min_output_value(
                 NonZeroUsize::new(self.target_note_count)
@@ -106,13 +129,6 @@ impl Command {
             ),
         );
         let input_selector = GreedyInputSelector::new();
-
-        // For this dev tool, shield all funds immediately.
-        let target_height = match db_data.chain_height()? {
-            Some(chain_height) => (chain_height + 1).into(),
-            // If we haven't scanned anything, there's nothing to do.
-            None => return Ok(()),
-        };
         let confirmations_policy = ConfirmationsPolicy::MIN;
         let transparent_balances =
             db_data.get_transparent_balances(account.id(), target_height, confirmations_policy)?;

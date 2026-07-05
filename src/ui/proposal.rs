@@ -126,7 +126,10 @@ fn print_shielded_inputs<NoteRef>(inputs: Option<&ShieldedInputs<NoteRef>>, net:
 fn print_received_note<NoteRef>(received: &ReceivedNote<NoteRef, Note>, net: NetworkType) {
     let pool = match received.note() {
         Note::Sapling(_) => "Sapling",
-        Note::Orchard(_) => "Orchard",
+        Note::Orchard { pool, .. } => match pool {
+            orchard::ValuePool::Orchard => "Orchard",
+            orchard::ValuePool::Ironwood => "Ironwood",
+        },
     };
     println!(
         "        - {pool} {}:{}  {}",

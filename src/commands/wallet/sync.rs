@@ -548,9 +548,10 @@ fn scan_blocks<P: Parameters + Send + 'static>(
             // recent CompactBlocks, etc.
             let rewind_height = err.at_height().saturating_sub(10);
             info!(
-                "Chain reorg detected at {}, rewinding to {}",
+                "Chain reorg detected at {}, rewinding to {} (scan error: {:?})",
                 err.at_height(),
                 rewind_height,
+                err,
             );
 
             // Rewind to the chosen height.
