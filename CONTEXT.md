@@ -43,3 +43,14 @@ validator it talks to. Drift makes the wallet derive a different consensus
 branch ID than the validator expects, so the validator rejects its
 transactions.
 _Avoid_: mismatch (without saying between what)
+
+### Ironwood (NU6.3)
+
+**Ironwood Pool**:
+The shielded value pool introduced by the Ironwood (NU6.3) upgrade — a fourth
+pool alongside transparent, Sapling, and Orchard, with its own note-encryption
+domain, note commitment tree, and nullifier set. Within one proposal step,
+shielded inputs come from a single pool: Ironwood notes are never co-spent
+with Sapling or Orchard notes.
+_Avoid_: V6 pool (V6 names the transaction format, not the pool), NU6.3 pool,
+scan model (upstream's branch name, not a concept of this tool)
