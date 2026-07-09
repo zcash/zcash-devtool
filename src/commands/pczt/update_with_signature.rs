@@ -10,7 +10,7 @@ use zcash_primitives::transaction::{
     TransactionData, TxDigests, sighash::SignableInput, sighash_v5::v5_signature_hash,
     txid::TxIdDigester,
 };
-use zcash_protocol::{PoolType, ShieldedPool};
+use zcash_protocol::PoolType;
 
 // Options accepted for the `pczt update-with-signature` command
 #[derive(Debug, Args)]
@@ -46,9 +46,9 @@ impl Command {
             }
             PoolType::SAPLING => Err(anyhow!("TODO: Maybe support this")),
             PoolType::ORCHARD => Err(anyhow!("TODO: Maybe support this")),
-            PoolType::Shielded(ShieldedPool::Ironwood) => {
-                Err(anyhow!("Ironwood is not yet supported"))
-            }
+            // Ironwood spends are Orchard-shaped; signing support here is stubbed for
+            // both, pending shielded-signing support in general.
+            PoolType::IRONWOOD => Err(anyhow!("TODO: Maybe support this")),
         }
         .map_err(|e| anyhow!("{e:?}"))?;
 

@@ -9,7 +9,7 @@ use zcash_client_backend::{
 };
 use zcash_protocol::{
     PoolType,
-    consensus::{NetworkType, Parameters},
+    consensus::{BlockHeight, NetworkType, Parameters},
     memo::{Memo, MemoBytes},
 };
 use zip321::TransactionRequest;
@@ -46,7 +46,7 @@ fn print_step<P: Parameters, NoteRef>(
     println!("      Shielding: {}", step.is_shielding());
     print_payments(step.transaction_request(), step.payment_pools(), net);
     print_transparent_inputs(step.transparent_inputs(), params, net);
-    print_shielded_inputs(step.shielded_inputs(), net);
+    print_shielded_inputs(step.shielded_inputs(), step.anchor_height(), net);
     print_prior_step_inputs(step.prior_step_inputs());
     print_balance(step.balance(), net);
 }
@@ -108,15 +108,23 @@ fn print_transparent_inputs<P: Parameters, A>(
     }
 }
 
-fn print_shielded_inputs<NoteRef>(inputs: Option<&ShieldedInputs<NoteRef>>, net: NetworkType) {
+fn print_shielded_inputs<NoteRef>(
+    inputs: Option<&ShieldedInputs<NoteRef>>,
+    anchor_height: Option<BlockHeight>,
+    net: NetworkType,
+) {
     let Some(inputs) = inputs else {
         return;
     };
     let notes = inputs.notes();
+    // A step that spends shielded notes always binds a concrete anchor; fall back
+    // gracefully rather than panicking should that invariant ever not hold.
+    let anchor_height = anchor_height
+        .map(|h| u32::from(h).to_string())
+        .unwrap_or_else(|| "<unset>".to_owned());
     println!(
-        "      Shielded inputs ({}) at anchor height {}:",
+        "      Shielded inputs ({}) at anchor height {anchor_height}:",
         notes.len(),
-        u32::from(inputs.anchor_height()),
     );
     for received in notes.iter() {
         print_received_note(received, net);

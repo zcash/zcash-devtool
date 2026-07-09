@@ -381,6 +381,27 @@ async fn update_subtree_roots<P: Parameters>(
     info!("Orchard tree has {} subtrees", orchard_roots.len());
     db_data.put_orchard_subtree_roots(0, &orchard_roots)?;
 
+    // Ironwood note commitments are Orchard-shaped, so its subtree roots use the same
+    // hash type. A server that predates Ironwood activation simply streams none.
+    let mut request = service::GetSubtreeRootsArg::default();
+    request.set_shielded_protocol(service::ShieldedProtocol::Ironwood);
+    let ironwood_roots: Vec<CommitmentTreeRoot<MerkleHashOrchard>> = client
+        .get_subtree_roots(request)
+        .await?
+        .into_inner()
+        .and_then(|root| async move {
+            let root_hash = MerkleHashOrchard::read(&root.root_hash[..])?;
+            Ok(CommitmentTreeRoot::from_parts(
+                BlockHeight::from_u32(root.completing_block_height as u32),
+                root_hash,
+            ))
+        })
+        .try_collect()
+        .await?;
+
+    info!("Ironwood tree has {} subtrees", ironwood_roots.len());
+    db_data.put_ironwood_subtree_roots(0, &ironwood_roots)?;
+
     Ok(())
 }
 

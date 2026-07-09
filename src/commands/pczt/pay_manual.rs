@@ -236,9 +236,8 @@ impl Command {
                     &[][..] as &[Infallible],
                     &orchard_output_values[..],
                 ),
-                // No Ironwood bundle, and change stays in the Orchard pool.
+                // No Ironwood bundle; change stays in the Orchard pool.
                 &EmptyBundleView,
-                false,
                 None,
                 &(),
             )
@@ -253,6 +252,7 @@ impl Command {
                 sapling_anchor,
                 orchard_anchor,
                 ironwood_anchor: None,
+                orchard_pool_bundle_type: orchard::builder::BundleType::DEFAULT,
             },
         );
         add_inputs(&mut builder, transparent_inputs)?;

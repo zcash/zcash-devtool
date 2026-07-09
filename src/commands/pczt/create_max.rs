@@ -93,6 +93,9 @@ impl Command {
             account.id(),
             OvkPolicy::Sender,
             &proposal,
+            // Use the builder-derived expiry and a standard Orchard-pool bundle.
+            None,
+            orchard::builder::BundleType::DEFAULT,
         )
         .map_err(error::Error::from)?;
 

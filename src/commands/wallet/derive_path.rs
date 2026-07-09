@@ -9,7 +9,7 @@ use zcash_keys::{
     keys::{UnifiedAddressRequest, UnifiedFullViewingKey},
 };
 use zcash_protocol::{
-    PoolType, ShieldedPool,
+    PoolType,
     consensus::{NetworkConstants, Parameters},
 };
 
@@ -289,8 +289,13 @@ impl Command {
                     println!(" - Default address: {}", ua.encode(&params));
                 }
             }
-            PoolType::Shielded(ShieldedPool::Ironwood) => {
-                return Err(anyhow!("Ironwood derivation is not yet supported"));
+            PoolType::IRONWOOD => {
+                // Ironwood reuses the Orchard key tree and address format, so there is
+                // no distinct Ironwood key derivation to display; the Orchard derivation
+                // covers it.
+                return Err(anyhow!(
+                    "Ironwood shares the Orchard key tree; derive within the `orchard` pool instead"
+                ));
             }
         }
 

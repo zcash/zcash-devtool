@@ -35,6 +35,7 @@ fn parse_pool(data: &str) -> Result<ShieldedPool, String> {
     match data {
         "s" | "sapling" => Ok(ShieldedPool::Sapling),
         "o" | "orchard" => Ok(ShieldedPool::Orchard),
+        "i" | "ironwood" => Ok(ShieldedPool::Ironwood),
         _ => Err(format!("Unknown pool '{data}'")),
     }
 }
@@ -150,7 +151,7 @@ impl App {
                     if let Some(key) = match pool {
                         ShieldedPool::Sapling => block.sapling_tree_size(),
                         ShieldedPool::Orchard => block.orchard_tree_size(),
-                        ShieldedPool::Ironwood => None,
+                        ShieldedPool::Ironwood => block.ironwood_tree_size(),
                     } {
                         block_boundaries.entry(key).or_insert(block.block_height());
                     }
@@ -285,8 +286,23 @@ impl App {
                 Ok(None) => false,
                 Err(e) => todo!("{}", e),
             },
-            // The explorer's pool argument only parses "sapling"/"orchard".
-            ShieldedPool::Ironwood => false,
+            ShieldedPool::Ironwood => match self.db_data.with_ironwood_tree_mut(|tree| {
+                NodeFetcher {
+                    store: tree.store(),
+                }
+                .get(address)
+                .map(|opt| opt.map(|node| node.address))
+            }) {
+                Ok(Some(Some(valid))) => {
+                    assert_eq!(address, valid);
+                    self.address = valid;
+                    true
+                }
+                // `None` if the backend tracks no Ironwood tree; `Some(None)` if the
+                // node is absent. Either way the target is not reachable.
+                Ok(Some(None)) | Ok(None) => false,
+                Err(e) => todo!("{}", e),
+            },
         }
     }
 
@@ -316,10 +332,20 @@ impl App {
                     )
                 })
                 .unwrap(),
-            // The explorer's pool argument only parses "sapling"/"orchard".
-            ShieldedPool::Ironwood => {
-                unreachable!("the tree explorer only supports Sapling and Orchard")
-            }
+            ShieldedPool::Ironwood => self
+                .db_data
+                .with_ironwood_tree_mut(move |tree| {
+                    Region::get(
+                        ShieldedPool::Ironwood,
+                        NodeFetcher {
+                            store: tree.store(),
+                        },
+                        address,
+                    )
+                })
+                .unwrap()
+                // Flatten the "no Ironwood tree" outer `Option` into the region lookup.
+                .flatten(),
         };
 
         let mut address = self.address;

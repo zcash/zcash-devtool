@@ -158,6 +158,7 @@ impl Command {
                     sapling_anchor,
                     orchard_anchor,
                     ironwood_anchor: None,
+                    orchard_pool_bundle_type: orchard::builder::BundleType::DEFAULT,
                 },
             );
             add_inputs(&mut builder, transparent_inputs)?;

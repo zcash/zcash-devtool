@@ -14,7 +14,7 @@ use zcash_client_backend::{
         Account, WalletRead,
         wallet::{
             ConfirmationsPolicy, SpendingKeys, create_proposed_transactions,
-            input_selection::{GreedyInputSelector, TransparentSpendPolicy},
+            input_selection::{GreedyInputSelector, SpendPolicy},
             propose_transfer,
         },
     },
@@ -235,7 +235,7 @@ pub(crate) async fn pay<C: PaymentContext>(
         context.confirmations_policy(),
         // Preserve the pre-upgrade behavior: transfers never spend
         // transparent UTXOs; they must be shielded first.
-        &TransparentSpendPolicy::ShieldedOnly,
+        &SpendPolicy::default(),
         context.tx_version(),
     )
     .map_err(error::Error::from)?;
@@ -258,7 +258,6 @@ pub(crate) async fn pay<C: PaymentContext>(
             &SpendingKeys::from_unified_spending_key(usk),
             OvkPolicy::Sender,
             &proposal,
-            context.tx_version(),
         )
         .map_err(error::Error::from)?;
 

@@ -158,7 +158,6 @@ impl Command {
             &SpendingKeys::from_unified_spending_key(usk),
             OvkPolicy::Sender,
             &proposal,
-            None,
         )
         .map_err(error::Error::Shield)?;
 

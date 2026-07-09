@@ -10,7 +10,7 @@ use zcash_client_backend::{
         Account as _,
         wallet::{
             ConfirmationsPolicy,
-            input_selection::{GreedyInputSelector, TransparentSpendPolicy},
+            input_selection::{GreedyInputSelector, SpendPolicy},
             propose_transfer,
         },
     },
@@ -87,7 +87,7 @@ impl Command {
             ConfirmationsPolicy::default(),
             // Preserve the pre-upgrade behavior: transfers never spend
             // transparent UTXOs; they must be shielded first.
-            &TransparentSpendPolicy::ShieldedOnly,
+            &SpendPolicy::default(),
             None,
         )
         .map_err(error::Error::from)?;
