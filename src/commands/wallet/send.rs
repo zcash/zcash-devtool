@@ -14,7 +14,8 @@ use zcash_client_backend::{
         Account, WalletRead,
         wallet::{
             ConfirmationsPolicy, SpendingKeys, create_proposed_transactions,
-            input_selection::GreedyInputSelector, propose_transfer,
+            input_selection::{GreedyInputSelector, SpendPolicy},
+            propose_transfer,
         },
     },
     fees::{DustOutputPolicy, SplitPolicy, StandardFeeRule, standard::MultiOutputChangeStrategy},
@@ -26,7 +27,7 @@ use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_primitives::transaction::TxVersion;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::{
-    ShieldedProtocol,
+    ShieldedPool,
     memo::{Memo, MemoBytes},
     value::Zatoshis,
 };
@@ -147,8 +148,9 @@ pub(crate) fn parse_tx_version(s: &str) -> anyhow::Result<TxVersion> {
     match v {
         4 => Ok(TxVersion::V4),
         5 => Ok(TxVersion::V5),
+        6 => Ok(TxVersion::V6),
         other => Err(anyhow!(
-            "Unsupported transaction version {}; expected 4 or 5",
+            "Unsupported transaction version {}; expected 4, 5 or 6",
             other
         )),
     }
@@ -213,7 +215,7 @@ pub(crate) async fn pay<C: PaymentContext>(
     let change_strategy = MultiOutputChangeStrategy::new(
         StandardFeeRule::Zip317,
         None,
-        ShieldedProtocol::Orchard,
+        ShieldedPool::Orchard,
         DustOutputPolicy::default(),
         SplitPolicy::with_min_output_value(
             NonZeroUsize::new(context.target_note_count())
@@ -231,6 +233,9 @@ pub(crate) async fn pay<C: PaymentContext>(
         &change_strategy,
         request,
         context.confirmations_policy(),
+        // Preserve the pre-upgrade behavior: transfers never spend
+        // transparent UTXOs; they must be shielded first.
+        &SpendPolicy::default(),
         context.tx_version(),
     )
     .map_err(error::Error::from)?;
@@ -253,7 +258,6 @@ pub(crate) async fn pay<C: PaymentContext>(
             &SpendingKeys::from_unified_spending_key(usk),
             OvkPolicy::Sender,
             &proposal,
-            context.tx_version(),
         )
         .map_err(error::Error::from)?;
 

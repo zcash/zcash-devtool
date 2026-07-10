@@ -33,9 +33,10 @@ pub(crate) struct Command {
 
     /// Required for `-n regtest`: a TOML file giving the validator's
     /// activation height per network upgrade (keys: overwinter, sapling,
-    /// blossom, heartwood, canopy, nu5, nu6, nu6_1, nu6_2; a missing key
-    /// means the upgrade is inactive). The heights are persisted in the
-    /// wallet config so later commands agree. Rejected for main/test.
+    /// blossom, heartwood, canopy, nu5, nu6, nu6_1, nu6_2, nu6_3; each a
+    /// height or "never"; a missing key means the upgrade is inactive but
+    /// warns on load). The heights are persisted verbatim in the wallet
+    /// config so later commands agree. Rejected for main/test.
     #[cfg(feature = "regtest_support")]
     #[arg(long)]
     activation_heights: Option<std::path::PathBuf>,

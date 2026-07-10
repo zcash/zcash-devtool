@@ -49,14 +49,12 @@ impl Send {
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 
+        let pczt_data = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
         let mut pczt_packet = vec![];
-        minicbor::encode(
-            &ZcashPczt {
-                data: pczt.serialize(),
-            },
-            &mut pczt_packet,
-        )
-        .map_err(|e| anyhow!("Failed to encode PCZT packet: {:?}", e))?;
+        minicbor::encode(&ZcashPczt { data: pczt_data }, &mut pczt_packet)
+            .map_err(|e| anyhow!("Failed to encode PCZT packet: {:?}", e))?;
 
         #[cfg(feature = "tui")]
         let tui_handle = if self.tui {
@@ -218,7 +216,10 @@ impl Receive {
         )
         .map_err(|e| anyhow!("Failed to read PCZT from QR codes: {:?}", e))?;
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }

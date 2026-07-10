@@ -164,6 +164,7 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::wallet::Command::ListAccounts(command) => command.run(wallet_dir),
                 commands::wallet::Command::GenerateAddress(command) => command.run(wallet_dir),
                 commands::wallet::Command::ListAddresses(command) => command.run(wallet_dir),
+                commands::wallet::Command::DeriveAddress(command) => command.run(),
                 commands::wallet::Command::DerivePath(command) => command.run(wallet_dir),
                 commands::wallet::Command::ListTx(command) => command.run(wallet_dir),
                 commands::wallet::Command::ListUnspent(command) => command.run(wallet_dir),

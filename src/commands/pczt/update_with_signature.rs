@@ -46,12 +46,18 @@ impl Command {
             }
             PoolType::SAPLING => Err(anyhow!("TODO: Maybe support this")),
             PoolType::ORCHARD => Err(anyhow!("TODO: Maybe support this")),
+            // Ironwood spends are Orchard-shaped; signing support here is stubbed for
+            // both, pending shielded-signing support in general.
+            PoolType::IRONWOOD => Err(anyhow!("TODO: Maybe support this")),
         }
         .map_err(|e| anyhow!("{e:?}"))?;
 
         let pczt = signer.finish();
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }

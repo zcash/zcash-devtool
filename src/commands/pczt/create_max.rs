@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
 use tokio::io::{AsyncWriteExt, stdout};
@@ -16,7 +17,7 @@ use zcash_client_backend::{
 };
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_protocol::{
-    ShieldedProtocol,
+    ShieldedPool,
     memo::{Memo, MemoBytes},
 };
 
@@ -73,7 +74,11 @@ impl Command {
             &mut db_data,
             &params,
             account.id(),
-            &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard],
+            &[
+                ShieldedPool::Sapling,
+                ShieldedPool::Orchard,
+                ShieldedPool::Ironwood,
+            ],
             &StandardFeeRule::Zip317,
             recipient,
             memo,
@@ -88,10 +93,16 @@ impl Command {
             account.id(),
             OvkPolicy::Sender,
             &proposal,
+            // Use the builder-derived expiry and a standard Orchard-pool bundle.
+            None,
+            orchard::builder::BundleType::DEFAULT,
         )
         .map_err(error::Error::from)?;
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }

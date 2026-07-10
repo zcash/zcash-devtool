@@ -289,6 +289,14 @@ impl Command {
                     println!(" - Default address: {}", ua.encode(&params));
                 }
             }
+            PoolType::IRONWOOD => {
+                // Ironwood reuses the Orchard key tree and address format, so there is
+                // no distinct Ironwood key derivation to display; the Orchard derivation
+                // covers it.
+                return Err(anyhow!(
+                    "Ironwood shares the Orchard key tree; derive within the `orchard` pool instead"
+                ));
+            }
         }
 
         Ok(())

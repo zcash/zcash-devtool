@@ -3,7 +3,8 @@ use clap::Args;
 use uuid::Uuid;
 use zcash_client_backend::data_api::{Account as _, InputSource, WalletRead};
 use zcash_client_sqlite::WalletDb;
-use zcash_protocol::ShieldedProtocol;
+use zcash_protocol::ShieldedPool;
+use zcash_protocol::consensus::Parameters;
 
 use crate::{
     commands::select_account, config::get_wallet_network, data::get_db_paths, error, ui::format_zec,
@@ -32,16 +33,21 @@ impl Command {
 
         let notes = db_data.select_unspent_notes(
             account.id(),
-            &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard],
+            &[
+                ShieldedPool::Sapling,
+                ShieldedPool::Orchard,
+                ShieldedPool::Ironwood,
+            ],
             target_height,
             &[],
         )?;
 
+        let net = params.network_type();
         for note in notes.sapling() {
             println!(
                 "Sapling {}: {}",
                 note.internal_note_id(),
-                format_zec(note.note_value()?)
+                format_zec(note.note_value()?, net)
             );
         }
 
@@ -49,7 +55,7 @@ impl Command {
             println!(
                 "Orchard {}: {}",
                 note.internal_note_id(),
-                format_zec(note.note_value()?)
+                format_zec(note.note_value()?, net)
             );
         }
 

@@ -74,6 +74,7 @@ impl Command {
         let mut sapling_spends = vec![];
         let mut sapling_outputs = vec![];
         let mut orchard_actions = vec![];
+        let mut ironwood_actions = vec![];
 
         let pczt = Verifier::new(pczt)
             .with_transparent(|bundle| {
@@ -135,6 +136,29 @@ impl Command {
             .expect("no error")
             .with_orchard(|bundle| {
                 orchard_actions = bundle
+                    .actions()
+                    .iter()
+                    .map(|action| {
+                        (
+                            *action.spend().value(),
+                            action.output().user_address().clone(),
+                            *action.output().value(),
+                            action
+                                .output()
+                                .zip32_derivation()
+                                .as_ref()
+                                .zip(seed_fp.as_ref())
+                                .and_then(|(derivation, (seed_fp, coin_type))| {
+                                    derivation.extract_account_index(seed_fp, *coin_type)
+                                }),
+                        )
+                    })
+                    .collect();
+                Ok::<_, pczt::roles::verifier::OrchardError<()>>(())
+            })
+            .expect("no error")
+            .with_ironwood(|bundle| {
+                ironwood_actions = bundle
                     .actions()
                     .iter()
                     .map(|action| {
@@ -320,47 +344,10 @@ impl Command {
             }
         }
 
-        if !pczt.orchard().actions().is_empty() {
-            println!("{} Orchard actions:", pczt.orchard().actions().len());
-            for (index, (spend_value, output_user_address, output_value, output_account_index)) in
-                orchard_actions.iter().enumerate()
-            {
-                println!("- {index}:");
-                if let Some(value) = spend_value {
-                    if value.inner() == 0 {
-                        println!("  - Spend: Zero value (likely a dummy)");
-                    } else {
-                        println!("  - Spend: {} zatoshis", value.inner());
-                    }
-                }
-                if let Some(value) = output_value {
-                    if value.inner() == 0 {
-                        println!("  - Output: Zero value (likely a dummy)");
-                    } else {
-                        println!(
-                            "  - Output: {} zatoshis{}{}",
-                            value.inner(),
-                            match output_user_address {
-                                Some(addr) => format!(" to {addr}"),
-                                None => "".into(),
-                            },
-                            match output_account_index {
-                                Some(idx) =>
-                                    format!(" (change to ZIP 32 account index {})", u32::from(*idx)),
-                                None => "".into(),
-                            }
-                        );
-                    }
-                } else if let Some(addr) = output_user_address {
-                    println!("  - Output: {addr}");
-                } else if let Some(idx) = output_account_index {
-                    println!(
-                        "- {index}: change to ZIP 32 account index {}",
-                        u32::from(*idx)
-                    );
-                }
-            }
-        }
+        // Orchard and Ironwood bundles share the same action shape, so they render
+        // identically; only the pool label differs.
+        print_orchard_style_actions("Orchard", &orchard_actions);
+        print_orchard_style_actions("Ironwood", &ironwood_actions);
 
         match pczt.into_effects() {
             Err(e) => println!(
@@ -419,5 +406,63 @@ impl Command {
         }
 
         Ok(())
+    }
+}
+
+/// A summary of one Orchard-shaped action: `(spend value, output user address, output
+/// value, output change account index)`. Shared by the Orchard and Ironwood bundles,
+/// which have identical action structure.
+type OrchardActionSummary = (
+    Option<orchard::value::NoteValue>,
+    Option<String>,
+    Option<orchard::value::NoteValue>,
+    Option<zip32::AccountId>,
+);
+
+/// Prints the actions of an Orchard or Ironwood bundle under the given pool `label`.
+/// Does nothing when the bundle has no actions.
+fn print_orchard_style_actions(label: &str, actions: &[OrchardActionSummary]) {
+    if actions.is_empty() {
+        return;
+    }
+
+    println!("{} {label} actions:", actions.len());
+    for (index, (spend_value, output_user_address, output_value, output_account_index)) in
+        actions.iter().enumerate()
+    {
+        println!("- {index}:");
+        if let Some(value) = spend_value {
+            if value.inner() == 0 {
+                println!("  - Spend: Zero value (likely a dummy)");
+            } else {
+                println!("  - Spend: {} zatoshis", value.inner());
+            }
+        }
+        if let Some(value) = output_value {
+            if value.inner() == 0 {
+                println!("  - Output: Zero value (likely a dummy)");
+            } else {
+                println!(
+                    "  - Output: {} zatoshis{}{}",
+                    value.inner(),
+                    match output_user_address {
+                        Some(addr) => format!(" to {addr}"),
+                        None => "".into(),
+                    },
+                    match output_account_index {
+                        Some(idx) =>
+                            format!(" (change to ZIP 32 account index {})", u32::from(*idx)),
+                        None => "".into(),
+                    }
+                );
+            }
+        } else if let Some(addr) = output_user_address {
+            println!("  - Output: {addr}");
+        } else if let Some(idx) = output_account_index {
+            println!(
+                "- {index}: change to ZIP 32 account index {}",
+                u32::from(*idx)
+            );
+        }
     }
 }

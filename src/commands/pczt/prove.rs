@@ -172,14 +172,51 @@ impl Command {
 
         let prover = LocalTxProver::bundled();
 
-        let pczt = Prover::new(pczt)
-            .create_orchard_proof(&orchard::circuit::ProvingKey::build())
-            .map_err(|e| anyhow!("Failed to create Orchard proof: {:?}", e))?
+        let raw_branch_id = *pczt.global().consensus_branch_id();
+        let mut prover_role = Prover::new(pczt);
+
+        // The proving key is expensive to build, so only do so when a bundle
+        // actually needs a proof, and build it for the circuit version that
+        // the PCZT's consensus branch requires (pre- vs post-NU6.3 circuits
+        // differ) by deriving it from the PCZT's own branch ID. Orchard and
+        // Ironwood share one circuit on every branch where Ironwood exists
+        // (post-NU6.3), so a single key serves both bundles.
+        let needs_orchard = prover_role.requires_orchard_proof();
+        let needs_ironwood = prover_role.requires_ironwood_proof();
+        if needs_orchard || needs_ironwood {
+            let branch_id = zcash_protocol::consensus::BranchId::try_from(raw_branch_id)
+                .map_err(|_| anyhow!("PCZT has an unknown consensus branch ID"))?;
+            let pk = orchard::circuit::ProvingKey::build(
+                zcash_primitives::transaction::components::orchard::bundle_version_for_branch(
+                    branch_id,
+                    orchard::ValuePool::Orchard,
+                )
+                .ok_or_else(|| {
+                    anyhow!("PCZT's consensus branch {branch_id:?} does not support Orchard")
+                })?
+                .circuit_version(),
+            );
+            if needs_orchard {
+                prover_role = prover_role
+                    .create_orchard_proof(&pk)
+                    .map_err(|e| anyhow!("Failed to create Orchard proof: {:?}", e))?;
+            }
+            if needs_ironwood {
+                prover_role = prover_role
+                    .create_ironwood_proof(&pk)
+                    .map_err(|e| anyhow!("Failed to create Ironwood proof: {:?}", e))?;
+            }
+        }
+
+        let pczt = prover_role
             .create_sapling_proofs(&prover, &prover)
             .map_err(|e| anyhow!("Failed to create Sapling proofs: {:?}", e))?
             .finish();
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }

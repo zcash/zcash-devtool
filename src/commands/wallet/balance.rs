@@ -10,6 +10,7 @@ use zcash_client_backend::{
 };
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedAddressRequest;
+use zcash_protocol::consensus::{NetworkType, Parameters};
 use zcash_protocol::value::{COIN, Zatoshis};
 
 use crate::{
@@ -87,6 +88,7 @@ impl Command {
                 "total": balance.total().into_u64(),
                 "sapling_spendable": balance.sapling_balance().spendable_value().into_u64(),
                 "orchard_spendable": balance.orchard_balance().spendable_value().into_u64(),
+                "ironwood_spendable": balance.ironwood_balance().spendable_value().into_u64(),
                 "transparent_spendable": balance.unshielded_balance().spendable_value().into_u64(),
                 "chain_tip_height": u32::from(wallet_summary.chain_tip_height()),
             });
@@ -120,19 +122,24 @@ impl Command {
                     (*progress.numerator() as f64) * 100f64 / (*progress.denominator() as f64)
                 );
             }
-            println!("    Balance: {}", printer.format(balance.total()));
+            let net = params.network_type();
+            println!("    Balance: {}", printer.format(balance.total(), net));
             println!(
                 "     Sapling Spendable: {}",
-                printer.format(balance.sapling_balance().spendable_value()),
+                printer.format(balance.sapling_balance().spendable_value(), net),
             );
             println!(
                 "     Orchard Spendable: {}",
-                printer.format(balance.orchard_balance().spendable_value()),
+                printer.format(balance.orchard_balance().spendable_value(), net),
+            );
+            println!(
+                "    Ironwood Spendable: {}",
+                printer.format(balance.ironwood_balance().spendable_value(), net),
             );
             #[cfg(feature = "transparent-inputs")]
             println!(
                 "  Unshielded Spendable: {}",
-                printer.format(balance.unshielded_balance().spendable_value()),
+                printer.format(balance.unshielded_balance().spendable_value(), net),
             );
         } else {
             println!("Insufficient information to build a wallet summary.");
@@ -163,18 +170,18 @@ impl ValuePrinter {
         }
     }
 
-    fn format(&self, value: Zatoshis) -> String {
+    fn format(&self, value: Zatoshis, network: NetworkType) -> String {
         match self {
             ValuePrinter::WithConversion { currency, rate } => {
                 format!(
                     "{} ({}{:.2})",
-                    format_zec(value),
+                    format_zec(value, network),
                     currency.symbol(),
                     rate * Decimal::from_u64(value.into_u64()).unwrap()
                         / Decimal::from_u64(COIN).unwrap(),
                 )
             }
-            ValuePrinter::ZecOnly => format_zec(value),
+            ValuePrinter::ZecOnly => format_zec(value, network),
         }
     }
 }

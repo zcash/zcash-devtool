@@ -22,7 +22,7 @@ use tracing::{info, warn};
 use zcash_client_backend::data_api::{WalletCommitmentTrees, WalletRead};
 use zcash_client_sqlite::{WalletDb, wallet::commitment_tree::SqliteShardStore};
 use zcash_primitives::merkle_tree::HashSer;
-use zcash_protocol::{ShieldedProtocol, consensus::BlockHeight};
+use zcash_protocol::{ShieldedPool, consensus::BlockHeight};
 
 use crate::{
     ShutdownListener,
@@ -31,10 +31,11 @@ use crate::{
     tui::{self, Tui},
 };
 
-fn parse_pool(data: &str) -> Result<ShieldedProtocol, String> {
+fn parse_pool(data: &str) -> Result<ShieldedPool, String> {
     match data {
-        "s" | "sapling" => Ok(ShieldedProtocol::Sapling),
-        "o" | "orchard" => Ok(ShieldedProtocol::Orchard),
+        "s" | "sapling" => Ok(ShieldedPool::Sapling),
+        "o" | "orchard" => Ok(ShieldedPool::Orchard),
+        "i" | "ironwood" => Ok(ShieldedPool::Ironwood),
         _ => Err(format!("Unknown pool '{data}'")),
     }
 }
@@ -62,7 +63,7 @@ fn parse_address(data: &str) -> Result<Address, String> {
 #[derive(Debug, Args)]
 pub(crate) struct Command {
     #[arg(short, long, value_parser = parse_pool)]
-    pool: ShieldedProtocol,
+    pool: ShieldedPool,
 
     /// A node address `level:index` or leaf position.
     #[arg(short, long, value_parser = parse_address)]
@@ -103,7 +104,7 @@ pub(super) struct App {
     should_quit: bool,
     notify_shutdown: Option<oneshot::Sender<()>>,
     db_data: WalletDb<rusqlite::Connection, Network, (), ()>,
-    pool: ShieldedProtocol,
+    pool: ShieldedPool,
     address: Address,
     action_tx: mpsc::UnboundedSender<Action>,
     action_rx: mpsc::UnboundedReceiver<Action>,
@@ -115,7 +116,7 @@ impl App {
     pub(super) fn new(
         notify_shutdown: oneshot::Sender<()>,
         db_data: WalletDb<rusqlite::Connection, Network, (), ()>,
-        pool: ShieldedProtocol,
+        pool: ShieldedPool,
         address: Option<Address>,
         show_block_boundaries: bool,
     ) -> anyhow::Result<Self> {
@@ -148,8 +149,9 @@ impl App {
 
                 if let Some(block) = db_data.block_metadata(height.into())? {
                     if let Some(key) = match pool {
-                        ShieldedProtocol::Sapling => block.sapling_tree_size(),
-                        ShieldedProtocol::Orchard => block.orchard_tree_size(),
+                        ShieldedPool::Sapling => block.sapling_tree_size(),
+                        ShieldedPool::Orchard => block.orchard_tree_size(),
+                        ShieldedPool::Ironwood => block.ironwood_tree_size(),
                     } {
                         block_boundaries.entry(key).or_insert(block.block_height());
                     }
@@ -254,7 +256,7 @@ impl App {
 
     fn set_address_if_valid(&mut self, address: Address) -> bool {
         match self.pool {
-            ShieldedProtocol::Sapling => match self.db_data.with_sapling_tree_mut(|tree| {
+            ShieldedPool::Sapling => match self.db_data.with_sapling_tree_mut(|tree| {
                 NodeFetcher {
                     store: tree.store(),
                 }
@@ -269,7 +271,7 @@ impl App {
                 Ok(None) => false,
                 Err(e) => todo!("{}", e),
             },
-            ShieldedProtocol::Orchard => match self.db_data.with_orchard_tree_mut(|tree| {
+            ShieldedPool::Orchard => match self.db_data.with_orchard_tree_mut(|tree| {
                 NodeFetcher {
                     store: tree.store(),
                 }
@@ -282,6 +284,23 @@ impl App {
                     true
                 }
                 Ok(None) => false,
+                Err(e) => todo!("{}", e),
+            },
+            ShieldedPool::Ironwood => match self.db_data.with_ironwood_tree_mut(|tree| {
+                NodeFetcher {
+                    store: tree.store(),
+                }
+                .get(address)
+                .map(|opt| opt.map(|node| node.address))
+            }) {
+                Ok(Some(Some(valid))) => {
+                    assert_eq!(address, valid);
+                    self.address = valid;
+                    true
+                }
+                // `None` if the backend tracks no Ironwood tree; `Some(None)` if the
+                // node is absent. Either way the target is not reachable.
+                Ok(Some(None)) | Ok(None) => false,
                 Err(e) => todo!("{}", e),
             },
         }
@@ -289,11 +308,11 @@ impl App {
 
     fn reload_region(&mut self) {
         let mut get_region = |address| match self.pool {
-            ShieldedProtocol::Sapling => self
+            ShieldedPool::Sapling => self
                 .db_data
                 .with_sapling_tree_mut(move |tree| {
                     Region::get(
-                        ShieldedProtocol::Sapling,
+                        ShieldedPool::Sapling,
                         NodeFetcher {
                             store: tree.store(),
                         },
@@ -301,11 +320,11 @@ impl App {
                     )
                 })
                 .unwrap(),
-            ShieldedProtocol::Orchard => self
+            ShieldedPool::Orchard => self
                 .db_data
                 .with_orchard_tree_mut(move |tree| {
                     Region::get(
-                        ShieldedProtocol::Orchard,
+                        ShieldedPool::Orchard,
                         NodeFetcher {
                             store: tree.store(),
                         },
@@ -313,6 +332,20 @@ impl App {
                     )
                 })
                 .unwrap(),
+            ShieldedPool::Ironwood => self
+                .db_data
+                .with_ironwood_tree_mut(move |tree| {
+                    Region::get(
+                        ShieldedPool::Ironwood,
+                        NodeFetcher {
+                            store: tree.store(),
+                        },
+                        address,
+                    )
+                })
+                .unwrap()
+                // Flatten the "no Ironwood tree" outer `Option` into the region lookup.
+                .flatten(),
         };
 
         let mut address = self.address;
@@ -562,7 +595,7 @@ const Y_CHILD: f64 = -ROW_SPACING;
 /// `Direction` lets us move from `N` to `p`, `o`, `s`, `l`, or `r`.
 #[derive(Clone)]
 struct Region {
-    pool: ShieldedProtocol,
+    pool: ShieldedPool,
     node: Node,
     l: Option<Node>,
     r: Option<Node>,
@@ -572,7 +605,7 @@ struct Region {
 
 impl Region {
     fn get<H: Clone + HashSer>(
-        pool: ShieldedProtocol,
+        pool: ShieldedPool,
         node_fetcher: NodeFetcher<'_, H>,
         address: Address,
     ) -> Result<Option<Self>, ShardTreeError<zcash_client_sqlite::wallet::commitment_tree::Error>>
@@ -656,8 +689,9 @@ impl Region {
     fn render(&self) -> impl Widget + use<'_> {
         Canvas::default()
             .block(Block::bordered().title(match self.pool {
-                ShieldedProtocol::Sapling => "Sapling tree",
-                ShieldedProtocol::Orchard => "Orchard tree",
+                ShieldedPool::Sapling => "Sapling tree",
+                ShieldedPool::Orchard => "Orchard tree",
+                ShieldedPool::Ironwood => "Ironwood tree",
             }))
             .x_bounds([-90.0, 90.0])
             .y_bounds([-30.0, 50.0])

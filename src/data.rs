@@ -26,9 +26,12 @@ pub(crate) enum Network {
     Main,
     /// Regtest, carrying the caller-chosen activation heights. These are
     /// fixed at `init` (from `--activation-heights`) and persisted in the
-    /// wallet config so later commands agree.
+    /// wallet config so later commands agree. The raw [`ActivationHeights`]
+    /// are kept (rather than a [`LocalNetwork`]) so persistence is verbatim:
+    /// an explicit `"never"` and an absent key both deactivate an upgrade
+    /// but must survive the round-trip distinctly.
     #[cfg(feature = "regtest_support")]
-    Regtest(LocalNetwork),
+    Regtest(ActivationHeights),
 }
 
 impl Network {
@@ -74,47 +77,98 @@ impl Network {
 /// validator's makes the validator reject transactions built while the tip
 /// is inside the drifted window.
 #[cfg(feature = "regtest_support")]
-const DEFAULT_REGTEST: LocalNetwork = LocalNetwork {
-    overwinter: Some(BlockHeight::from_u32(1)),
-    sapling: Some(BlockHeight::from_u32(1)),
-    blossom: Some(BlockHeight::from_u32(1)),
-    heartwood: Some(BlockHeight::from_u32(1)),
-    canopy: Some(BlockHeight::from_u32(1)),
-    nu5: Some(BlockHeight::from_u32(2)),
-    nu6: Some(BlockHeight::from_u32(2)),
-    nu6_1: Some(BlockHeight::from_u32(2)),
-    nu6_2: Some(BlockHeight::from_u32(2)),
+const DEFAULT_REGTEST: ActivationHeights = ActivationHeights {
+    overwinter: Some(HeightSetting::At(1)),
+    sapling: Some(HeightSetting::At(1)),
+    blossom: Some(HeightSetting::At(1)),
+    heartwood: Some(HeightSetting::At(1)),
+    canopy: Some(HeightSetting::At(1)),
+    nu5: Some(HeightSetting::At(2)),
+    nu6: Some(HeightSetting::At(2)),
+    nu6_1: Some(HeightSetting::At(2)),
+    nu6_2: Some(HeightSetting::At(2)),
+    nu6_3: Some(HeightSetting::At(2)),
     #[cfg(zcash_unstable = "nu7")]
-    nu7: Some(BlockHeight::from_u32(2)),
+    nu7: Some(HeightSetting::At(2)),
 };
 
+/// One entry in the activation-heights schema: activate at a block height, or
+/// `"never"` — the operator's explicit statement that the upgrade does not
+/// exist on this chain. A key that is absent entirely (`None` around this
+/// type) also deactivates the upgrade, but is warned about on load, since
+/// absence may only mean the file predates this tool's knowledge of the
+/// upgrade.
+#[cfg(feature = "regtest_support")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HeightSetting {
+    At(u32),
+    Never,
+}
+
+#[cfg(feature = "regtest_support")]
+impl serde::Serialize for HeightSetting {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            HeightSetting::At(height) => serializer.serialize_u32(*height),
+            HeightSetting::Never => serializer.serialize_str("never"),
+        }
+    }
+}
+
+#[cfg(feature = "regtest_support")]
+impl<'de> serde::Deserialize<'de> for HeightSetting {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Height(u32),
+            Word(String),
+        }
+        match Raw::deserialize(deserializer)? {
+            Raw::Height(height) => Ok(HeightSetting::At(height)),
+            Raw::Word(word) if word == "never" => Ok(HeightSetting::Never),
+            Raw::Word(word) => Err(serde::de::Error::custom(format!(
+                "invalid activation height {word:?}: expected a block height or \"never\""
+            ))),
+        }
+    }
+}
+
 /// A `LocalNetwork`-shaped set of regtest activation heights, one optional
-/// height per network upgrade (a missing entry means "not active"). This is
-/// the schema of the `--activation-heights` TOML file and of the
-/// `[activation_heights]` table persisted in the wallet config; the two share
-/// this type so a wallet's heights round-trip from the file the operator
-/// commits to revision control.
+/// [`HeightSetting`] per network upgrade (a missing entry means "not
+/// active"). This is the schema of the `--activation-heights` TOML file and
+/// of the `[activation_heights]` table persisted in the wallet config; the
+/// two share this type so a wallet's heights round-trip verbatim from the
+/// file the operator commits to revision control.
 #[cfg(feature = "regtest_support")]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct ActivationHeights {
-    pub(crate) overwinter: Option<u32>,
-    pub(crate) sapling: Option<u32>,
-    pub(crate) blossom: Option<u32>,
-    pub(crate) heartwood: Option<u32>,
-    pub(crate) canopy: Option<u32>,
-    pub(crate) nu5: Option<u32>,
-    pub(crate) nu6: Option<u32>,
-    pub(crate) nu6_1: Option<u32>,
-    pub(crate) nu6_2: Option<u32>,
+    pub(crate) overwinter: Option<HeightSetting>,
+    pub(crate) sapling: Option<HeightSetting>,
+    pub(crate) blossom: Option<HeightSetting>,
+    pub(crate) heartwood: Option<HeightSetting>,
+    pub(crate) canopy: Option<HeightSetting>,
+    pub(crate) nu5: Option<HeightSetting>,
+    pub(crate) nu6: Option<HeightSetting>,
+    pub(crate) nu6_1: Option<HeightSetting>,
+    pub(crate) nu6_2: Option<HeightSetting>,
+    pub(crate) nu6_3: Option<HeightSetting>,
     #[cfg(zcash_unstable = "nu7")]
-    pub(crate) nu7: Option<u32>,
+    pub(crate) nu7: Option<HeightSetting>,
 }
 
 #[cfg(feature = "regtest_support")]
 impl ActivationHeights {
+    /// Consensus queries deliberately route through [`LocalNetwork`] rather
+    /// than a local `Parameters` impl: its exhaustive struct literal is the
+    /// compile-time tripwire that surfaces new network upgrades at dependency
+    /// bumps.
     pub(crate) fn to_local_network(self) -> LocalNetwork {
-        let h = |v: Option<u32>| v.map(BlockHeight::from_u32);
+        let h = |v: Option<HeightSetting>| match v {
+            Some(HeightSetting::At(height)) => Some(BlockHeight::from_u32(height)),
+            Some(HeightSetting::Never) | None => None,
+        };
         LocalNetwork {
             overwinter: h(self.overwinter),
             sapling: h(self.sapling),
@@ -125,37 +179,55 @@ impl ActivationHeights {
             nu6: h(self.nu6),
             nu6_1: h(self.nu6_1),
             nu6_2: h(self.nu6_2),
+            nu6_3: h(self.nu6_3),
             #[cfg(zcash_unstable = "nu7")]
             nu7: h(self.nu7),
         }
     }
 
-    pub(crate) fn from_local_network(local: LocalNetwork) -> Self {
-        let h = |v: Option<BlockHeight>| v.map(u32::from);
-        Self {
-            overwinter: h(local.overwinter),
-            sapling: h(local.sapling),
-            blossom: h(local.blossom),
-            heartwood: h(local.heartwood),
-            canopy: h(local.canopy),
-            nu5: h(local.nu5),
-            nu6: h(local.nu6),
-            nu6_1: h(local.nu6_1),
-            nu6_2: h(local.nu6_2),
+    /// Warn about upgrades this binary knows that `self` leaves implicitly
+    /// inactive (key absent). Explicit entries — a height or `"never"` — are
+    /// silent.
+    pub(crate) fn warn_on_implicitly_inactive(&self, source: &str) {
+        let absent: Vec<&str> = [
+            ("overwinter", self.overwinter),
+            ("sapling", self.sapling),
+            ("blossom", self.blossom),
+            ("heartwood", self.heartwood),
+            ("canopy", self.canopy),
+            ("nu5", self.nu5),
+            ("nu6", self.nu6),
+            ("nu6_1", self.nu6_1),
+            ("nu6_2", self.nu6_2),
+            ("nu6_3", self.nu6_3),
             #[cfg(zcash_unstable = "nu7")]
-            nu7: h(local.nu7),
+            ("nu7", self.nu7),
+        ]
+        .iter()
+        .filter(|(_, setting)| setting.is_none())
+        .map(|(key, _)| *key)
+        .collect();
+        if !absent.is_empty() {
+            tracing::warn!(
+                "{source} does not mention {}; treating as inactive. State a height or \
+                 \"never\" explicitly to silence this warning, and ensure the validator's \
+                 configuration agrees.",
+                absent.join(", ")
+            );
         }
     }
 }
 
-/// Load a `--activation-heights` TOML file into a `LocalNetwork`.
+/// Load a `--activation-heights` TOML file, warning about upgrades the file
+/// leaves implicitly inactive.
 #[cfg(feature = "regtest_support")]
-pub(crate) fn load_activation_heights(path: &Path) -> anyhow::Result<LocalNetwork> {
+pub(crate) fn load_activation_heights(path: &Path) -> anyhow::Result<ActivationHeights> {
     let contents = std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("reading activation-heights file {path:?}: {e}"))?;
     let heights: ActivationHeights = toml::from_str(&contents)
         .map_err(|e| anyhow::anyhow!("parsing activation-heights file {path:?}: {e}"))?;
-    Ok(heights.to_local_network())
+    heights.warn_on_implicitly_inactive(&format!("activation-heights file {path:?}"));
+    Ok(heights)
 }
 
 impl Parameters for Network {
@@ -164,7 +236,7 @@ impl Parameters for Network {
             Network::Test => consensus::Network::TestNetwork.network_type(),
             Network::Main => consensus::Network::MainNetwork.network_type(),
             #[cfg(feature = "regtest_support")]
-            Network::Regtest(local) => local.network_type(),
+            Network::Regtest(heights) => heights.to_local_network().network_type(),
         }
     }
 
@@ -173,7 +245,7 @@ impl Parameters for Network {
             Network::Test => consensus::Network::TestNetwork.activation_height(nu),
             Network::Main => consensus::Network::MainNetwork.activation_height(nu),
             #[cfg(feature = "regtest_support")]
-            Network::Regtest(local) => local.activation_height(nu),
+            Network::Regtest(heights) => heights.to_local_network().activation_height(nu),
         }
     }
 }
@@ -240,7 +312,8 @@ mod tests {
 
     #[test]
     fn activation_heights_toml_maps_to_local_network() {
-        // A missing key (here nu6_2) means the upgrade is inactive.
+        // An explicit "never" (here nu6_2) and a missing key (here nu6_3)
+        // both leave the upgrade inactive on the resulting chain.
         let toml = "\
 overwinter = 1
 sapling = 1
@@ -250,10 +323,10 @@ canopy = 1
 nu5 = 2
 nu6 = 2
 nu6_1 = 2
+nu6_2 = \"never\"
 ";
         let heights: ActivationHeights = toml::from_str(toml).unwrap();
-        let local = heights.to_local_network();
-        let net = Network::Regtest(local);
+        let net = Network::Regtest(heights);
 
         assert_eq!(
             net.activation_height(NetworkUpgrade::Sapling),
@@ -264,15 +337,111 @@ nu6_1 = 2
             Some(BlockHeight::from_u32(2))
         );
         assert_eq!(net.activation_height(NetworkUpgrade::Nu6_2), None);
+        assert_eq!(net.activation_height(NetworkUpgrade::Nu6_3), None);
     }
 
     #[test]
-    fn activation_heights_round_trip_through_local_network() {
-        let original: ActivationHeights = toml::from_str("nu5 = 7\nnu6 = 9\n").unwrap();
-        let restored = ActivationHeights::from_local_network(original.to_local_network());
-        // Restoring from the LocalNetwork preserves set and unset upgrades.
-        assert_eq!(restored.nu5, Some(7));
-        assert_eq!(restored.nu6, Some(9));
-        assert_eq!(restored.sapling, None);
+    fn activation_heights_round_trip_verbatim() {
+        let original: ActivationHeights = toml::from_str("nu5 = 7\nnu6 = \"never\"\n").unwrap();
+        assert_eq!(original.nu5, Some(HeightSetting::At(7)));
+        assert_eq!(original.nu6, Some(HeightSetting::Never));
+
+        let reserialized = toml::to_string(&original).unwrap();
+        let restored: ActivationHeights = toml::from_str(&reserialized).unwrap();
+        assert_eq!(restored.nu5, Some(HeightSetting::At(7)));
+        assert_eq!(restored.nu6, Some(HeightSetting::Never));
+        // An absent key stays absent — implicitly inactive is preserved, not
+        // laundered into an explicit "never".
+        assert_eq!(restored.nu6_3, None);
+    }
+
+    #[test]
+    fn activation_heights_reject_words_other_than_never() {
+        assert!(toml::from_str::<ActivationHeights>("nu5 = \"nevr\"\n").is_err());
+    }
+
+    /// Regression: a heights file written before NU6.3 support (integer
+    /// values only, no `nu6_3` key) must keep parsing, with the identical
+    /// consensus view it had under the old binary.
+    #[test]
+    fn legacy_integer_only_heights_file_still_parses() {
+        // Verbatim shape of a pre-NU6.3 operator file.
+        let legacy = "\
+overwinter = 1
+sapling = 1
+blossom = 1
+heartwood = 1
+canopy = 1
+nu5 = 2
+nu6 = 2
+nu6_1 = 2
+nu6_2 = 2
+";
+        let heights: ActivationHeights = toml::from_str(legacy).unwrap();
+        let net = Network::Regtest(heights);
+
+        for (nu, expected) in [
+            (NetworkUpgrade::Overwinter, 1),
+            (NetworkUpgrade::Sapling, 1),
+            (NetworkUpgrade::Blossom, 1),
+            (NetworkUpgrade::Heartwood, 1),
+            (NetworkUpgrade::Canopy, 1),
+            (NetworkUpgrade::Nu5, 2),
+            (NetworkUpgrade::Nu6, 2),
+            (NetworkUpgrade::Nu6_1, 2),
+            (NetworkUpgrade::Nu6_2, 2),
+        ] {
+            assert_eq!(
+                net.activation_height(nu),
+                Some(BlockHeight::from_u32(expected)),
+                "{nu:?}"
+            );
+        }
+        assert_eq!(net.activation_height(NetworkUpgrade::Nu6_3), None);
+    }
+
+    /// Regression: heights that use no `"never"` entries must serialize in
+    /// the legacy integer-only format, so a wallet config that predates
+    /// NU6.3 support re-persists byte-compatibly and remains readable by
+    /// older binaries (whose `deny_unknown_fields` would reject new keys).
+    #[test]
+    fn integer_heights_serialize_in_legacy_format() {
+        let heights: ActivationHeights = toml::from_str("nu5 = 2\nnu6 = 2\n").unwrap();
+        let serialized = toml::to_string(&heights).unwrap();
+        assert_eq!(serialized, "nu5 = 2\nnu6 = 2\n");
+    }
+
+    /// Regression: unknown keys are still rejected, as before the upgrade.
+    #[test]
+    fn unknown_upgrade_keys_still_rejected() {
+        assert!(toml::from_str::<ActivationHeights>("nu9 = 1\n").is_err());
+    }
+
+    /// Regression: the built-in fallback heights still match the
+    /// `zcash_local_net` wallet-funding zebrad fixture (pre-NU5 at 1,
+    /// everything NU5+ at 2) for all upgrades that predate NU6.3 support,
+    /// and the network still reports itself as regtest.
+    #[test]
+    fn default_regtest_fallback_heights_unchanged() {
+        let net = Network::parse("regtest").unwrap();
+
+        assert_eq!(net.network_type(), consensus::NetworkType::Regtest);
+        for (nu, expected) in [
+            (NetworkUpgrade::Overwinter, 1),
+            (NetworkUpgrade::Sapling, 1),
+            (NetworkUpgrade::Blossom, 1),
+            (NetworkUpgrade::Heartwood, 1),
+            (NetworkUpgrade::Canopy, 1),
+            (NetworkUpgrade::Nu5, 2),
+            (NetworkUpgrade::Nu6, 2),
+            (NetworkUpgrade::Nu6_1, 2),
+            (NetworkUpgrade::Nu6_2, 2),
+        ] {
+            assert_eq!(
+                net.activation_height(nu),
+                Some(BlockHeight::from_u32(expected)),
+                "{nu:?}"
+            );
+        }
     }
 }

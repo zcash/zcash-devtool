@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf};
+use std::{fs, num::NonZeroU8, path::PathBuf};
 
 use anyhow::anyhow;
 use clap::Args;
@@ -43,8 +43,10 @@ impl Command {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let fvk = zip48::FullViewingKey::standard(self.required, key_info)
-            .map_err(|e| anyhow!("{e:?}"))?;
+        let required = NonZeroU8::new(self.required)
+            .ok_or_else(|| anyhow!("The required-signatures threshold must be nonzero"))?;
+        let fvk =
+            zip48::FullViewingKey::standard(required, key_info).map_err(|e| anyhow!("{e:?}"))?;
 
         let scope = if self.change {
             zip32::Scope::Internal

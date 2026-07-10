@@ -42,7 +42,6 @@ lazy_static! {
             Some(&folder.join("sprout-groth16.params")),
         )
     };
-    static ref ORCHARD_VK: orchard::circuit::VerifyingKey = orchard::circuit::VerifyingKey::build();
 }
 
 #[derive(Debug, Args)]
@@ -200,10 +199,12 @@ fn inspect_zip321(request: TransactionRequest) {
         match payment.amount() {
             Some(amount) => {
                 let zats = amount.into_u64();
+                // A ZIP 321 payment request is network-agnostic, so default the
+                // ticker to mainnet's (ZEC) for display.
                 eprintln!(
-                    "   - Amount: {} zatoshis ({} ZEC)",
+                    "   - Amount: {} zatoshis ({})",
                     zats,
-                    format_zec(amount)
+                    format_zec(amount, NetworkType::Main)
                 );
             }
             None => eprintln!("   - Amount: not specified"),

@@ -201,6 +201,7 @@ pub(crate) fn inspect_sapling_extsk(data: Vec<u8>, network: NetworkType) {
                         nu6: None,
                         nu6_1: None,
                         nu6_2: None,
+                        nu6_3: None,
                         #[cfg(zcash_unstable = "nu7")]
                         nu7: None,
                     }),
@@ -223,6 +224,7 @@ pub(crate) fn inspect_sapling_extsk(data: Vec<u8>, network: NetworkType) {
                         nu6: None,
                         nu6_1: None,
                         nu6_2: None,
+                        nu6_3: None,
                         #[cfg(zcash_unstable = "nu7")]
                         nu7: None,
                     }),

@@ -149,12 +149,36 @@ impl Command {
 
                 add_orchard(updater, fvk, derivation)
             }
+            PoolType::IRONWOOD => {
+                // Ironwood spends are Orchard-shaped and use the same Orchard key tree,
+                // so derivation is added exactly as for Orchard, on the Ironwood bundle.
+                let derivation = orchard::pczt::Zip32Derivation::parse(seed_fp.to_bytes(), path)
+                    .map_err(|e| anyhow!("Invalid ZIP 32 derivation: {e:?}"))?;
+
+                let account = derivation
+                    .extract_account_index(
+                        &seed_fp,
+                        zip32::ChildIndex::hardened(params.coin_type()),
+                    )
+                    .ok_or_else(|| {
+                        anyhow!("Path is not a valid ZIP 32 path for this wallet's network")
+                    })?;
+
+                let fvk = UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account)?
+                    .orchard()
+                    .into();
+
+                add_ironwood(updater, fvk, derivation)
+            }
         }
         .map_err(|e| anyhow!("{e:?}"))?;
 
         let pczt = updater.finish();
 
-        stdout().write_all(&pczt.serialize()).await?;
+        let pczt_bytes = pczt
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
+        stdout().write_all(&pczt_bytes).await?;
 
         Ok(())
     }
@@ -165,8 +189,9 @@ fn parse_pool_type(s: &str) -> anyhow::Result<PoolType> {
         "transparent" => Ok(PoolType::Transparent),
         "sapling" => Ok(PoolType::SAPLING),
         "orchard" => Ok(PoolType::ORCHARD),
+        "ironwood" => Ok(PoolType::IRONWOOD),
         _ => Err(anyhow!(
-            "Invalid pool type '{s}', must be one of ['transparent', 'sapling', 'orchard']"
+            "Invalid pool type '{s}', must be one of ['transparent', 'sapling', 'orchard', 'ironwood']"
         )),
     }
 }
@@ -331,6 +356,63 @@ fn add_orchard(
     let updater = updater
         .update_orchard_with(|mut updater| {
             // Find inputs received at addresses derived from this FVK.
+            let inputs_to_update = updater
+                .bundle()
+                .actions()
+                .iter()
+                .enumerate()
+                .filter_map(|(index, action)| {
+                    action
+                        .spend()
+                        .recipient()
+                        .as_ref()
+                        .and_then(|addr| fvk.scope_for_address(addr))
+                        .map(|_| index)
+                })
+                .collect::<Vec<_>>();
+
+            found_none = inputs_to_update.is_empty();
+
+            for index in inputs_to_update {
+                updater.update_action_with(index, |mut action_updater| {
+                    action_updater.set_spend_zip32_derivation(
+                        // TODO: `impl Clone for Zip32Derivation`
+                        orchard::pczt::Zip32Derivation::parse(
+                            *derivation.seed_fingerprint(),
+                            derivation
+                                .derivation_path()
+                                .iter()
+                                .map(|i| i.index())
+                                .collect(),
+                        )
+                        .expect("valid"),
+                    );
+                    Ok(())
+                })?;
+            }
+
+            Ok(())
+        })
+        .map_err(|e| anyhow!("{e:?}"))?;
+
+    if found_none {
+        Err(anyhow!("No spends matched the given derivation path"))
+    } else {
+        Ok(updater)
+    }
+}
+
+fn add_ironwood(
+    updater: Updater,
+    fvk: orchard::keys::FullViewingKey,
+    derivation: orchard::pczt::Zip32Derivation,
+) -> anyhow::Result<Updater> {
+    let mut found_none = true;
+
+    let updater = updater
+        .update_ironwood_with(|mut updater| {
+            // Find inputs received at addresses derived from this FVK. Ironwood spends
+            // are Orchard-shaped, so the same FVK matching applies.
             let inputs_to_update = updater
                 .bundle()
                 .actions()

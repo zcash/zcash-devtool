@@ -101,9 +101,11 @@ fn init_wallet_config<P: AsRef<Path>>(
         mnemonic,
         network: Some(network.name().to_string()),
         birthday: Some(u32::from(birthday)),
+        // Persisted verbatim from what the operator's file stated, so an
+        // explicit "never" and an absent key survive distinctly.
         #[cfg(feature = "regtest_support")]
         activation_heights: match network {
-            Network::Regtest(local) => Some(ActivationHeights::from_local_network(local)),
+            Network::Regtest(heights) => Some(heights),
             _ => None,
         },
     };
@@ -143,12 +145,13 @@ impl WalletConfig {
         // persisted at `init` so this command agrees with the wallet's chain.
         #[cfg(feature = "regtest_support")]
         let network = match network {
-            Network::Regtest(_) => Network::Regtest(
-                config
+            Network::Regtest(_) => {
+                let heights = config
                     .activation_heights
-                    .ok_or(error::Error::InvalidKeysFile)?
-                    .to_local_network(),
-            ),
+                    .ok_or(error::Error::InvalidKeysFile)?;
+                heights.warn_on_implicitly_inactive("wallet config [activation_heights]");
+                Network::Regtest(heights)
+            }
             other => other,
         };
 
@@ -253,32 +256,122 @@ mod tests {
 
         let heights: ActivationHeights = toml::from_str(
             "overwinter = 1\nsapling = 1\nblossom = 1\nheartwood = 1\ncanopy = 1\n\
-             nu5 = 2\nnu6 = 2\nnu6_1 = 5\n",
+             nu5 = 2\nnu6 = 2\nnu6_1 = 5\nnu6_2 = \"never\"\n",
         )
         .unwrap();
-        let network = Network::Regtest(heights.to_local_network());
+        let network = Network::Regtest(heights);
 
         WalletConfig::init_without_mnemonic(Some(&dir), BlockHeight::from_u32(0), network).unwrap();
 
-        // The persisted file records the heights as a table.
+        // The persisted file records the heights as a table, verbatim: the
+        // explicit "never" survives and the absent nu6_3 stays absent.
         let keys_toml = fs::read_to_string(Path::new(&dir).join(KEYS_FILE)).unwrap();
         assert!(keys_toml.contains("[activation_heights]"), "{keys_toml}");
+        assert!(keys_toml.contains("nu6_2 = \"never\""), "{keys_toml}");
+        assert!(!keys_toml.contains("nu6_3"), "{keys_toml}");
 
         let reloaded = WalletConfig::read(Some(&dir)).unwrap();
         match reloaded.network {
-            Network::Regtest(local) => {
+            net @ Network::Regtest(heights) => {
                 assert_eq!(
-                    local.activation_height(NetworkUpgrade::Nu5),
+                    net.activation_height(NetworkUpgrade::Nu5),
                     Some(BlockHeight::from_u32(2))
                 );
                 assert_eq!(
-                    local.activation_height(NetworkUpgrade::Nu6_1),
+                    net.activation_height(NetworkUpgrade::Nu6_1),
                     Some(BlockHeight::from_u32(5))
                 );
-                assert_eq!(local.activation_height(NetworkUpgrade::Nu6_2), None);
+                assert_eq!(net.activation_height(NetworkUpgrade::Nu6_2), None);
+                assert_eq!(net.activation_height(NetworkUpgrade::Nu6_3), None);
+                assert_eq!(heights.nu6_2, Some(crate::data::HeightSetting::Never));
+                assert_eq!(heights.nu6_3, None);
             }
             other => panic!("expected regtest, got {other:?}"),
         }
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Regression: a `keys.toml` persisted by a pre-NU6.3 binary (integer
+    /// heights, no `nu6_3` key) must keep loading, with the same consensus
+    /// view it had under that binary; the absent `nu6_3` reads as inactive.
+    #[test]
+    fn legacy_keys_toml_without_nu6_3_loads() {
+        let dir = std::env::temp_dir().join(format!(
+            "zcash-devtool-cfg-legacy-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // Verbatim shape of a wallet config written before NU6.3 support.
+        fs::write(
+            dir.join(KEYS_FILE),
+            "network = \"regtest\"\n\
+             birthday = 0\n\
+             \n\
+             [activation_heights]\n\
+             overwinter = 1\n\
+             sapling = 1\n\
+             blossom = 1\n\
+             heartwood = 1\n\
+             canopy = 1\n\
+             nu5 = 2\n\
+             nu6 = 2\n\
+             nu6_1 = 2\n\
+             nu6_2 = 2\n",
+        )
+        .unwrap();
+
+        let config = WalletConfig::read(Some(&dir)).unwrap();
+        let net = config.network();
+        assert_eq!(
+            net.activation_height(NetworkUpgrade::Nu6_2),
+            Some(BlockHeight::from_u32(2))
+        );
+        assert_eq!(net.activation_height(NetworkUpgrade::Nu6_3), None);
+        assert_eq!(config.birthday(), BlockHeight::from_u32(0));
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Regression: a regtest wallet config with no `[activation_heights]`
+    /// table at all is still rejected outright, as before the upgrade.
+    #[test]
+    fn regtest_keys_toml_missing_heights_table_still_errors() {
+        let dir = std::env::temp_dir().join(format!(
+            "zcash-devtool-cfg-noheights-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        fs::write(dir.join(KEYS_FILE), "network = \"regtest\"\nbirthday = 0\n").unwrap();
+        assert!(WalletConfig::read(Some(&dir)).is_err());
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Regression: non-regtest wallet configs never carried activation
+    /// heights and must keep loading without them, defaulting the birthday
+    /// to the network's Sapling activation height when unset.
+    #[test]
+    fn test_network_keys_toml_loads_without_heights() {
+        let dir = std::env::temp_dir().join(format!(
+            "zcash-devtool-cfg-testnet-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        fs::write(dir.join(KEYS_FILE), "network = \"test\"\n").unwrap();
+        let config = WalletConfig::read(Some(&dir)).unwrap();
+        assert_eq!(
+            Some(config.birthday()),
+            config
+                .network()
+                .activation_height(consensus::NetworkUpgrade::Sapling)
+        );
 
         fs::remove_dir_all(&dir).unwrap();
     }
