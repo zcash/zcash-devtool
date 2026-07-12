@@ -15,7 +15,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macOS-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build binary
         run: cargo build
       - name: Verify working directory is clean
@@ -29,7 +29,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macOS-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Remove lockfile to build with latest dependencies
         run: rm Cargo.lock
       - name: Build binary
@@ -41,7 +41,7 @@ jobs:
     name: Build, test, and lint with regtest_support
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build with regtest_support
         run: cargo build --features regtest_support
       - name: Test with regtest_support
@@ -57,7 +57,7 @@ jobs:
       contents: read
       checks: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Run Clippy
         uses: auguwu/clippy-action@1.5.0
         with:
@@ -69,6 +69,6 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check formatting
         run: cargo fmt --all -- --check
