@@ -56,7 +56,7 @@ jobs:
 
       - name: Download previous wallet state
         id: load-state
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             sync-perf
@@ -100,7 +100,7 @@ jobs:
 
       - name: Store the updated wallet state for next time
         if: matrix.days == 1 && (github.event_name != 'workflow_dispatch' || inputs.store)
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             sync-perf
