@@ -2743,7 +2743,7 @@ dependencies = [
  "rand 0.8.7",
  "sinsemilla",
  "subtle",
- "uint",
+ "uint 0.9.5",
 ]
 
 [[package]]
@@ -7806,6 +7806,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "uint"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "909988d098b2f738727b161a106cfc7cab00c539c2687a8836f8e565976fb53e"
+dependencies = [
+ "byteorder",
+ "crunchy",
+ "hex",
+ "static_assertions",
+]
+
+[[package]]
 name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8726,7 +8738,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tui-logger",
- "uint",
+ "uint 0.10.0",
  "ur",
  "uuid",
  "zcash_address",
