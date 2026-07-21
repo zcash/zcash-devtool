@@ -7,10 +7,12 @@ use zcash_client_backend::data_api::{Account as _, InputSource, WalletRead, wall
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_pool_migration_backend::engine::{MigrationBackend, plan_migration};
 use zcash_protocol::ShieldedPool;
+use zcash_protocol::consensus::BlockHeight;
+use zcash_protocol::value::Zatoshis;
 
 use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths};
 
-use super::store::{open_connection, prep_fee_zatoshi};
+use super::store::open_connection;
 
 /// Options accepted for the `migration plan` command.
 #[derive(Debug, Args)]
@@ -34,7 +36,7 @@ where
 {
     type Error = anyhow::Error;
 
-    fn spendable_orchard_note_values(&self) -> Result<Vec<u64>, Self::Error> {
+    fn spendable_orchard_note_values(&self) -> Result<Vec<Zatoshis>, Self::Error> {
         let tip = self
             .wallet
             .chain_height()
@@ -45,20 +47,21 @@ where
             .wallet
             .select_unspent_notes(self.account, &[ShieldedPool::Orchard], target, &[])
             .map_err(|_| anyhow!("note selection failed"))?;
-        Ok(received
+        received
             .orchard()
             .iter()
-            .map(|rn| rn.note().value().inner())
-            .collect())
+            .map(|rn| {
+                Zatoshis::from_u64(rn.note().value().inner())
+                    .map_err(|e| anyhow!("note value out of range: {e}"))
+            })
+            .collect()
     }
 
-    fn chain_tip_height(&self) -> Result<u32, Self::Error> {
-        let tip = self
-            .wallet
+    fn chain_tip_height(&self) -> Result<BlockHeight, Self::Error> {
+        self.wallet
             .chain_height()
             .map_err(|_| anyhow!("wallet read failed"))?
-            .ok_or_else(|| anyhow!("wallet is not synced"))?;
-        Ok(u32::from(tip))
+            .ok_or_else(|| anyhow!("wallet is not synced"))
     }
 }
 
@@ -67,7 +70,7 @@ impl Command {
         let params = get_wallet_network(wallet_dir.as_ref())?;
         let (_, db_path) = get_db_paths(wallet_dir.as_ref());
         let mut conn = open_connection(&db_path)?;
-        let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
+        let wallet_db = WalletDb::from_connection(&mut conn, params.clone(), SystemClock, OsRng);
         let account = select_account(&wallet_db, self.account_id)?;
         let backend = PlanBackend {
             wallet: &wallet_db,
@@ -75,21 +78,20 @@ impl Command {
         };
 
         let mut rng = OsRng;
-        let plan = plan_migration(&backend, prep_fee_zatoshi(), &mut rng)
-            .map_err(|e| anyhow!("{e}"))?;
+        let plan = plan_migration(&params, &backend, &mut rng).map_err(|e| anyhow!("{e}"))?;
 
         println!("Note split:");
         println!("  Crossing values: {:?}", plan.note_split().crossing_values());
         println!(
             "  Note fee buffer: {} zatoshi/note",
-            plan.note_split().note_fee_buffer_zatoshi()
+            plan.note_split().note_fee_buffer().into_u64()
         );
         if let Some(change) = plan.note_split().change() {
-            println!("  Change (left in Orchard): {change} zatoshi");
+            println!("  Change (left in Orchard): {} zatoshi", change.into_u64());
         }
         println!("Funding notes ({}):", plan.funding_notes().len());
         for (i, value) in plan.funding_notes().iter().enumerate() {
-            println!("  [{i}] {value} zatoshi");
+            println!("  [{i}] {} zatoshi", value.into_u64());
         }
         println!(
             "Preparation: {} layer(s), {} transaction(s)",
