@@ -136,10 +136,24 @@ pub(crate) struct SendBatch {
     #[arg(long = "pczt", required = true, num_args = 1..)]
     pczts: Vec<PathBuf>,
 
-    /// The duration in milliseconds to wait between QR codes (default is 500)
+    /// The duration in milliseconds to wait between QR codes (default is 500). Ignored with
+    /// --out-file.
     #[arg(long)]
     #[arg(default_value_t = 500)]
     interval: u64,
+
+    /// Max bytes per UR fragment (default 100, matching `pczt to-qr`). No physical camera scans
+    /// this batch path, so a larger value trades QR error-tolerance for fewer frames -- useful
+    /// for a large batch, whose default-100-byte fragment count can run into the thousands.
+    #[arg(long)]
+    #[arg(default_value_t = 100)]
+    max_fragment_len: usize,
+
+    /// Instead of rendering an animated QR loop, write every sequential UR fragment to this
+    /// file, one per line, then exit -- the format the Keystone simulator's file-based QR input
+    /// (`ui_simulator/assets/qrcode_data.txt`) and `e2e/keystone_helper.py` expect.
+    #[arg(long)]
+    out_file: Option<PathBuf>,
 }
 
 impl SendBatch {
@@ -173,8 +187,27 @@ impl SendBatch {
         )
         .map_err(|e| anyhow!("Failed to encode batch packet: {:?}", e))?;
 
-        let mut encoder = ur::Encoder::new(&batch_packet, 100, ZCASH_SIGN_BATCH)
+        let mut encoder = ur::Encoder::new(&batch_packet, self.max_fragment_len, ZCASH_SIGN_BATCH)
             .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
+
+        if let Some(out_file) = &self.out_file {
+            let fragment_count = encoder.fragment_count();
+            let mut lines = Vec::with_capacity(fragment_count);
+            for _ in 0..fragment_count {
+                lines.push(
+                    encoder
+                        .next_part()
+                        .map_err(|e| anyhow!("Failed to encode batch part: {e}"))?,
+                );
+            }
+            std::fs::write(out_file, lines.join("\n") + "\n")
+                .map_err(|e| anyhow!("Failed to write {}: {e}", out_file.display()))?;
+            println!(
+                "Wrote {fragment_count} UR fragment(s) to {}",
+                out_file.display()
+            );
+            return Ok(());
+        }
 
         let mut stdout = stdout();
         let mut interval = tokio::time::interval(Duration::from_millis(self.interval));
