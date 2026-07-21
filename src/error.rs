@@ -9,7 +9,6 @@ use zcash_client_sqlite::{
 };
 use zcash_keys::keys::DerivationError;
 use zcash_primitives::transaction::fees::zip317;
-use zcash_protocol::value::BalanceError;
 use zip321::Zip321Error;
 
 pub(crate) type WalletErrorT = WalletError<
@@ -22,12 +21,12 @@ pub(crate) type WalletErrorT = WalletError<
 >;
 
 // `propose_send_max_transfer` returns `ProposeSendMaxErrT`, whose
-// input-selection error slot is `BalanceError` (not `GreedyInputSelectorError`
-// like the greedy `propose_transfer`/`propose_shielding` paths).
+// input-selection error slot is `GreedyInputSelectorError`, same as the
+// greedy `propose_transfer`/`propose_shielding` paths.
 pub(crate) type SendMaxErrorT = WalletError<
     SqliteClientError,
     commitment_tree::Error,
-    BalanceError,
+    GreedyInputSelectorError,
     zip317::FeeError,
     zip317::FeeError,
     ReceivedNoteId,

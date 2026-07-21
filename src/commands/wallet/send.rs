@@ -258,6 +258,8 @@ pub(crate) async fn pay<C: PaymentContext>(
             &SpendingKeys::from_unified_spending_key(usk),
             OvkPolicy::Sender,
             &proposal,
+            // Use the builder-derived expiry (no override).
+            None,
         )
         .map_err(error::Error::from)?;
 
