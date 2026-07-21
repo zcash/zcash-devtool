@@ -63,4 +63,13 @@ pub(crate) enum Command {
     #[cfg(feature = "pczt-qr")]
     /// Read a PCZT from an animated QR code via the webcam
     FromQr(qr::Receive),
+    #[cfg(feature = "pczt-qr")]
+    /// Read a batch signing result from an animated QR code via the webcam, and apply the
+    /// signatures to the original unsigned PCZTs (in the same order given to `to-qr-batch`)
+    FromQrBatch(qr::ReceiveBatch),
+    #[cfg(feature = "pczt-qr")]
+    /// Send a batch as an animated QR loop AND watch the camera for the signed response at the
+    /// same time, switching automatically once the device starts showing one -- combines
+    /// `to-qr-batch` and `from-qr-batch` into a single round trip with no manual restart
+    QrBatch(qr::RoundTripBatch),
 }

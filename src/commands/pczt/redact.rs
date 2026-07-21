@@ -52,6 +52,7 @@ fn redact_pczt<'a>(
         Some("transparent") => redact_transparent(r, key),
         Some("sapling") => redact_sapling(r, key),
         Some("orchard") => redact_orchard(r, key),
+        Some("ironwood") => redact_ironwood(r, key),
         Some(field) => Err(anyhow!("Unknown field '{}'", field)),
         None => Err(anyhow!("Empty field")),
     }
@@ -429,6 +430,140 @@ fn redact_orchard_spend<'a>(
                 Some(key) => actions.redact_spend_proprietary(key),
                 None => actions.clear_spend_proprietary(),
             }),
+        })),
+        Some(field) => Err(anyhow!("Unknown field '{}'", field)),
+        None => Err(anyhow!("Empty field")),
+    }
+}
+
+fn redact_ironwood<'a>(
+    r: Redactor,
+    mut key: impl Iterator<Item = &'a str>,
+) -> Result<Redactor, anyhow::Error> {
+    match key.next() {
+        Some("actions") => redact_ironwood_action(r, None, key),
+        Some("action") => match key.next() {
+            Some(index) => match index.parse() {
+                Ok(index) => redact_ironwood_action(r, Some(index), key),
+                Err(_) => Err(anyhow!("Invalid index '{index}'")),
+            },
+            None => Err(anyhow!("Missing index")),
+        },
+        Some(field @ ("flags" | "value_sum" | "anchor")) => {
+            Err(anyhow!("Cannot redact '{}'", field))
+        }
+        Some("zkproof") => Ok(r.redact_ironwood_with(|mut ironwood| ironwood.clear_zkproof())),
+        Some("bsk") => Ok(r.redact_ironwood_with(|mut ironwood| ironwood.clear_bsk())),
+        Some(field) => Err(anyhow!("Unknown field '{}'", field)),
+        None => Err(anyhow!("Empty field")),
+    }
+}
+
+fn redact_ironwood_action<'a>(
+    r: Redactor,
+    index: Option<usize>,
+    mut key: impl Iterator<Item = &'a str>,
+) -> Result<Redactor, anyhow::Error> {
+    fn redact<F>(r: Redactor, index: Option<usize>, f: F) -> Redactor
+    where
+        F: FnMut(ActionRedactor),
+    {
+        r.redact_ironwood_with(|mut ironwood| match index {
+            Some(index) => ironwood.redact_action(index, f),
+            None => ironwood.redact_actions(f),
+        })
+    }
+
+    match key.next() {
+        Some(field @ "cv_net") => Err(anyhow!("Cannot redact '{}'", field)),
+        Some("spend") => redact_ironwood_spend(r, index, key),
+        Some("output") => redact_ironwood_output(r, index, key),
+        Some("rcv") => Ok(redact(r, index, |mut action| action.clear_rcv())),
+        Some(field) => Err(anyhow!("Unknown field '{}'", field)),
+        None => Err(anyhow!("Empty field")),
+    }
+}
+
+fn redact_ironwood_spend<'a>(
+    r: Redactor,
+    index: Option<usize>,
+    mut key: impl Iterator<Item = &'a str>,
+) -> Result<Redactor, anyhow::Error> {
+    fn redact<F>(r: Redactor, index: Option<usize>, f: F) -> Redactor
+    where
+        F: FnMut(ActionRedactor),
+    {
+        r.redact_ironwood_with(|mut ironwood| match index {
+            Some(index) => ironwood.redact_action(index, f),
+            None => ironwood.redact_actions(f),
+        })
+    }
+
+    match key.next() {
+        Some(field @ ("nullifier" | "rk")) => Err(anyhow!("Cannot redact '{}'", field)),
+        Some("spend_auth_sig") => Ok(redact(r, index, |mut action| action.clear_spend_auth_sig())),
+        Some("recipient") => Ok(redact(r, index, |mut action| {
+            action.clear_spend_recipient()
+        })),
+        Some("value") => Ok(redact(r, index, |mut action| action.clear_spend_value())),
+        Some("rho") => Ok(redact(r, index, |mut action| action.clear_spend_rho())),
+        Some("rseed") => Ok(redact(r, index, |mut action| action.clear_spend_rseed())),
+        Some("fvk") => Ok(redact(r, index, |mut action| action.clear_spend_fvk())),
+        Some("witness") => Ok(redact(r, index, |mut action| action.clear_spend_witness())),
+        Some("alpha") => Ok(redact(r, index, |mut action| action.clear_spend_alpha())),
+        Some("zip32_derivation") => Ok(redact(r, index, |mut action| {
+            action.clear_spend_zip32_derivation()
+        })),
+        Some("dummy_sk") => Ok(redact(r, index, |mut action| action.clear_spend_dummy_sk())),
+        Some("proprietary") => Ok(r.redact_ironwood_with(|mut ironwood| match index {
+            Some(index) => ironwood.redact_action(index, |mut action| match key.next() {
+                Some(key) => action.redact_spend_proprietary(key),
+                None => action.clear_spend_proprietary(),
+            }),
+            None => ironwood.redact_actions(|mut actions| match key.next() {
+                Some(key) => actions.redact_spend_proprietary(key),
+                None => actions.clear_spend_proprietary(),
+            }),
+        })),
+        Some(field) => Err(anyhow!("Unknown field '{}'", field)),
+        None => Err(anyhow!("Empty field")),
+    }
+}
+
+fn redact_ironwood_output<'a>(
+    r: Redactor,
+    index: Option<usize>,
+    mut key: impl Iterator<Item = &'a str>,
+) -> Result<Redactor, anyhow::Error> {
+    fn redact<F>(r: Redactor, index: Option<usize>, f: F) -> Redactor
+    where
+        F: FnMut(ActionRedactor),
+    {
+        r.redact_ironwood_with(|mut ironwood| match index {
+            Some(index) => ironwood.redact_action(index, f),
+            None => ironwood.redact_actions(f),
+        })
+    }
+
+    match key.next() {
+        Some(field @ ("cmx" | "ephemeral_key" | "enc_ciphertext" | "out_ciphertext")) => {
+            Err(anyhow!("Cannot redact '{}'", field))
+        }
+        Some("recipient") => Ok(redact(r, index, |mut action| {
+            action.clear_output_recipient()
+        })),
+        Some("value") => Ok(redact(r, index, |mut action| action.clear_output_value())),
+        Some("rseed") => Ok(redact(r, index, |mut action| action.clear_output_rseed())),
+        Some("ock") => Ok(redact(r, index, |mut action| action.clear_output_ock())),
+        Some("zip32_derivation") => Ok(redact(r, index, |mut action| {
+            action.clear_output_zip32_derivation()
+        })),
+        Some("user_address") => Ok(redact(r, index, |mut action| {
+            action.clear_output_user_address()
+        })),
+        Some("proprietary") => Ok(redact(r, index, |mut action| match key.next() {
+            Some(key) => action.redact_output_proprietary(key),
+            None => action.clear_output_proprietary(),
         })),
         Some(field) => Err(anyhow!("Unknown field '{}'", field)),
         None => Err(anyhow!("Empty field")),
