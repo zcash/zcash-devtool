@@ -58,6 +58,9 @@ pub(crate) enum Command {
     /// Render a PCZT as an animated QR code
     ToQr(qr::Send),
     #[cfg(feature = "pczt-qr")]
+    /// Render multiple PCZTs as a single batch, animated QR code (Keystone's batch signing)
+    ToQrBatch(qr::SendBatch),
+    #[cfg(feature = "pczt-qr")]
     /// Read a PCZT from an animated QR code via the webcam
     FromQr(qr::Receive),
 }

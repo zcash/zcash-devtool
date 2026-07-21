@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -10,7 +11,10 @@ use nokhwa::{
     utils::{RequestedFormat, RequestedFormatType, Resolution},
 };
 use pczt::Pczt;
+use pczt::roles::signer::batch::BatchSignRequest;
 use qrcode::{QrCode, render::unicode};
+use rand::RngCore;
+use rand::rngs::OsRng;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, Stdout, stdin, stdout};
 
 use crate::ShutdownListener;
@@ -23,6 +27,11 @@ mod tui;
 
 const ZCASH_PCZT: &str = "zcash-pczt";
 const UR_ZCASH_PCZT: &str = "ur:zcash-pczt";
+
+/// Matches `valargroup/keystone-sdk-rust`'s `ur_registry::zcash::zcash_sign_batch::ZCASH_SIGN_BATCH`
+/// registry type (`"zcash-sign-batch"`, CBOR tag 49205) -- the UR type Keystone firmware's batch
+/// PCZT signing (`check_zcash_batch_tx_cypherpunk`) already decodes.
+const ZCASH_SIGN_BATCH: &str = "zcash-sign-batch";
 
 // Options accepted for the `pczt to-qr` command
 #[cfg(feature = "pczt-qr")]
@@ -114,6 +123,82 @@ impl Send {
 
             #[cfg(not(feature = "tui"))]
             render_cli(&mut stdout, ur).await?;
+        }
+    }
+}
+
+// Options accepted for the `pczt to-qr-batch` command
+#[cfg(feature = "pczt-qr")]
+#[derive(Debug, Args)]
+pub(crate) struct SendBatch {
+    /// Path to a PCZT file. Repeat, or pass multiple paths (e.g. a shell glob), to include
+    /// multiple PCZTs in the batch.
+    #[arg(long = "pczt", required = true, num_args = 1..)]
+    pczts: Vec<PathBuf>,
+
+    /// The duration in milliseconds to wait between QR codes (default is 500)
+    #[arg(long)]
+    #[arg(default_value_t = 500)]
+    interval: u64,
+}
+
+impl SendBatch {
+    pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
+        let mut pczts = Vec::with_capacity(self.pczts.len());
+        for path in &self.pczts {
+            let bytes = std::fs::read(path)
+                .map_err(|e| anyhow!("Failed to read {}: {e}", path.display()))?;
+            let pczt = Pczt::parse(&bytes)
+                .map_err(|e| anyhow!("Failed to parse {}: {:?}", path.display(), e))?;
+            pczts.push(pczt);
+        }
+        println!("Batching {} PCZT(s)", pczts.len());
+
+        let data = BatchSignRequest::new(pczts)
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize batch: {:?}", e))?;
+
+        // Correlates this request with the device's `zcash-batch-sig-result` response; this tool
+        // doesn't consume the response, so a fresh random id is all that's needed.
+        let mut request_id = [0u8; 16];
+        OsRng.fill_bytes(&mut request_id);
+
+        let mut batch_packet = vec![];
+        minicbor::encode(
+            &ZcashSignBatch {
+                data,
+                request_id: request_id.to_vec(),
+            },
+            &mut batch_packet,
+        )
+        .map_err(|e| anyhow!("Failed to encode batch packet: {:?}", e))?;
+
+        let mut encoder = ur::Encoder::new(&batch_packet, 100, ZCASH_SIGN_BATCH)
+            .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
+
+        let mut stdout = stdout();
+        let mut interval = tokio::time::interval(Duration::from_millis(self.interval));
+        loop {
+            interval.tick().await;
+
+            if shutdown.requested() {
+                return Ok(());
+            }
+
+            let ur = encoder
+                .next_part()
+                .map_err(|e| anyhow!("Failed to encode batch part: {e}"))?;
+            let code = QrCode::new(ur.to_ascii_uppercase())?;
+            let string = code
+                .render::<unicode::Dense1x2>()
+                .dark_color(unicode::Dense1x2::Light)
+                .light_color(unicode::Dense1x2::Dark)
+                .quiet_zone(true)
+                .build();
+
+            stdout.write_all(format!("{string}\n").as_bytes()).await?;
+            stdout.write_all(format!("{ur}\n\n\n\n").as_bytes()).await?;
+            stdout.flush().await?;
         }
     }
 }
@@ -260,6 +345,32 @@ impl<'b, C> minicbor::Decode<'b, C> for ZcashPczt {
             Ok(())
         })?;
         Ok(result)
+    }
+}
+
+const BATCH_REQUEST_ID: u8 = 2;
+
+/// Mirrors `ur_registry::zcash::zcash_sign_batch::ZcashSignBatch`'s CBOR shape exactly (map keys
+/// `1` = data, `2` = request id) rather than depending on the `ur-registry` crate, matching this
+/// file's existing `ZcashPczt`/`keystone.rs`'s `ZcashAccounts` pattern of small local structs for
+/// each UR type devtool produces.
+struct ZcashSignBatch {
+    /// The serialized `pczt::roles::signer::batch::BatchSignRequest` -- an opaque, versioned
+    /// payload the PCZT crate owns; this wrapper only adds the UR envelope and request id.
+    data: Vec<u8>,
+    request_id: Vec<u8>,
+}
+
+impl<C> minicbor::Encode<C> for ZcashSignBatch {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        _ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.map(2)?;
+        e.int(Int::from(DATA))?.bytes(&self.data)?;
+        e.int(Int::from(BATCH_REQUEST_ID))?.bytes(&self.request_id)?;
+        Ok(())
     }
 }
 

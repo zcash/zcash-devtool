@@ -1,3 +1,5 @@
+use std::fs;
+
 use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
@@ -7,12 +9,10 @@ use uuid::Uuid;
 use zcash_client_backend::data_api::{Account as _, WalletRead};
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::keys::UnifiedSpendingKey;
-use zcash_pool_migration_backend::engine::{commit_preparation, plan_migration};
+use zcash_pool_migration_backend::engine::{build_preparation_unsigned, commit_preparation, plan_migration};
 use zcash_pool_migration_backend::wallet::WalletMigration;
 
-use crate::{
-    commands::select_account, config::WalletConfig, data::get_db_paths,
-};
+use crate::{commands::select_account, config::WalletConfig, data::get_db_paths};
 
 use super::store::{InMemoryStore, load_migration, open_connection, persist_migration, prep_fee_zatoshi};
 
@@ -25,6 +25,12 @@ pub(crate) struct Command {
     /// age identity file to decrypt the mnemonic phrase with
     #[arg(short, long)]
     identity: String,
+
+    /// Build the preparation for an EXTERNAL signer (e.g. Keystone) instead of signing
+    /// in-process: leaves the transactions unsigned in the persisted state, and additionally
+    /// writes each one to `<wallet-dir>/unsigned-pczts/<id>.pczt` for `pczt to-qr-batch`.
+    #[arg(long)]
+    external: bool,
 }
 
 impl Command {
@@ -78,8 +84,16 @@ impl Command {
             plan.preparation().transaction_count(),
         );
 
-        let state = commit_preparation(&params, target_height, &mut migration, &plan, &mut rng)
-            .map_err(|e| anyhow!("{e}"))?;
+        let (state, unsigned) = if self.external {
+            let (state, unsigned) =
+                build_preparation_unsigned(&params, target_height, &mut migration, &plan, &mut rng)
+                    .map_err(|e| anyhow!("{e}"))?;
+            (state, unsigned)
+        } else {
+            let state = commit_preparation(&params, target_height, &mut migration, &plan, &mut rng)
+                .map_err(|e| anyhow!("{e}"))?;
+            (state, Vec::new())
+        };
 
         drop(wallet_db);
         persist_migration(&mut conn, &state)?;
@@ -89,6 +103,24 @@ impl Command {
             state.status.as_ref(),
             state.transactions.len()
         );
+
+        if self.external {
+            let out_dir = db_path
+                .parent()
+                .ok_or_else(|| anyhow!("wallet database path has no parent directory"))?
+                .join("unsigned-pczts");
+            fs::create_dir_all(&out_dir)?;
+            println!("{} unsigned PCZT(s) for external signing:", unsigned.len());
+            for tx in &unsigned {
+                let path = out_dir.join(format!("{}.pczt", tx.id.0));
+                fs::write(&path, &tx.pczt)?;
+                println!("  {}", path.display());
+            }
+            println!(
+                "Batch-QR them with: pczt to-qr-batch --pczt {}/*.pczt",
+                out_dir.display()
+            );
+        }
 
         Ok(())
     }

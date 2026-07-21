@@ -227,6 +227,8 @@ fn main() -> Result<(), anyhow::Error> {
                         .await
                 }
                 #[cfg(feature = "pczt-qr")]
+                commands::pczt::Command::ToQrBatch(command) => command.run(shutdown).await,
+                #[cfg(feature = "pczt-qr")]
                 commands::pczt::Command::FromQr(command) => command.run(shutdown).await,
             },
             Command::Migration(commands::Migration {
