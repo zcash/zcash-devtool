@@ -21,6 +21,12 @@ pub(crate) struct InMemoryStore {
     state: Option<MigrationState>,
 }
 
+impl From<MigrationState> for InMemoryStore {
+    fn from(state: MigrationState) -> Self {
+        Self { state: Some(state) }
+    }
+}
+
 impl PoolMigrationRead for InMemoryStore {
     type Error = Infallible;
 

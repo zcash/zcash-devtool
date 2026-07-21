@@ -236,6 +236,7 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::migration::Command::Plan(command) => command.run(wallet_dir),
                 commands::migration::Command::Commit(command) => command.run(wallet_dir),
                 commands::migration::Command::Status(command) => command.run(wallet_dir),
+                commands::migration::Command::Advance(command) => command.run(wallet_dir),
             },
             #[cfg(feature = "pczt-qr")]
             Command::Keystone(commands::Keystone {
