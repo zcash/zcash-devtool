@@ -12,7 +12,10 @@ use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::keys::UnifiedAddressRequest;
 use zcash_primitives::transaction::TxVersion;
 
-use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths, remote::ConnectionArgs};
+use crate::{
+    commands::select_account, config::get_wallet_network, data::get_db_paths,
+    remote::ConnectionArgs,
+};
 
 use super::send::{PaymentContext, pay};
 

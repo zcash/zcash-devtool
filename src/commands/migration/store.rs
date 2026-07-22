@@ -71,7 +71,10 @@ pub(crate) fn load_migration(conn: &mut Connection) -> anyhow::Result<Option<Mig
 }
 
 /// Persists a migration to the real SQLite store over `conn`, replacing any existing one.
-pub(crate) fn persist_migration(conn: &mut Connection, state: &MigrationState) -> anyhow::Result<()> {
+pub(crate) fn persist_migration(
+    conn: &mut Connection,
+    state: &MigrationState,
+) -> anyhow::Result<()> {
     PoolMigrations::new(&mut *conn).replace_migration(state)?;
     Ok(())
 }

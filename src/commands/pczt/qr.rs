@@ -232,16 +232,14 @@ fn read_pczts(paths: &[PathBuf]) -> anyhow::Result<Vec<Pczt>> {
 }
 
 /// Serializes a [`BatchSignRequest`] and wraps it in the `zcash-sign-batch` CBOR envelope
-/// (with a fresh random request id), ready to hand to a `ur::Encoder`. Shared by `to-qr-batch`
-/// and `batch-sign`'s outgoing side.
-fn build_batch_request_packet(pczts: Vec<Pczt>) -> anyhow::Result<Vec<u8>> {
+/// (with a fresh random request id, also returned so the caller can verify a later response
+/// actually correlates to this request -- see [`decode_batch_sig_result`]), ready to hand to a
+/// `ur::Encoder`. Shared by `to-qr-batch` and `batch-sign`'s outgoing side.
+fn build_batch_request_packet(pczts: Vec<Pczt>) -> anyhow::Result<(Vec<u8>, [u8; 16])> {
     let data = BatchSignRequest::new(pczts)
         .serialize()
         .map_err(|e| anyhow!("Failed to serialize batch: {:?}", e))?;
 
-    // Correlates this request with the device's `zcash-batch-sig-result` response; this tool
-    // doesn't consume the response itself (the caller does, separately), so a fresh random id
-    // is all that's needed.
     let mut request_id = [0u8; 16];
     OsRng.fill_bytes(&mut request_id);
 
@@ -254,7 +252,7 @@ fn build_batch_request_packet(pczts: Vec<Pczt>) -> anyhow::Result<Vec<u8>> {
         &mut batch_packet,
     )
     .map_err(|e| anyhow!("Failed to encode batch packet: {:?}", e))?;
-    Ok(batch_packet)
+    Ok((batch_packet, request_id))
 }
 
 /// Renders one animated-QR-loop frame: the QR image (as unicode block art) followed by the raw
@@ -275,7 +273,9 @@ impl SendBatch {
         let pczts = maybe_redact_batch(read_pczts(&self.pczts)?, self.redact);
         println!("Batching {} PCZT(s)", pczts.len());
 
-        let batch_packet = build_batch_request_packet(pczts)?;
+        // `to-qr-batch` never scans for a response itself, so it has no use for the request id
+        // beyond what's already embedded in the outgoing packet.
+        let (batch_packet, _request_id) = build_batch_request_packet(pczts)?;
         let mut encoder = ur::Encoder::new(&batch_packet, self.max_fragment_len, ZCASH_SIGN_BATCH)
             .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
 
@@ -428,7 +428,9 @@ impl ReceiveBatch {
             ScanOutcome::ShutdownRequested => return Ok(()),
         };
 
-        let response = decode_batch_sig_result(&result_packet)?;
+        // No expected request id to check against -- `from-qr-batch` is a standalone command
+        // that never saw the original `to-qr-batch` invocation's request id.
+        let response = decode_batch_sig_result(&result_packet, None)?;
         apply_batch_signatures_and_write(&self.pczts, pczts, &response, self.out_suffix.as_deref())
     }
 }
@@ -490,7 +492,7 @@ impl BatchSign {
         let outgoing_pczts = maybe_redact_batch(original_pczts.clone(), self.redact);
         println!("Sending batch of {} PCZT(s)", outgoing_pczts.len());
 
-        let batch_packet = build_batch_request_packet(outgoing_pczts)?;
+        let (batch_packet, request_id) = build_batch_request_packet(outgoing_pczts)?;
         let mut send_encoder =
             ur::Encoder::new(&batch_packet, self.max_fragment_len, ZCASH_SIGN_BATCH)
                 .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
@@ -545,7 +547,9 @@ impl BatchSign {
             ScanOutcome::ShutdownRequested => return Ok(()),
         };
 
-        let response = decode_batch_sig_result(&result_packet)?;
+        // Same process sent and is now scanning, so it always has the request id to check the
+        // response actually correlates to this batch, not a stale/unrelated one.
+        let response = decode_batch_sig_result(&result_packet, Some(&request_id))?;
         apply_batch_signatures_and_write(
             &self.pczts,
             original_pczts,
@@ -558,7 +562,19 @@ impl BatchSign {
 /// Decodes a `zcash-batch-sig-result` message into its [`BatchSignResponse`], printing the
 /// signing device's firmware version and the response's request id along the way. Shared by
 /// `from-qr-batch` and `batch-sign`'s scan phase.
-fn decode_batch_sig_result(result_packet: &[u8]) -> anyhow::Result<BatchSignResponse> {
+///
+/// With `expected_request_id`, verifies the response's id matches the request this batch was
+/// actually sent with -- the `pczt` crate's own doc comment on `BatchSignRequest`/
+/// `BatchSignResponse` is explicit that "request and response correlation is the responsibility
+/// of the application transport," i.e. this tool, not the crate. `batch-sign` sends and scans in
+/// the same run, so it always has the id to check. `from-qr-batch` is a standalone command that
+/// never saw the original request (that id only ever existed in the sender's process and the
+/// QR code itself, not persisted anywhere a separate `from-qr-batch` invocation could read it),
+/// so it passes `None` and skips the check -- there's nothing to compare against.
+fn decode_batch_sig_result(
+    result_packet: &[u8],
+    expected_request_id: Option<&[u8]>,
+) -> anyhow::Result<BatchSignResponse> {
     let result = minicbor::decode::<'_, ZcashBatchSigResult>(result_packet)
         .map_err(|e| anyhow!("Failed to decode batch sig result packet: {:?}", e))?;
 
@@ -569,6 +585,17 @@ fn decode_batch_sig_result(result_packet: &[u8]) -> anyhow::Result<BatchSignResp
         result.firmware_version[2],
         hex::encode(&result.request_id),
     );
+
+    if let Some(expected) = expected_request_id {
+        if result.request_id != expected {
+            return Err(anyhow!(
+                "Response request id {} does not match the request id {} this batch was sent \
+                 with -- this response may belong to a different, unrelated batch request",
+                hex::encode(&result.request_id),
+                hex::encode(expected),
+            ));
+        }
+    }
 
     BatchSignResponse::parse(&result.data)
         .map_err(|e| anyhow!("Failed to parse batch sign response: {:?}", e))
@@ -800,9 +827,15 @@ async fn select_camera<'a>(
             eprintln!("{}: {}", i, camera.human_name());
         }
         eprint!("Select a camera: ");
-        cameras
-            .get(usize::from(stdin().read_u8().await?) - 48)
-            .ok_or(anyhow!("Invalid camera"))
+        // `read_u8` reads a single raw byte, not a parsed number -- any non-ASCII-digit byte
+        // (including a bare Enter, which sends '\n' = 10) must be rejected before subtracting
+        // b'0', since the subtraction would otherwise underflow (panics in debug, wraps to a
+        // huge bogus index in release).
+        let byte = stdin().read_u8().await?;
+        let index = (byte as char)
+            .to_digit(10)
+            .ok_or_else(|| anyhow!("Invalid camera selection: expected a single digit"))?;
+        cameras.get(index as usize).ok_or(anyhow!("Invalid camera"))
     } else {
         cameras.first().ok_or(anyhow!("No camera"))
     }
