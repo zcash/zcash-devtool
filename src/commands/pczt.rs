@@ -68,8 +68,7 @@ pub(crate) enum Command {
     /// signatures to the original unsigned PCZTs (in the same order given to `to-qr-batch`)
     FromQrBatch(qr::ReceiveBatch),
     #[cfg(feature = "pczt-qr")]
-    /// Send a batch as an animated QR loop AND watch the camera for the signed response at the
-    /// same time, switching automatically once the device starts showing one -- combines
-    /// `to-qr-batch` and `from-qr-batch` into a single round trip with no manual restart
-    QrBatch(qr::RoundTripBatch),
+    /// Combines `to-qr-batch` and `from-qr-batch` into one round trip: shows the outgoing batch
+    /// QR, then -- once you press Enter -- opens the camera and scans for the signed response
+    BatchSign(qr::BatchSign),
 }

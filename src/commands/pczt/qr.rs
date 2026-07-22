@@ -103,18 +103,8 @@ impl Send {
                 .map_err(|e| anyhow!("Failed to encode PCZT part: {e}"))?;
 
             async fn render_cli(stdout: &mut Stdout, ur: String) -> anyhow::Result<()> {
-                let code = QrCode::new(ur.to_ascii_uppercase())?;
-                let string = code
-                    .render::<unicode::Dense1x2>()
-                    .dark_color(unicode::Dense1x2::Light)
-                    .light_color(unicode::Dense1x2::Dark)
-                    .quiet_zone(true)
-                    .build();
-
-                stdout.write_all(format!("{string}\n").as_bytes()).await?;
-                stdout.write_all(format!("{ur}\n\n\n\n").as_bytes()).await?;
+                stdout.write_all(render_qr_frame(&ur)?.as_bytes()).await?;
                 stdout.flush().await?;
-
                 Ok(())
             }
 
@@ -162,16 +152,16 @@ pub(crate) struct SendBatch {
     #[arg(long)]
     out_file: Option<PathBuf>,
 
-    /// Skip the batch-signer redaction (clearing spend_auth_sig/output_ock/
+    /// Redact the batch-signer fields (clears spend_auth_sig/output_ock/
     /// output_zip32_derivation/output_user_address from every Orchard and Ironwood action)
-    /// normally applied before batching.
-    /// A freshly-built PCZT's dummy padding actions already carry a self-signed
-    /// spend_auth_sig (correct PCZT behavior -- the wallet is the only party that ever holds
-    /// their throwaway keys), and Keystone firmware rejects any batch member with a
-    /// pre-existing spend_auth_sig outright, real or dummy. Only pass this to reproduce that
-    /// rejection or otherwise inspect the raw, unredacted wire bytes.
+    /// before batching. Required for Keystone: a freshly-built PCZT's dummy padding actions
+    /// already carry a self-signed spend_auth_sig (correct PCZT behavior -- the wallet is the
+    /// only party that ever holds their throwaway keys), and Keystone firmware rejects any
+    /// batch member with a pre-existing spend_auth_sig outright, real or dummy. Off by default
+    /// since this is a destructive, Keystone-specific transform, not something every batch
+    /// consumer wants -- pass it explicitly when Keystone is the target.
     #[arg(long)]
-    no_redact: bool,
+    redact: bool,
 }
 
 /// Clears every Orchard and Ironwood action's `spend_auth_sig`, output `ock`, output
@@ -196,9 +186,9 @@ pub(crate) struct SendBatch {
 /// inputs belong to the provided account").
 ///
 /// The caller keeps the original, unredacted PCZT (whose dummy `spend_auth_sig`s are still
-/// intact) for the post-signing combine -- see `ReceiveBatch::run`, which applies the
-/// device's returned real-spend signatures onto the original files, not the redacted copies
-/// sent over the wire.
+/// intact) for the post-signing combine -- see `apply_batch_signatures_and_write`, which
+/// applies the device's returned real-spend signatures onto the original files, not the
+/// redacted copies sent over the wire.
 fn redact_for_batch_signer(pczt: Pczt) -> Pczt {
     use pczt::roles::redactor::Redactor;
 
@@ -218,42 +208,74 @@ fn redact_for_batch_signer(pczt: Pczt) -> Pczt {
         .finish()
 }
 
-impl SendBatch {
-    pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
-        let mut pczts = Vec::with_capacity(self.pczts.len());
-        for path in &self.pczts {
+/// Applies [`redact_for_batch_signer`] to every PCZT when `redact` is set, otherwise passes
+/// them through unchanged. Shared by `to-qr-batch` and `batch-sign`'s outgoing side.
+fn maybe_redact_batch(pczts: Vec<Pczt>, redact: bool) -> Vec<Pczt> {
+    if redact {
+        pczts.into_iter().map(redact_for_batch_signer).collect()
+    } else {
+        pczts
+    }
+}
+
+/// Reads and parses every `--pczt` path given, in order. Shared by every command that takes a
+/// batch of PCZT files.
+fn read_pczts(paths: &[PathBuf]) -> anyhow::Result<Vec<Pczt>> {
+    paths
+        .iter()
+        .map(|path| {
             let bytes = std::fs::read(path)
                 .map_err(|e| anyhow!("Failed to read {}: {e}", path.display()))?;
-            let pczt = Pczt::parse(&bytes)
-                .map_err(|e| anyhow!("Failed to parse {}: {:?}", path.display(), e))?;
-            let pczt = if self.no_redact {
-                pczt
-            } else {
-                redact_for_batch_signer(pczt)
-            };
-            pczts.push(pczt);
-        }
+            Pczt::parse(&bytes).map_err(|e| anyhow!("Failed to parse {}: {:?}", path.display(), e))
+        })
+        .collect()
+}
+
+/// Serializes a [`BatchSignRequest`] and wraps it in the `zcash-sign-batch` CBOR envelope
+/// (with a fresh random request id), ready to hand to a `ur::Encoder`. Shared by `to-qr-batch`
+/// and `batch-sign`'s outgoing side.
+fn build_batch_request_packet(pczts: Vec<Pczt>) -> anyhow::Result<Vec<u8>> {
+    let data = BatchSignRequest::new(pczts)
+        .serialize()
+        .map_err(|e| anyhow!("Failed to serialize batch: {:?}", e))?;
+
+    // Correlates this request with the device's `zcash-batch-sig-result` response; this tool
+    // doesn't consume the response itself (the caller does, separately), so a fresh random id
+    // is all that's needed.
+    let mut request_id = [0u8; 16];
+    OsRng.fill_bytes(&mut request_id);
+
+    let mut batch_packet = vec![];
+    minicbor::encode(
+        &ZcashSignBatch {
+            data,
+            request_id: request_id.to_vec(),
+        },
+        &mut batch_packet,
+    )
+    .map_err(|e| anyhow!("Failed to encode batch packet: {:?}", e))?;
+    Ok(batch_packet)
+}
+
+/// Renders one animated-QR-loop frame: the QR image (as unicode block art) followed by the raw
+/// UR text, ready to print. Shared by `to-qr`, `to-qr-batch`, and `batch-sign`'s outgoing side.
+fn render_qr_frame(ur: &str) -> anyhow::Result<String> {
+    let code = QrCode::new(ur.to_ascii_uppercase())?;
+    let string = code
+        .render::<unicode::Dense1x2>()
+        .dark_color(unicode::Dense1x2::Light)
+        .light_color(unicode::Dense1x2::Dark)
+        .quiet_zone(true)
+        .build();
+    Ok(format!("{string}\n{ur}\n\n\n\n"))
+}
+
+impl SendBatch {
+    pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
+        let pczts = maybe_redact_batch(read_pczts(&self.pczts)?, self.redact);
         println!("Batching {} PCZT(s)", pczts.len());
 
-        let data = BatchSignRequest::new(pczts)
-            .serialize()
-            .map_err(|e| anyhow!("Failed to serialize batch: {:?}", e))?;
-
-        // Correlates this request with the device's `zcash-batch-sig-result` response; this tool
-        // doesn't consume the response, so a fresh random id is all that's needed.
-        let mut request_id = [0u8; 16];
-        OsRng.fill_bytes(&mut request_id);
-
-        let mut batch_packet = vec![];
-        minicbor::encode(
-            &ZcashSignBatch {
-                data,
-                request_id: request_id.to_vec(),
-            },
-            &mut batch_packet,
-        )
-        .map_err(|e| anyhow!("Failed to encode batch packet: {:?}", e))?;
-
+        let batch_packet = build_batch_request_packet(pczts)?;
         let mut encoder = ur::Encoder::new(&batch_packet, self.max_fragment_len, ZCASH_SIGN_BATCH)
             .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
 
@@ -288,16 +310,7 @@ impl SendBatch {
             let ur = encoder
                 .next_part()
                 .map_err(|e| anyhow!("Failed to encode batch part: {e}"))?;
-            let code = QrCode::new(ur.to_ascii_uppercase())?;
-            let string = code
-                .render::<unicode::Dense1x2>()
-                .dark_color(unicode::Dense1x2::Light)
-                .light_color(unicode::Dense1x2::Dark)
-                .quiet_zone(true)
-                .build();
-
-            stdout.write_all(format!("{string}\n").as_bytes()).await?;
-            stdout.write_all(format!("{ur}\n\n\n\n").as_bytes()).await?;
+            stdout.write_all(render_qr_frame(&ur)?.as_bytes()).await?;
             stdout.flush().await?;
         }
     }
@@ -327,82 +340,23 @@ pub(crate) struct Receive {
 
 impl Receive {
     pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
-        nokhwa_initialize(|_| ());
-        if !nokhwa_check() {
-            return Err(anyhow!("Failed to obtain macOS camera permissions"));
-        }
-
-        let cameras = nokhwa::query(nokhwa::utils::ApiBackend::Auto)?;
-        let camera = select_camera(&cameras, self.camera.as_deref()).await?;
-
-        eprintln!("Creating camera");
-        let mut camera = Camera::new(camera.index().clone(), scan_camera_format())?;
-
-        eprintln!("Opening camera stream");
-        camera
-            .open_stream()
-            .map_err(|e| anyhow!("Could not open camera stream: {e}"))?;
+        let mut camera = open_scan_camera(self.camera.as_deref()).await?;
 
         eprintln!("Starting detection loop");
-        let mut decoder = ur::Decoder::default();
-        let mut interval = tokio::time::interval(Duration::from_millis(self.interval));
-        let mut progress = ScanProgress::default();
-
-        while !decoder.complete() {
-            interval.tick().await;
-
-            if shutdown.requested() {
-                camera.stop_stream()?;
-                return Ok(());
-            }
-
-            let frame = camera.frame()?;
-            // Doesn't work in nokhwa 0.10: https://github.com/l1npengtul/nokhwa/issues/100
-            // let decoded = frame.decode_image::<RgbFormat>()?;
-            let decoded = convert_buffer_to_image(frame)?;
-            let mut detected = false;
-
-            let mut detect_grids = |mut img: rqrr::PreparedImage<
-                image::ImageBuffer<image::Luma<u8>, Vec<u8>>,
-            >|
-             -> anyhow::Result<()> {
-                let grids = img.detect_grids();
-                if let Some(grid) = grids.first() {
-                    detected = true;
-                    let (_, content) = grid.decode()?;
-                    let content = content.to_ascii_lowercase();
-                    if content.starts_with(UR_ZCASH_PCZT) {
-                        progress.record(&content);
-                        decoder
-                            .receive(&content)
-                            .map_err(|e| anyhow!("Failed to parse QR code: {:?}", e))?;
-                    } else {
-                        progress.last_status = format!("Unexpected UR type: {content}");
-                    }
-                }
-                Ok(())
-            };
-
-            let result = detect_grids(rqrr::PreparedImage::prepare(decoded.convert()));
-            if let Err(e) = &result {
-                progress.last_status = format!("Error while detecting grids: {e}");
-            }
-
-            if self.no_preview {
-                if let Err(e) = result {
-                    eprintln!("{e}");
-                }
-            } else {
-                render_preview(&decoded, detected, &progress);
-            }
-        }
-
+        let outcome = scan_for_ur(
+            &mut camera,
+            UR_ZCASH_PCZT,
+            self.interval,
+            self.no_preview,
+            &mut shutdown,
+        )
+        .await?;
         camera.stop_stream()?;
 
-        let pczt_packet = decoder
-            .message()
-            .map_err(|e| anyhow!("Failed to extract full message from QR codes: {:?}", e))?
-            .expect("complete");
+        let pczt_packet = match outcome {
+            ScanOutcome::Complete(bytes) => bytes,
+            ScanOutcome::ShutdownRequested => return Ok(()),
+        };
 
         let pczt = Pczt::parse(
             &minicbor::decode::<'_, ZcashPczt>(&pczt_packet)
@@ -455,150 +409,34 @@ pub(crate) struct ReceiveBatch {
 
 impl ReceiveBatch {
     pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
-        let mut pczts = Vec::with_capacity(self.pczts.len());
-        for path in &self.pczts {
-            let bytes = std::fs::read(path)
-                .map_err(|e| anyhow!("Failed to read {}: {e}", path.display()))?;
-            let pczt = Pczt::parse(&bytes)
-                .map_err(|e| anyhow!("Failed to parse {}: {:?}", path.display(), e))?;
-            pczts.push(pczt);
-        }
-
-        nokhwa_initialize(|_| ());
-        if !nokhwa_check() {
-            return Err(anyhow!("Failed to obtain macOS camera permissions"));
-        }
-
-        let cameras = nokhwa::query(nokhwa::utils::ApiBackend::Auto)?;
-        let camera = select_camera(&cameras, self.camera.as_deref()).await?;
-
-        eprintln!("Creating camera");
-        let mut camera = Camera::new(camera.index().clone(), scan_camera_format())?;
-
-        eprintln!("Opening camera stream");
-        camera
-            .open_stream()
-            .map_err(|e| anyhow!("Could not open camera stream: {e}"))?;
+        let pczts = read_pczts(&self.pczts)?;
+        let mut camera = open_scan_camera(self.camera.as_deref()).await?;
 
         eprintln!("Starting detection loop");
-        let mut decoder = ur::Decoder::default();
-        let mut interval = tokio::time::interval(Duration::from_millis(self.interval));
-        let mut progress = ScanProgress::default();
-
-        while !decoder.complete() {
-            interval.tick().await;
-
-            if shutdown.requested() {
-                camera.stop_stream()?;
-                return Ok(());
-            }
-
-            let frame = camera.frame()?;
-            let decoded = convert_buffer_to_image(frame)?;
-            let mut detected = false;
-
-            let mut detect_grids = |mut img: rqrr::PreparedImage<
-                image::ImageBuffer<image::Luma<u8>, Vec<u8>>,
-            >|
-             -> anyhow::Result<()> {
-                let grids = img.detect_grids();
-                if let Some(grid) = grids.first() {
-                    detected = true;
-                    let (_, content) = grid.decode()?;
-                    let content = content.to_ascii_lowercase();
-                    if content.starts_with(UR_ZCASH_BATCH_SIG_RESULT) {
-                        progress.record(&content);
-                        decoder
-                            .receive(&content)
-                            .map_err(|e| anyhow!("Failed to parse QR code: {:?}", e))?;
-                    } else {
-                        progress.last_status = format!("Unexpected UR type: {content}");
-                    }
-                }
-                Ok(())
-            };
-
-            let result = detect_grids(rqrr::PreparedImage::prepare(decoded.convert()));
-            if let Err(e) = &result {
-                progress.last_status = format!("Error while detecting grids: {e}");
-            }
-
-            if self.no_preview {
-                if let Err(e) = result {
-                    eprintln!("{e}");
-                }
-            } else {
-                render_preview(&decoded, detected, &progress);
-            }
-        }
-
+        let outcome = scan_for_ur(
+            &mut camera,
+            UR_ZCASH_BATCH_SIG_RESULT,
+            self.interval,
+            self.no_preview,
+            &mut shutdown,
+        )
+        .await?;
         camera.stop_stream()?;
 
-        let result_packet = decoder
-            .message()
-            .map_err(|e| anyhow!("Failed to extract full message from QR codes: {:?}", e))?
-            .expect("complete");
+        let result_packet = match outcome {
+            ScanOutcome::Complete(bytes) => bytes,
+            ScanOutcome::ShutdownRequested => return Ok(()),
+        };
 
-        let result = minicbor::decode::<'_, ZcashBatchSigResult>(&result_packet)
-            .map_err(|e| anyhow!("Failed to decode batch sig result packet: {:?}", e))?;
-
-        println!(
-            "Batch signing result from firmware {}.{}.{}, request id {}",
-            result.firmware_version[0],
-            result.firmware_version[1],
-            result.firmware_version[2],
-            hex::encode(&result.request_id),
-        );
-
-        let response = BatchSignResponse::parse(&result.data)
-            .map_err(|e| anyhow!("Failed to parse batch sign response: {:?}", e))?;
-
-        if response.signatures().len() != pczts.len() {
-            return Err(anyhow!(
-                "Batch sign response has {} PCZT('s) worth of signatures, but {} --pczt file(s) \
-                 were given -- pass the SAME files, in the SAME order, given to `to-qr-batch`",
-                response.signatures().len(),
-                pczts.len()
-            ));
-        }
-
-        for ((path, pczt), signatures) in self
-            .pczts
-            .iter()
-            .zip(pczts)
-            .zip(response.signatures().iter())
-        {
-            let mut signer = Signer::new(pczt)
-                .map_err(|e| anyhow!("Failed to load {}: {:?}", path.display(), e))?;
-            for signature in signatures {
-                signer
-                    .apply_orchard_spend_auth_signature(signature)
-                    .map_err(|e| {
-                        anyhow!("Failed to apply signature to {}: {:?}", path.display(), e)
-                    })?;
-            }
-            let signed = signer.finish();
-            let signed_bytes = signed
-                .serialize()
-                .map_err(|e| anyhow!("Failed to serialize signed {}: {:?}", path.display(), e))?;
-
-            let out_path = match &self.out_suffix {
-                Some(suffix) => PathBuf::from(format!("{}{suffix}", path.display())),
-                None => path.clone(),
-            };
-            std::fs::write(&out_path, &signed_bytes)
-                .map_err(|e| anyhow!("Failed to write {}: {e}", out_path.display()))?;
-            println!("  wrote signed PCZT to {}", out_path.display());
-        }
-
-        Ok(())
+        let response = decode_batch_sig_result(&result_packet)?;
+        apply_batch_signatures_and_write(&self.pczts, pczts, &response, self.out_suffix.as_deref())
     }
 }
 
-// Options accepted for the `pczt qr-batch` command
+// Options accepted for the `pczt batch-sign` command
 #[cfg(feature = "pczt-qr")]
 #[derive(Debug, Args)]
-pub(crate) struct RoundTripBatch {
+pub(crate) struct BatchSign {
     /// Path to an unsigned PCZT file to include in the batch. Repeat, or pass multiple paths
     /// (e.g. a shell glob), to include multiple PCZTs. Each file is overwritten with its signed
     /// PCZT once the device's response is decoded, unless --out-suffix is given.
@@ -620,9 +458,9 @@ pub(crate) struct RoundTripBatch {
     #[arg(default_value_t = 100)]
     max_fragment_len: usize,
 
-    /// Skip the batch-signer redaction on the outgoing batch. See `to-qr-batch --no-redact`.
+    /// Redact the outgoing batch before sending. See `to-qr-batch --redact`.
     #[arg(long)]
-    no_redact: bool,
+    redact: bool,
 
     /// Don't render a live terminal preview of the camera feed once scanning starts.
     #[arg(long)]
@@ -634,7 +472,7 @@ pub(crate) struct RoundTripBatch {
     camera: Option<String>,
 }
 
-impl RoundTripBatch {
+impl BatchSign {
     /// Shows the outgoing batch QR loop first, with no camera opened at all, then -- once you
     /// press Enter -- opens the camera and switches straight into scanning for the signed
     /// response. One command for the whole round trip instead of `to-qr-batch` stopped by hand
@@ -648,42 +486,11 @@ impl RoundTripBatch {
     /// needlessly holds the camera the whole time you're still just showing the outgoing loop.
     /// Enter is the deliberate handoff instead of a guess.
     pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
-        let mut original_pczts = Vec::with_capacity(self.pczts.len());
-        for path in &self.pczts {
-            let bytes = std::fs::read(path)
-                .map_err(|e| anyhow!("Failed to read {}: {e}", path.display()))?;
-            let pczt = Pczt::parse(&bytes)
-                .map_err(|e| anyhow!("Failed to parse {}: {:?}", path.display(), e))?;
-            original_pczts.push(pczt);
-        }
-
-        let outgoing_pczts: Vec<Pczt> = original_pczts
-            .iter()
-            .cloned()
-            .map(|pczt| {
-                if self.no_redact {
-                    pczt
-                } else {
-                    redact_for_batch_signer(pczt)
-                }
-            })
-            .collect();
+        let original_pczts = read_pczts(&self.pczts)?;
+        let outgoing_pczts = maybe_redact_batch(original_pczts.clone(), self.redact);
         println!("Sending batch of {} PCZT(s)", outgoing_pczts.len());
 
-        let request_data = BatchSignRequest::new(outgoing_pczts)
-            .serialize()
-            .map_err(|e| anyhow!("Failed to serialize batch: {:?}", e))?;
-        let mut request_id = [0u8; 16];
-        OsRng.fill_bytes(&mut request_id);
-        let mut batch_packet = vec![];
-        minicbor::encode(
-            &ZcashSignBatch {
-                data: request_data,
-                request_id: request_id.to_vec(),
-            },
-            &mut batch_packet,
-        )
-        .map_err(|e| anyhow!("Failed to encode batch packet: {:?}", e))?;
+        let batch_packet = build_batch_request_packet(outgoing_pczts)?;
         let mut send_encoder =
             ur::Encoder::new(&batch_packet, self.max_fragment_len, ZCASH_SIGN_BATCH)
                 .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
@@ -712,14 +519,7 @@ impl RoundTripBatch {
                     let ur = send_encoder
                         .next_part()
                         .map_err(|e| anyhow!("Failed to encode batch part: {e}"))?;
-                    let code = QrCode::new(ur.to_ascii_uppercase())?;
-                    let string = code
-                        .render::<unicode::Dense1x2>()
-                        .dark_color(unicode::Dense1x2::Light)
-                        .light_color(unicode::Dense1x2::Dark)
-                        .quiet_zone(true)
-                        .build();
-                    print!("{string}\n{ur}\n\n\n\n");
+                    print!("{}", render_qr_frame(&ur)?);
                 }
                 _ = &mut ready_rx => {
                     break;
@@ -727,134 +527,94 @@ impl RoundTripBatch {
             }
         }
 
-        nokhwa_initialize(|_| ());
-        if !nokhwa_check() {
-            return Err(anyhow!("Failed to obtain macOS camera permissions"));
-        }
-        let cameras = nokhwa::query(nokhwa::utils::ApiBackend::Auto)?;
-        let camera = select_camera(&cameras, self.camera.as_deref()).await?;
-
-        eprintln!("Creating camera");
-        let mut camera = Camera::new(camera.index().clone(), scan_camera_format())?;
-
-        eprintln!("Opening camera stream");
-        camera
-            .open_stream()
-            .map_err(|e| anyhow!("Could not open camera stream: {e}"))?;
+        let mut camera = open_scan_camera(self.camera.as_deref()).await?;
 
         eprintln!("Starting detection loop");
-        let mut decoder = ur::Decoder::default();
-        let mut progress = ScanProgress::default();
-        let mut interval = tokio::time::interval(Duration::from_millis(self.interval));
-
-        while !decoder.complete() {
-            interval.tick().await;
-
-            if shutdown.requested() {
-                camera.stop_stream()?;
-                return Ok(());
-            }
-
-            let frame = camera.frame()?;
-            let decoded = convert_buffer_to_image(frame)?;
-            let mut detected = false;
-
-            let mut detect_grids = |mut img: rqrr::PreparedImage<
-                image::ImageBuffer<image::Luma<u8>, Vec<u8>>,
-            >|
-             -> anyhow::Result<()> {
-                let grids = img.detect_grids();
-                if let Some(grid) = grids.first() {
-                    detected = true;
-                    let (_, content) = grid.decode()?;
-                    let content = content.to_ascii_lowercase();
-                    if content.starts_with(UR_ZCASH_BATCH_SIG_RESULT) {
-                        progress.record(&content);
-                        decoder
-                            .receive(&content)
-                            .map_err(|e| anyhow!("Failed to parse QR code: {:?}", e))?;
-                    } else {
-                        progress.last_status = format!("Unexpected UR type: {content}");
-                    }
-                }
-                Ok(())
-            };
-
-            let result = detect_grids(rqrr::PreparedImage::prepare(decoded.convert()));
-            if let Err(e) = &result {
-                progress.last_status = format!("Error while detecting grids: {e}");
-            }
-
-            if self.no_preview {
-                if let Err(e) = result {
-                    eprintln!("{e}");
-                }
-            } else {
-                render_preview(&decoded, detected, &progress);
-            }
-        }
-
+        let outcome = scan_for_ur(
+            &mut camera,
+            UR_ZCASH_BATCH_SIG_RESULT,
+            self.interval,
+            self.no_preview,
+            &mut shutdown,
+        )
+        .await?;
         camera.stop_stream()?;
 
-        let result_packet = decoder
-            .message()
-            .map_err(|e| anyhow!("Failed to extract full message from QR codes: {:?}", e))?
-            .expect("complete");
+        let result_packet = match outcome {
+            ScanOutcome::Complete(bytes) => bytes,
+            ScanOutcome::ShutdownRequested => return Ok(()),
+        };
 
-        let result = minicbor::decode::<'_, ZcashBatchSigResult>(&result_packet)
-            .map_err(|e| anyhow!("Failed to decode batch sig result packet: {:?}", e))?;
-
-        println!(
-            "Batch signing result from firmware {}.{}.{}, request id {}",
-            result.firmware_version[0],
-            result.firmware_version[1],
-            result.firmware_version[2],
-            hex::encode(&result.request_id),
-        );
-
-        let response = BatchSignResponse::parse(&result.data)
-            .map_err(|e| anyhow!("Failed to parse batch sign response: {:?}", e))?;
-
-        if response.signatures().len() != original_pczts.len() {
-            return Err(anyhow!(
-                "Batch sign response has {} PCZT('s) worth of signatures, but {} --pczt file(s) \
-                 were given",
-                response.signatures().len(),
-                original_pczts.len()
-            ));
-        }
-
-        for ((path, pczt), signatures) in self
-            .pczts
-            .iter()
-            .zip(original_pczts)
-            .zip(response.signatures().iter())
-        {
-            let mut signer = Signer::new(pczt)
-                .map_err(|e| anyhow!("Failed to load {}: {:?}", path.display(), e))?;
-            for signature in signatures {
-                signer
-                    .apply_orchard_spend_auth_signature(signature)
-                    .map_err(|e| {
-                        anyhow!("Failed to apply signature to {}: {:?}", path.display(), e)
-                    })?;
-            }
-            let signed = signer.finish();
-            let signed_bytes = signed
-                .serialize()
-                .map_err(|e| anyhow!("Failed to serialize signed {}: {:?}", path.display(), e))?;
-
-            let out_path = match &self.out_suffix {
-                Some(suffix) => PathBuf::from(format!("{}{suffix}", path.display())),
-                None => path.clone(),
-            };
-            std::fs::write(&out_path, &signed_bytes)
-                .map_err(|e| anyhow!("Failed to write {}: {e}", out_path.display()))?;
-            println!("  wrote signed PCZT to {}", out_path.display());
-        }
-
-        Ok(())
+        let response = decode_batch_sig_result(&result_packet)?;
+        apply_batch_signatures_and_write(
+            &self.pczts,
+            original_pczts,
+            &response,
+            self.out_suffix.as_deref(),
+        )
     }
+}
+
+/// Decodes a `zcash-batch-sig-result` message into its [`BatchSignResponse`], printing the
+/// signing device's firmware version and the response's request id along the way. Shared by
+/// `from-qr-batch` and `batch-sign`'s scan phase.
+fn decode_batch_sig_result(result_packet: &[u8]) -> anyhow::Result<BatchSignResponse> {
+    let result = minicbor::decode::<'_, ZcashBatchSigResult>(result_packet)
+        .map_err(|e| anyhow!("Failed to decode batch sig result packet: {:?}", e))?;
+
+    println!(
+        "Batch signing result from firmware {}.{}.{}, request id {}",
+        result.firmware_version[0],
+        result.firmware_version[1],
+        result.firmware_version[2],
+        hex::encode(&result.request_id),
+    );
+
+    BatchSignResponse::parse(&result.data)
+        .map_err(|e| anyhow!("Failed to parse batch sign response: {:?}", e))
+}
+
+/// Applies a [`BatchSignResponse`]'s signatures onto the original (unredacted) PCZTs, in the
+/// same order as `paths`, and writes each result out -- overwriting in place, or alongside with
+/// `out_suffix` appended to the filename. Shared by `from-qr-batch` and `batch-sign`.
+fn apply_batch_signatures_and_write(
+    paths: &[PathBuf],
+    pczts: Vec<Pczt>,
+    response: &BatchSignResponse,
+    out_suffix: Option<&str>,
+) -> anyhow::Result<()> {
+    if response.signatures().len() != pczts.len() {
+        return Err(anyhow!(
+            "Batch sign response has {} PCZT('s) worth of signatures, but {} --pczt file(s) \
+             were given -- pass the SAME files, in the SAME order, given when sending the batch",
+            response.signatures().len(),
+            pczts.len()
+        ));
+    }
+
+    for ((path, pczt), signatures) in paths.iter().zip(pczts).zip(response.signatures().iter()) {
+        let mut signer =
+            Signer::new(pczt).map_err(|e| anyhow!("Failed to load {}: {:?}", path.display(), e))?;
+        for signature in signatures {
+            signer
+                .apply_orchard_spend_auth_signature(signature)
+                .map_err(|e| anyhow!("Failed to apply signature to {}: {:?}", path.display(), e))?;
+        }
+        let signed = signer.finish();
+        let signed_bytes = signed
+            .serialize()
+            .map_err(|e| anyhow!("Failed to serialize signed {}: {:?}", path.display(), e))?;
+
+        let out_path = match out_suffix {
+            Some(suffix) => PathBuf::from(format!("{}{suffix}", path.display())),
+            None => path.clone(),
+        };
+        std::fs::write(&out_path, &signed_bytes)
+            .map_err(|e| anyhow!("Failed to write {}: {e}", out_path.display()))?;
+        println!("  wrote signed PCZT to {}", out_path.display());
+    }
+
+    Ok(())
 }
 
 const DATA: u8 = 1;
@@ -1048,6 +808,117 @@ async fn select_camera<'a>(
     }
 }
 
+/// Finds, opens, and starts streaming a camera in one call: permissions check, device query and
+/// selection (see [`select_camera`]), and stream startup. Shared by every command that scans a
+/// QR via the camera.
+async fn open_scan_camera(name_filter: Option<&str>) -> anyhow::Result<Camera> {
+    nokhwa_initialize(|_| ());
+    if !nokhwa_check() {
+        return Err(anyhow!("Failed to obtain macOS camera permissions"));
+    }
+
+    let cameras = nokhwa::query(nokhwa::utils::ApiBackend::Auto)?;
+    let camera = select_camera(&cameras, name_filter).await?;
+
+    eprintln!("Creating camera");
+    let mut camera = Camera::new(camera.index().clone(), scan_camera_format())?;
+
+    eprintln!("Opening camera stream");
+    camera
+        .open_stream()
+        .map_err(|e| anyhow!("Could not open camera stream: {e}"))?;
+
+    Ok(camera)
+}
+
+/// What [`scan_for_ur`] found once its loop ends: either the fully-reconstructed message, or
+/// notice that shutdown was requested mid-scan (the camera is left open; callers should stop it
+/// themselves before returning, same as they already do on every other early-return path).
+enum ScanOutcome {
+    Complete(Vec<u8>),
+    ShutdownRequested,
+}
+
+/// Reads camera frames on a fixed interval, looking for a multi-part UR whose text starts with
+/// `expected_ur_type`, until the full message is reconstructed. Renders the live terminal
+/// preview (or, with `no_preview`, nothing but error lines) each tick. Shared by `from-qr`,
+/// `from-qr-batch`, and `batch-sign`'s scan phase -- the only thing that differs between them is
+/// which UR type they're waiting for and what they do with the bytes once complete.
+async fn scan_for_ur(
+    camera: &mut Camera,
+    expected_ur_type: &str,
+    interval_ms: u64,
+    no_preview: bool,
+    shutdown: &mut ShutdownListener,
+) -> anyhow::Result<ScanOutcome> {
+    let mut decoder = ur::Decoder::default();
+    let mut progress = ScanProgress::default();
+    let mut interval = tokio::time::interval(Duration::from_millis(interval_ms));
+
+    while !decoder.complete() {
+        interval.tick().await;
+
+        if shutdown.requested() {
+            return Ok(ScanOutcome::ShutdownRequested);
+        }
+
+        let frame = camera.frame()?;
+        let decoded = convert_buffer_to_image(frame)?;
+
+        let detected_result = detect_qr(&decoded);
+        let detected = matches!(detected_result, Ok((true, _)));
+
+        match &detected_result {
+            Ok((_, Some(content))) if content.starts_with(expected_ur_type) => {
+                progress.record(content);
+                decoder
+                    .receive(content)
+                    .map_err(|e| anyhow!("Failed to parse QR code: {:?}", e))?;
+            }
+            Ok((_, Some(content))) => {
+                progress.last_status = format!("Unexpected UR type: {content}");
+            }
+            Ok((_, None)) => {}
+            Err(e) => {
+                progress.last_status = format!("Error while detecting grids: {e}");
+            }
+        }
+
+        if no_preview {
+            if let Err(e) = &detected_result {
+                eprintln!("{e}");
+            }
+        } else {
+            render_preview(&decoded, detected, &progress);
+        }
+    }
+
+    Ok(ScanOutcome::Complete(
+        decoder
+            .message()
+            .map_err(|e| anyhow!("Failed to extract full message from QR codes: {:?}", e))?
+            .expect("complete"),
+    ))
+}
+
+/// Tries to find and decode a single QR code in a captured camera frame. `Ok((true, Some(_)))`
+/// means a grid was found and decoded; `Ok((false, None))` means no grid was found this frame
+/// (normal -- most ticks won't have one, e.g. while a device is still on a review screen);
+/// `Err` means a grid was found but failed to decode (a corrupted/partial read). Shared by
+/// `from-qr`, `from-qr-batch`, and `batch-sign`'s scan phase.
+fn detect_qr(
+    img: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
+) -> anyhow::Result<(bool, Option<String>)> {
+    let mut prepared = rqrr::PreparedImage::prepare(img.convert());
+    match prepared.detect_grids().first() {
+        Some(grid) => {
+            let (_, content) = grid.decode()?;
+            Ok((true, Some(content.to_ascii_lowercase())))
+        }
+        None => Ok((false, None)),
+    }
+}
+
 /// Tracks how a QR scan is progressing across ticks, for live terminal feedback: how many
 /// distinct fountain-code parts have been seen versus the total the sender announced (parsed
 /// straight out of each frame's own `ur:<type>/<seq>-<total>/...` text, since neither `ur::Decoder`
@@ -1189,4 +1060,103 @@ fn yuv_to_rgb(y: f32, u: f32, v: f32) -> image::Rgb<u8> {
     let b = y + 1.8556 * (u - 128.0);
 
     image::Rgb([r as u8, g as u8, b as u8])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_ur_sequence_parses_valid_multi_part_ur() {
+        assert_eq!(
+            parse_ur_sequence("ur:zcash-sign-batch/1-619/lpadcfaojecfwnnecys"),
+            Some((1, 619))
+        );
+        assert_eq!(
+            parse_ur_sequence("ur:zcash-batch-sig-result/42-42/payload"),
+            Some((42, 42))
+        );
+    }
+
+    #[test]
+    fn parse_ur_sequence_allows_seq_past_total_for_fountain_tail_parts() {
+        // Fountain-code parts beyond the first full pass reuse the seq field for a combined
+        // part index, which can legitimately exceed the announced total.
+        assert_eq!(
+            parse_ur_sequence("ur:zcash-pczt/650-619/data"),
+            Some((650, 619))
+        );
+    }
+
+    #[test]
+    fn parse_ur_sequence_rejects_malformed_input() {
+        assert_eq!(parse_ur_sequence(""), None);
+        assert_eq!(parse_ur_sequence("not-a-ur-at-all"), None);
+        assert_eq!(parse_ur_sequence("ur:zcash-pczt"), None); // no sequence segment
+        assert_eq!(parse_ur_sequence("ur:zcash-pczt/nope/data"), None); // no '-'
+        assert_eq!(parse_ur_sequence("ur:zcash-pczt/one-two/data"), None); // non-numeric
+    }
+
+    #[test]
+    fn scan_progress_tracks_unique_parts_and_total() {
+        let mut progress = ScanProgress::default();
+        progress.record("ur:zcash-pczt/1-3/aaa");
+        progress.record("ur:zcash-pczt/2-3/bbb");
+        progress.record("ur:zcash-pczt/1-3/aaa"); // duplicate frame, e.g. re-scanned
+
+        assert_eq!(progress.total_parts, Some(3));
+        assert_eq!(progress.seen_parts.len(), 2);
+        assert_eq!(progress.frames_seen, 3); // every recorded frame counts, dup or not
+        assert_eq!(progress.last_status, "received part 1/3");
+    }
+
+    #[test]
+    fn scan_progress_handles_content_with_no_sequence_info() {
+        let mut progress = ScanProgress::default();
+        progress.record("ur:zcash-pczt");
+
+        assert_eq!(progress.total_parts, None);
+        assert!(progress.seen_parts.is_empty());
+        assert_eq!(progress.last_status, "received part (no sequence info)");
+    }
+
+    /// Smoke test for `redact_for_batch_signer`: an empty PCZT (no Orchard/Ironwood actions,
+    /// via the same `Creator`-only construction the `pczt` crate's own batch-signing tests use)
+    /// should redact and round-trip without error. This only exercises the plumbing -- it can't
+    /// assert field-level clearing on real actions without a fixture PCZT with actual dummy
+    /// spends, which needs the full note-construction pipeline to produce. Field-level
+    /// correctness (spend_auth_sig cleared, fvk retained) is verified against real migration
+    /// PCZTs and real Keystone hardware output; see keystone-batch-migration-testing-plan.md.
+    #[test]
+    fn redact_for_batch_signer_round_trips_an_empty_pczt() {
+        use pczt::roles::creator::Creator;
+        use zcash_protocol::consensus::BranchId;
+
+        let pczt = Creator::new(BranchId::Nu6_3.into(), 3_000_000, 133, None, None)
+            .expect("valid consensus branch id")
+            .build()
+            .expect("empty PCZT builds");
+
+        let redacted = redact_for_batch_signer(pczt);
+        redacted.serialize().expect("redacted PCZT serializes");
+    }
+
+    #[test]
+    fn maybe_redact_batch_is_a_no_op_when_not_requested() {
+        use pczt::roles::creator::Creator;
+        use zcash_protocol::consensus::BranchId;
+
+        let pczt = Creator::new(BranchId::Nu6_3.into(), 3_000_000, 133, None, None)
+            .expect("valid consensus branch id")
+            .build()
+            .expect("empty PCZT builds");
+        let original_bytes = pczt.clone().serialize().expect("serializes");
+
+        let passed_through = maybe_redact_batch(vec![pczt], false);
+        assert_eq!(passed_through.len(), 1);
+        assert_eq!(
+            passed_through[0].clone().serialize().expect("serializes"),
+            original_bytes
+        );
+    }
 }

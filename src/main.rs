@@ -233,7 +233,7 @@ fn main() -> Result<(), anyhow::Error> {
                 #[cfg(feature = "pczt-qr")]
                 commands::pczt::Command::FromQrBatch(command) => command.run(shutdown).await,
                 #[cfg(feature = "pczt-qr")]
-                commands::pczt::Command::QrBatch(command) => command.run(shutdown).await,
+                commands::pczt::Command::BatchSign(command) => command.run(shutdown).await,
             },
             Command::Migration(commands::Migration {
                 wallet_dir,

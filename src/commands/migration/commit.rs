@@ -48,14 +48,18 @@ impl Command {
             .decrypt_seed(identities.iter().map(|i| i.as_ref() as _))?
             .ok_or_else(|| anyhow!("Seed must be present to commit a migration"))?;
 
-        let wallet_db = WalletDb::from_connection(&mut conn, params.clone(), SystemClock, OsRng);
+        let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
         let account = select_account(&wallet_db, self.account_id)?;
         let derivation = account
             .source()
             .key_derivation()
             .ok_or_else(|| anyhow!("Cannot commit a migration for a view-only account"))?;
-        let usk = UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), derivation.account_index())
-            .map_err(|e| anyhow!("{e:?}"))?;
+        let usk = UnifiedSpendingKey::from_seed(
+            &params,
+            seed.expose_secret(),
+            derivation.account_index(),
+        )
+        .map_err(|e| anyhow!("{e:?}"))?;
 
         let target_height = wallet_db
             .chain_height()

@@ -70,7 +70,7 @@ impl Command {
         let params = get_wallet_network(wallet_dir.as_ref())?;
         let (_, db_path) = get_db_paths(wallet_dir.as_ref());
         let mut conn = open_connection(&db_path)?;
-        let wallet_db = WalletDb::from_connection(&mut conn, params.clone(), SystemClock, OsRng);
+        let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
         let account = select_account(&wallet_db, self.account_id)?;
         let backend = PlanBackend {
             wallet: &wallet_db,
@@ -81,7 +81,10 @@ impl Command {
         let plan = plan_migration(&params, &backend, &mut rng).map_err(|e| anyhow!("{e}"))?;
 
         println!("Note split:");
-        println!("  Crossing values: {:?}", plan.note_split().crossing_values());
+        println!(
+            "  Crossing values: {:?}",
+            plan.note_split().crossing_values()
+        );
         println!(
             "  Note fee buffer: {} zatoshi/note",
             plan.note_split().note_fee_buffer().into_u64()
