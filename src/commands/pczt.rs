@@ -7,6 +7,7 @@ pub(crate) mod create_max;
 pub(crate) mod extract;
 pub(crate) mod inspect;
 pub(crate) mod pay_manual;
+pub(crate) mod plan_batches;
 pub(crate) mod prove;
 pub(crate) mod redact;
 pub(crate) mod send;
@@ -38,6 +39,9 @@ pub(crate) enum Command {
     UpdateWithDerivation(update_with_derivation::Command),
     /// Redact a PCZT
     Redact(redact::Command),
+    /// Plan already-built unsigned PCZTs into Keystone-sized signing rounds by total action
+    /// count, and print ready-to-run to-qr-batch/from-qr-batch commands for each round
+    PlanBatches(plan_batches::Command),
     /// Create proofs for a PCZT
     Prove(prove::Command),
     /// Apply signatures to a PCZT

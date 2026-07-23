@@ -207,6 +207,7 @@ fn main() -> Result<(), anyhow::Error> {
                     command.run(wallet_dir).await
                 }
                 commands::pczt::Command::Redact(command) => command.run().await,
+                commands::pczt::Command::PlanBatches(command) => command.run(),
                 commands::pczt::Command::Prove(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Sign(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::UpdateWithSignature(command) => command.run().await,
