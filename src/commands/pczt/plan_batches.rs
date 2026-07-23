@@ -19,10 +19,15 @@ pub(crate) struct Command {
     #[arg(long)]
     action_budget: usize,
 
-    /// Include `--redact` in the printed `to-qr-batch` commands (needed for real Keystone
+    /// Include `--redact` in the printed `batch-sign` commands (needed for real Keystone
     /// hardware; see `pczt to-qr-batch --help`)
     #[arg(long)]
     redact: bool,
+
+    /// Include `--camera <substring>` in the printed `batch-sign` commands, to skip the
+    /// interactive camera picker every round (e.g. "iphone" for a Continuity Camera phone)
+    #[arg(long)]
+    camera: Option<String>,
 }
 
 impl Command {
@@ -81,6 +86,10 @@ impl Command {
         );
 
         let redact_flag = if self.redact { " --redact" } else { "" };
+        let camera_flag = match &self.camera {
+            Some(camera) => format!(" --camera {camera}"),
+            None => String::new(),
+        };
         for (i, round) in rounds.iter().enumerate() {
             let round_actions: usize = round.iter().map(|(_, a)| a).sum();
             println!(
@@ -92,8 +101,11 @@ impl Command {
                 .map(|(path, _)| path.display().to_string())
                 .collect::<Vec<_>>()
                 .join(" ");
-            println!("pczt to-qr-batch{redact_flag} --pczt {files}");
-            println!("pczt from-qr-batch --pczt {files}\n");
+            // One combined send-then-scan command per round: shows the outgoing QR with no
+            // camera opened, then -- once you press Enter, once you're ready to flip the camera
+            // around and point it at the device -- switches straight into scanning for the
+            // signed response. See `pczt batch-sign --help`.
+            println!("pczt batch-sign{redact_flag}{camera_flag} --pczt {files}\n");
         }
 
         Ok(())
