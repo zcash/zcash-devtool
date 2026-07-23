@@ -41,7 +41,15 @@ impl Command {
         let params = config.network();
         let (_, db_path) = get_db_paths(wallet_dir.as_ref());
         let mut conn = open_connection(&db_path)?;
-        let loaded = load_migration(&mut conn)?;
+
+        // `PoolMigrations` is account-scoped now, so the account must be resolved before loading
+        // -- in its own scope, since `WalletDb::from_connection` and a direct `&conn` borrow for
+        // `load_migration` can't both be alive at once.
+        let account_id = {
+            let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
+            select_account(&wallet_db, self.account_id)?.id()
+        };
+        let loaded = load_migration(&conn, account_id)?;
 
         let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
         let seed = config
@@ -96,7 +104,7 @@ impl Command {
             (state, Vec::new())
         };
 
-        persist_migration(&mut conn, &state)?;
+        persist_migration(&mut conn, account.id(), &state)?;
 
         println!(
             "Migration committed: status={}, {} transaction(s) recorded",

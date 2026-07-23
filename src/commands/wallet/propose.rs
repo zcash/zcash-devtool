@@ -89,6 +89,7 @@ impl Command {
             // transparent UTXOs; they must be shielded first.
             &SpendPolicy::default(),
             None,
+            None,
         )
         .map_err(error::Error::from)?;
 

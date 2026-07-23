@@ -1,19 +1,23 @@
 use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
+use uuid::Uuid;
 
-use zcash_client_backend::data_api::WalletRead;
+use zcash_client_backend::data_api::{Account as _, WalletRead};
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_pool_migration_backend::engine::{MigrationTxKind, MigrationTxState};
 use zcash_pool_migration_backend::state::{AdvanceStep, Blocker};
 
-use crate::{config::get_wallet_network, data::get_db_paths};
+use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths};
 
 use super::store::{load_migration, open_connection};
 
 /// Options accepted for the `migration status` command.
 #[derive(Debug, Args)]
-pub(crate) struct Command {}
+pub(crate) struct Command {
+    /// The UUID of the account whose migration to report on
+    account_id: Option<Uuid>,
+}
 
 impl Command {
     pub(crate) fn run(self, wallet_dir: Option<String>) -> anyhow::Result<()> {
@@ -21,7 +25,15 @@ impl Command {
         let (_, db_path) = get_db_paths(wallet_dir.as_ref());
         let mut conn = open_connection(&db_path)?;
 
-        let Some(state) = load_migration(&mut conn)? else {
+        // `PoolMigrations` is account-scoped now, so the account must be resolved before loading
+        // -- in its own scope, since `WalletDb::from_connection` and a direct `&conn` borrow for
+        // `load_migration` can't both be alive at once.
+        let account_id = {
+            let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
+            select_account(&wallet_db, self.account_id)?.id()
+        };
+
+        let Some(state) = load_migration(&conn, account_id)? else {
             println!("No migration in progress.");
             return Ok(());
         };
@@ -59,7 +71,9 @@ impl Command {
             let blocker = match tx.blocked_on() {
                 Some(Blocker::Dependencies) => " [blocked: dependencies]",
                 Some(Blocker::Schedule) => " [blocked: schedule]",
+                Some(Blocker::AnchorBoundary) => " [blocked: anchor boundary not yet settled]",
                 Some(Blocker::Signature) => " [blocked: awaiting external signature]",
+                Some(Blocker::Expired) => " [blocked: expired, needs rebuild]",
                 None => "",
             };
             println!(
@@ -70,9 +84,21 @@ impl Command {
         }
 
         match state.next_step(target_height) {
+            AdvanceStep::Prove { id } => {
+                println!(
+                    "Next: prove transaction {} (`migration advance`)",
+                    u32::from(id)
+                )
+            }
             AdvanceStep::Broadcast { id } => {
                 println!(
-                    "Next: prove and broadcast transaction {} (`migration advance`)",
+                    "Next: broadcast transaction {} (`migration advance`)",
+                    u32::from(id)
+                )
+            }
+            AdvanceStep::Rebuild { id } => {
+                println!(
+                    "Next: rebuild expired transfer {} (`migration advance`)",
                     u32::from(id)
                 )
             }

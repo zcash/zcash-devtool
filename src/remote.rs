@@ -172,7 +172,9 @@ impl Server<'_> {
 
         info!("Connecting to {} over Tor", self);
         let endpoint = self.endpoint().try_into()?;
-        Ok(tor.connect_to_lightwalletd(endpoint).await?)
+        // This tool's own use_tls()/endpoint() already special-case .onion hosts (see above), so
+        // Tor connections here may legitimately target one; preserve that by allowing them.
+        Ok(tor.connect_to_lightwalletd(endpoint, true).await?)
     }
 
     /// Connects to the server over Tor, unless it is running on localhost without HTTPS.

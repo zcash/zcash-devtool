@@ -236,6 +236,7 @@ pub(crate) async fn pay<C: PaymentContext>(
         // Preserve the pre-upgrade behavior: transfers never spend
         // transparent UTXOs; they must be shielded first.
         &SpendPolicy::default(),
+        None,
         context.tx_version(),
     )
     .map_err(error::Error::from)?;

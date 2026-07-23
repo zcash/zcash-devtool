@@ -3,10 +3,11 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
+use zcash_client_sqlite::AccountUuid;
+use zcash_client_sqlite::pool_migration::orchard_ironwood::PoolMigrations;
 use zcash_pool_migration_backend::engine::{
     MigrationState, MigrationTxId, MigrationTxState, PoolMigrationRead, PoolMigrationWrite,
 };
-use zcash_pool_migration_sqlite::orchard_ironwood::PoolMigrations;
 
 /// A throwaway in-memory `PoolMigrationRead`/`Write`, used only for the duration of one engine
 /// call. `WalletDb::from_connection` (for the engine's wallet access) and `PoolMigrations` (the
@@ -43,12 +44,15 @@ impl PoolMigrationWrite for InMemoryStore {
 
     fn update_transaction(
         &mut self,
-        id: MigrationTxId,
-        tx_state: MigrationTxState,
+        _id: MigrationTxId,
+        _tx_state: MigrationTxState,
     ) -> Result<(), Self::Error> {
-        if let Some(state) = &mut self.state {
-            state.set_transaction_state(id, tx_state);
-        }
+        // The engine only ever drives this store through `replace_migration` with the whole
+        // updated state (checked directly against zcash_pool_migration_backend::engine -- every
+        // internal call site persists via `replace_migration`, never `update_transaction`; the
+        // latter exists on the trait only for a real store's finer-grained persistence, e.g.
+        // zcash_client_sqlite's PoolMigrations). This store is a scratch mirror for the duration
+        // of one engine call, so there is nothing to do here.
         Ok(())
     }
 }
@@ -56,25 +60,34 @@ impl PoolMigrationWrite for InMemoryStore {
 /// Opens the wallet's SQLite connection directly (not via `WalletDb::for_path`), so migration
 /// commands can construct both a `WalletDb` view (for the engine) and a `PoolMigrations` view
 /// (for persistence) over the same connection, sequentially -- never both at once, avoiding an
-/// overlapping-borrow conflict. Ensures the migration tables exist; idempotent, and normally a
-/// no-op since `zcash_client_sqlite`'s own schema migration already created them.
+/// overlapping-borrow conflict. The migration tables are created by `zcash_client_sqlite`'s own
+/// schema migrations now (`orchard_ironwood_migration_tables`), so nothing extra needs to run
+/// here -- the caller is expected to have already opened/migrated the wallet DB through the
+/// normal `WalletDb` path before reaching for this connection.
 pub(crate) fn open_connection(db_path: &Path) -> anyhow::Result<Connection> {
     let conn = Connection::open(db_path)?;
     rusqlite::vtab::array::load_module(&conn)?;
-    zcash_pool_migration_sqlite::orchard_ironwood::init_migration_tables(&conn)?;
     Ok(conn)
 }
 
-/// Loads the persisted migration from the real SQLite store over `conn`.
-pub(crate) fn load_migration(conn: &mut Connection) -> anyhow::Result<Option<MigrationState>> {
-    Ok(PoolMigrations::new(&mut *conn).get_migration()?)
+/// Loads the persisted migration from the real SQLite store over `conn`, scoped to `account`.
+/// `PoolMigrations` is now account-scoped (it resolves `account` to its `accounts` row up front),
+/// so the caller must know the account before it can load a migration -- unlike before this pin,
+/// when the store had no notion of which account it belonged to.
+pub(crate) fn load_migration(
+    conn: &Connection,
+    account: AccountUuid,
+) -> anyhow::Result<Option<MigrationState>> {
+    Ok(PoolMigrations::for_account(conn, account)?.get_migration()?)
 }
 
-/// Persists a migration to the real SQLite store over `conn`, replacing any existing one.
+/// Persists a migration to the real SQLite store over `conn`, scoped to `account`, replacing any
+/// existing one.
 pub(crate) fn persist_migration(
     conn: &mut Connection,
+    account: AccountUuid,
     state: &MigrationState,
 ) -> anyhow::Result<()> {
-    PoolMigrations::new(&mut *conn).replace_migration(state)?;
+    PoolMigrations::for_account(&mut *conn, account)?.replace_migration(state)?;
     Ok(())
 }

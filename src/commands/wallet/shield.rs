@@ -147,6 +147,7 @@ impl Command {
             account.id(),
             confirmations_policy,
             CoinbaseFilter::AllTransparentOutputs,
+            None,
         )
         .map_err(error::Error::Shield)?;
 

@@ -3,7 +3,10 @@ use clap::Args;
 use rand::rngs::OsRng;
 use uuid::Uuid;
 
-use zcash_client_backend::data_api::{Account as _, InputSource, WalletRead, wallet::TargetHeight};
+use zcash_client_backend::data_api::{
+    Account as _, InputSource, WalletRead, wallet::TargetHeight,
+    wallet::input_selection::LockFilter,
+};
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_pool_migration_backend::engine::{MigrationBackend, plan_migration};
 use zcash_protocol::ShieldedPool;
@@ -45,7 +48,13 @@ where
         let target = TargetHeight::from(u32::from(tip) + 1);
         let received = self
             .wallet
-            .select_unspent_notes(self.account, &[ShieldedPool::Orchard], target, &[])
+            .select_unspent_notes(
+                self.account,
+                &[ShieldedPool::Orchard],
+                target,
+                &[],
+                LockFilter::Unfiltered,
+            )
             .map_err(|_| anyhow!("note selection failed"))?;
         received
             .orchard()
