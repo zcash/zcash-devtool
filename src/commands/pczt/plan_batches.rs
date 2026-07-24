@@ -28,6 +28,21 @@ pub(crate) struct Command {
     /// interactive camera picker every round (e.g. "iphone" for a Continuity Camera phone)
     #[arg(long)]
     camera: Option<String>,
+
+    /// Include `--max-fragment-len <N>` in the printed `batch-sign` commands. `to-qr-batch`'s
+    /// own default (100) is far more conservative than other Zcash/Keystone integrations --
+    /// Vizor uses 140, zodl-ios's production signing flow uses KeystoneSDK's own default of
+    /// 400 -- so the default here is slower than it needs to be. Not raised automatically since
+    /// this tool renders the QR as terminal Unicode block characters (coarser than a native
+    /// app's pixel-perfect image), so a value proven fine on a phone screen may still need
+    /// checking here before trusting it on real hardware.
+    #[arg(long)]
+    max_fragment_len: Option<usize>,
+
+    /// Include `--interval <ms>` in the printed `batch-sign` commands. `to-qr-batch`'s own
+    /// default (500) is slower than Vizor/zodl-ios (200).
+    #[arg(long)]
+    interval: Option<u64>,
 }
 
 impl Command {
@@ -90,6 +105,14 @@ impl Command {
             Some(camera) => format!(" --camera {camera}"),
             None => String::new(),
         };
+        let max_fragment_len_flag = match self.max_fragment_len {
+            Some(n) => format!(" --max-fragment-len {n}"),
+            None => String::new(),
+        };
+        let interval_flag = match self.interval {
+            Some(ms) => format!(" --interval {ms}"),
+            None => String::new(),
+        };
         for (i, round) in rounds.iter().enumerate() {
             let round_actions: usize = round.iter().map(|(_, a)| a).sum();
             println!(
@@ -105,7 +128,9 @@ impl Command {
             // camera opened, then -- once you press Enter, once you're ready to flip the camera
             // around and point it at the device -- switches straight into scanning for the
             // signed response. See `pczt batch-sign --help`.
-            println!("pczt batch-sign{redact_flag}{camera_flag} --pczt {files}\n");
+            println!(
+                "pczt batch-sign{redact_flag}{camera_flag}{max_fragment_len_flag}{interval_flag} --pczt {files}\n"
+            );
         }
 
         Ok(())
