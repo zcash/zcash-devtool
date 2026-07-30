@@ -42,9 +42,9 @@ uuid = "1"
 # Zcash
 #
 # NOTE: zcash_client_backend/zcash_client_sqlite/pczt/zip321 version reqs
-# below are pinned to the exact prerelease versions published on Danny
-# Willems' feat/pool-migration-sqlite branch (see [patch.crates-io] below) —
-# these are ahead of the last crates.io releases. If the patch rev changes,
+# below are pinned to the exact prerelease versions on the librustzcash
+# main revision in [patch.crates-io] below — these are ahead of the last
+# crates.io releases. If the patch rev changes,
 # re-check these against the new rev's Cargo.toml files, or Cargo will
 # silently fall back to stale crates.io versions for the unsatisfied ones
 # and duplicate half the dependency graph (as happened here).

@@ -19,8 +19,8 @@ pub(crate) enum Command {
     /// Show the in-progress migration's status and what to do next.
     Status(status::Command),
 
-    /// Advance an in-progress migration: build and sign the next ready preparation layer or the
-    /// transfers, as far as possible. Stops (without erroring) at the first transaction that's
-    /// ready to prove and broadcast, since that step isn't implemented yet.
+    /// Advance an in-progress migration: prove the next transaction whose deferred anchor is
+    /// ready. Stops (without erroring) at the first transaction that's ready to broadcast or
+    /// needs rebuilding after expiry, since those steps aren't implemented yet.
     Advance(advance::Command),
 }

@@ -95,6 +95,27 @@ impl Command {
             other => anyhow!("{other}"),
         };
 
+        // Fail fast on a leftover output dir BEFORE building anything: `fs::rename` below can't
+        // replace a non-empty directory (so a re-run would die only after all the build work),
+        // and a leftover-but-empty dir would let a previous run's stale `<id>.pczt` files mix
+        // with this run's in the suggested `*.pczt` glob.
+        let external_out_dir = if self.external {
+            let out_dir = db_path
+                .parent()
+                .ok_or_else(|| anyhow!("wallet database path has no parent directory"))?
+                .join("unsigned-pczts");
+            if out_dir.exists() {
+                return Err(anyhow!(
+                    "{} already exists (from a previous `migration commit --external`?); move \
+                     or delete it first so this run's PCZTs can't mix with stale ones",
+                    out_dir.display()
+                ));
+            }
+            Some(out_dir)
+        } else {
+            None
+        };
+
         let (state, unsigned) = if self.external {
             build_preparation_unsigned(&params, target_height, &mut migration, &plan, &mut rng)
                 .map_err(map_commit_err)?
@@ -104,26 +125,30 @@ impl Command {
             (state, Vec::new())
         };
 
-        if self.external {
-            let out_dir = db_path
-                .parent()
-                .ok_or_else(|| anyhow!("wallet database path has no parent directory"))?
-                .join("unsigned-pczts");
+        if let Some(out_dir) = &external_out_dir {
             let staged_out_dir =
                 out_dir.with_file_name(format!(".unsigned-pczts-{}.tmp", Uuid::new_v4()));
             fs::create_dir(&staged_out_dir)?;
             println!("{} unsigned PCZT(s) for external signing:", unsigned.len());
-            for tx in unsigned {
-                let (id, pczt) = tx.into_parts();
-                let path = staged_out_dir.join(format!("{}.pczt", u32::from(id)));
-                fs::write(&path, &pczt)?;
+            let write_all = || -> anyhow::Result<()> {
+                for tx in unsigned {
+                    let (id, pczt) = tx.into_parts();
+                    let path = staged_out_dir.join(format!("{}.pczt", u32::from(id)));
+                    fs::write(&path, &pczt)?;
+                }
+                // Do not persist a migration that needs external signatures until every PCZT has
+                // been written successfully. Otherwise a full disk or interrupted write can leave
+                // the wallet permanently reporting an in-progress migration whose signing material
+                // does not exist. The staged directory also ensures callers never see a partial set.
+                fs::rename(&staged_out_dir, out_dir)?;
+                Ok(())
+            };
+            if let Err(e) = write_all() {
+                // Best-effort: don't strand the staged temp dir next to the wallet on failure.
+                let _ = fs::remove_dir_all(&staged_out_dir);
+                return Err(e);
             }
-            // Do not persist a migration that needs external signatures until every PCZT has
-            // been written successfully. Otherwise a full disk or interrupted write can leave
-            // the wallet permanently reporting an in-progress migration whose signing material
-            // does not exist. The staged directory also ensures callers never see a partial set.
-            fs::rename(&staged_out_dir, &out_dir)?;
-            for entry in fs::read_dir(&out_dir)? {
+            for entry in fs::read_dir(out_dir)? {
                 println!("  {}", entry?.path().display());
             }
             println!(

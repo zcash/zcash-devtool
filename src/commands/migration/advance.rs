@@ -42,8 +42,9 @@ impl Command {
         // Every transaction is already built and signed at commit time now (one signing phase),
         // so there is nothing left for `advance` to build. It proves transactions whose deferred
         // anchor is ready (installing it and the spend witnesses through the PCZT `Updater` role,
-        // ZIP 374) and orders broadcasts against the LIVE chain tip (`migration status` uses a
-        // synthetic height instead, since it doesn't need a synced wallet just to display state).
+        // ZIP 374) and orders broadcasts against the LIVE chain tip, same as `migration status`
+        // -- anything derived from the migration's own schedule would make transactions look
+        // ready regardless of the real chain.
         let mut wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
         let account = select_account(&wallet_db, self.account_id)?;
         let fvk = account
