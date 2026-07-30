@@ -8,7 +8,10 @@ use zcash_client_backend::data_api::{
     wallet::input_selection::LockFilter,
 };
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
-use zcash_pool_migration_backend::engine::{MigrationBackend, plan_migration};
+use zcash_pool_migration::{
+    engine::{MigrationBackend, plan_migration},
+    scheduling::SchedulingParams,
+};
 use zcash_protocol::ShieldedPool;
 use zcash_protocol::consensus::BlockHeight;
 use zcash_protocol::value::Zatoshis;
@@ -72,6 +75,10 @@ where
             .map_err(|_| anyhow!("wallet read failed"))?
             .ok_or_else(|| anyhow!("wallet is not synced"))
     }
+
+    fn scheduling_params(&self) -> SchedulingParams {
+        SchedulingParams::new_with_default_distributions(self.wallet.anchor_retention_interval())
+    }
 }
 
 impl Command {
@@ -90,17 +97,7 @@ impl Command {
         let plan = plan_migration(&params, &backend, &mut rng).map_err(|e| anyhow!("{e}"))?;
 
         println!("Note split:");
-        println!(
-            "  Crossing values: {:?}",
-            plan.note_split().crossing_values()
-        );
-        println!(
-            "  Note fee buffer: {} zatoshi/note",
-            plan.note_split().note_fee_buffer().into_u64()
-        );
-        if let Some(change) = plan.note_split().change() {
-            println!("  Change (left in Orchard): {} zatoshi", change.into_u64());
-        }
+        println!("  Crossing values: {:?}", plan.crossing_values());
         println!("Funding notes ({}):", plan.funding_notes().len());
         for (i, value) in plan.funding_notes().iter().enumerate() {
             println!("  [{i}] {} zatoshi", value.into_u64());

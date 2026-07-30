@@ -8,6 +8,7 @@ use tokio::io::{AsyncWriteExt, stdout};
 
 use transparent::{builder::TransparentInputInfo, bundle::TxOut};
 use zcash_client_backend::{
+    data_api::anchor_retention::{AnchorRetentionInterval, PoolMigrationParams},
     fees::{
         ChangeError, ChangeStrategy as _, DustOutputPolicy, orchard::EmptyBundleView,
         zip317::SingleOutputChangeStrategy,
@@ -224,6 +225,8 @@ impl Command {
             .compute_balance::<_, Infallible>(
                 &params,
                 target_height.into(),
+                target_height,
+                &PoolMigrationParams::new(AnchorRetentionInterval::ZIP_318),
                 &transparent_inputs[..],
                 &transparent_outputs,
                 &(
@@ -252,8 +255,8 @@ impl Command {
                 sapling_anchor,
                 orchard_anchor,
                 ironwood_anchor: None,
-                orchard_bundle_type: orchard::builder::BundleType::DEFAULT,
-                ironwood_bundle_type: orchard::builder::BundleType::DEFAULT,
+                orchard_padding: zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
+                ironwood_padding: zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
             },
         );
         add_inputs(&mut builder, transparent_inputs)?;

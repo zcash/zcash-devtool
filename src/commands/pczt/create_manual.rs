@@ -158,8 +158,9 @@ impl Command {
                     sapling_anchor,
                     orchard_anchor,
                     ironwood_anchor: None,
-                    orchard_bundle_type: orchard::builder::BundleType::DEFAULT,
-                    ironwood_bundle_type: orchard::builder::BundleType::DEFAULT,
+                    orchard_padding: zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
+                    ironwood_padding:
+                        zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
                 },
             );
             add_inputs(&mut builder, transparent_inputs)?;

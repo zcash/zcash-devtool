@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use zcash_client_backend::data_api::{Account as _, WalletRead};
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
-use zcash_pool_migration_backend::engine::{MigrationTxKind, MigrationTxState};
-use zcash_pool_migration_backend::state::{AdvanceStep, Blocker};
+use zcash_pool_migration::engine::{MigrationTxKind, MigrationTxState};
+use zcash_pool_migration::state::{AdvanceStep, Blocker};
 
 use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths};
 

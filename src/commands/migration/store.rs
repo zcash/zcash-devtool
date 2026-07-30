@@ -5,8 +5,8 @@ use rusqlite::Connection;
 
 use zcash_client_sqlite::AccountUuid;
 use zcash_client_sqlite::pool_migration::orchard_ironwood::PoolMigrations;
-use zcash_pool_migration_backend::engine::{
-    MigrationState, MigrationTxId, MigrationTxState, PoolMigrationRead, PoolMigrationWrite,
+use zcash_pool_migration::engine::{
+    MigrationState, MigrationTransferId, MigrationTxState, PoolMigrationRead, PoolMigrationWrite,
 };
 
 /// A throwaway in-memory `PoolMigrationRead`/`Write`, used only for the duration of one engine
@@ -44,11 +44,11 @@ impl PoolMigrationWrite for InMemoryStore {
 
     fn update_transaction(
         &mut self,
-        _id: MigrationTxId,
+        _id: MigrationTransferId,
         _tx_state: MigrationTxState,
     ) -> Result<(), Self::Error> {
         // The engine only ever drives this store through `replace_migration` with the whole
-        // updated state (checked directly against zcash_pool_migration_backend::engine -- every
+        // updated state (checked directly against zcash_pool_migration::engine -- every
         // internal call site persists via `replace_migration`, never `update_transaction`; the
         // latter exists on the trait only for a real store's finer-grained persistence, e.g.
         // zcash_client_sqlite's PoolMigrations). This store is a scratch mirror for the duration

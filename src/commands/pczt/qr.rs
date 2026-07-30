@@ -179,7 +179,7 @@ pub(crate) struct SendBatch {
 ///
 /// Deliberately does NOT clear spend `fvk`, unlike Vizor's version. Vizor can skip sending it
 /// because the device recovers the spending FVK itself from each spend's `zip32_derivation`;
-/// `zcash_pool_migration_backend`'s PCZTs never populate that field (confirmed directly:
+/// `zcash_pool_migration`'s PCZTs never populate that field (confirmed directly:
 /// every action's `zip32_derivation` is `None`, real and dummy alike, while `fvk` is always
 /// `Some`), so clearing `fvk` here leaves the device with no way to attribute ANY input to
 /// the account -- this was confirmed against real hardware output ("Invalid QR Code / None of

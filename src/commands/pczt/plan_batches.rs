@@ -68,7 +68,7 @@ impl Command {
             );
         }
 
-        // Mirrors zcash_pool_migration_backend::engine::batch_unsigned_by_action_budget's greedy,
+        // Mirrors zcash_pool_migration::engine::batch_unsigned_by_action_budget's greedy,
         // order-preserving packing exactly (a session never splits a file across rounds, and
         // always holds at least one file even if it alone exceeds the budget) -- that function
         // only takes the engine's own `UnsignedMigrationTx` (built fresh at commit time, with its

@@ -9,10 +9,10 @@ use uuid::Uuid;
 use zcash_client_backend::data_api::{Account as _, WalletRead};
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::keys::UnifiedSpendingKey;
-use zcash_pool_migration_backend::engine::{
+use zcash_pool_migration::engine::{
     CommitError, build_preparation_unsigned, commit_preparation, plan_migration,
 };
-use zcash_pool_migration_backend::wallet::WalletMigration;
+use zcash_pool_migration::wallet::WalletMigration;
 
 use crate::{commands::select_account, config::WalletConfig, data::get_db_paths};
 
