@@ -104,6 +104,34 @@ impl Command {
             (state, Vec::new())
         };
 
+        if self.external {
+            let out_dir = db_path
+                .parent()
+                .ok_or_else(|| anyhow!("wallet database path has no parent directory"))?
+                .join("unsigned-pczts");
+            let staged_out_dir =
+                out_dir.with_file_name(format!(".unsigned-pczts-{}.tmp", Uuid::new_v4()));
+            fs::create_dir(&staged_out_dir)?;
+            println!("{} unsigned PCZT(s) for external signing:", unsigned.len());
+            for tx in unsigned {
+                let (id, pczt) = tx.into_parts();
+                let path = staged_out_dir.join(format!("{}.pczt", u32::from(id)));
+                fs::write(&path, &pczt)?;
+            }
+            // Do not persist a migration that needs external signatures until every PCZT has
+            // been written successfully. Otherwise a full disk or interrupted write can leave
+            // the wallet permanently reporting an in-progress migration whose signing material
+            // does not exist. The staged directory also ensures callers never see a partial set.
+            fs::rename(&staged_out_dir, &out_dir)?;
+            for entry in fs::read_dir(&out_dir)? {
+                println!("  {}", entry?.path().display());
+            }
+            println!(
+                "Batch-QR them with: pczt to-qr-batch --pczt {}/*.pczt",
+                out_dir.display()
+            );
+        }
+
         persist_migration(&mut conn, account.id(), &state)?;
 
         println!(
@@ -113,21 +141,8 @@ impl Command {
         );
 
         if self.external {
-            let out_dir = db_path
-                .parent()
-                .ok_or_else(|| anyhow!("wallet database path has no parent directory"))?
-                .join("unsigned-pczts");
-            fs::create_dir_all(&out_dir)?;
-            println!("{} unsigned PCZT(s) for external signing:", unsigned.len());
-            for tx in unsigned {
-                let (id, pczt) = tx.into_parts();
-                let path = out_dir.join(format!("{}.pczt", u32::from(id)));
-                fs::write(&path, &pczt)?;
-                println!("  {}", path.display());
-            }
             println!(
-                "Batch-QR them with: pczt to-qr-batch --pczt {}/*.pczt",
-                out_dir.display()
+                "External signing material is ready; record the PCZT paths above before signing."
             );
         }
 
