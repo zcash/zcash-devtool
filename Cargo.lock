@@ -9296,8 +9296,3 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core 0.5.1",
 ]
-
-[[patch.unused]]
-name = "zcash_encoding"
-version = "0.5.0"
-source = "git+https://github.com/zcash/librustzcash.git?rev=6c07e5f3297febf469e5cc8d0b91321e0767cdd7#6c07e5f3297febf469e5cc8d0b91321e0767cdd7"
