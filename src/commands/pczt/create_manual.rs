@@ -183,13 +183,13 @@ impl Command {
 
         // TODO: Handle change outputs. For now, you are required to spend it all.
         let value_out = (value_in - fee).ok_or_else(|| anyhow!("Balance underflow"))?;
-        if let Some(v) = value {
-            if v != value_out {
-                return Err(anyhow!(
-                    "Change is not currently supported. Don't set --value, or set it to '{}'",
-                    value_out.into_u64(),
-                ));
-            }
+        if let Some(v) = value
+            && v != value_out
+        {
+            return Err(anyhow!(
+                "Change is not currently supported. Don't set --value, or set it to '{}'",
+                value_out.into_u64(),
+            ));
         }
 
         // Now construct the real builder.

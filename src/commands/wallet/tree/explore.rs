@@ -147,14 +147,14 @@ impl App {
                     std::io::stdout().flush()?;
                 }
 
-                if let Some(block) = db_data.block_metadata(height.into())? {
-                    if let Some(key) = match pool {
+                if let Some(block) = db_data.block_metadata(height.into())?
+                    && let Some(key) = match pool {
                         ShieldedPool::Sapling => block.sapling_tree_size(),
                         ShieldedPool::Orchard => block.orchard_tree_size(),
                         ShieldedPool::Ironwood => block.ironwood_tree_size(),
-                    } {
-                        block_boundaries.entry(key).or_insert(block.block_height());
                     }
+                {
+                    block_boundaries.entry(key).or_insert(block.block_height());
                 }
             }
             println!();
