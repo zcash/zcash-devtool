@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -648,12 +648,40 @@ fn apply_batch_signatures_and_write(
         let staged_path = PathBuf::from(format!("{}.tmp", out_path.display()));
         std::fs::write(&staged_path, &signed_bytes)
             .map_err(|e| anyhow!("Failed to write {}: {e}", staged_path.display()))?;
-        std::fs::rename(&staged_path, &out_path)
+        replace_file(&staged_path, &out_path)
             .map_err(|e| anyhow!("Failed to move signed PCZT to {}: {e}", out_path.display()))?;
         println!("  wrote signed PCZT to {}", out_path.display());
     }
 
     Ok(())
+}
+
+/// Moves `staged` over `dest`, replacing `dest` if it exists. `staged` must be on the same
+/// filesystem as `dest` (the callers stage as `<dest>.tmp`, so it always is).
+///
+/// A plain `std::fs::rename` replaces an existing destination on every supported platform
+/// (on Windows, Rust maps it to a replace-if-exists move rather than C `rename` semantics),
+/// but on Windows that replacement can still fail where Unix would succeed: the destination
+/// being momentarily held open by antivirus/indexing, or carrying the read-only attribute.
+/// If the rename fails while `dest` exists, clear `dest` and retry once. The fallback gives
+/// up crash-atomicity, but `staged` survives any failure, so the signed PCZT is never lost.
+fn replace_file(staged: &Path, dest: &Path) -> std::io::Result<()> {
+    match std::fs::rename(staged, dest) {
+        Ok(()) => Ok(()),
+        Err(_) if dest.exists() => {
+            if let Ok(metadata) = dest.metadata() {
+                let mut permissions = metadata.permissions();
+                if permissions.readonly() {
+                    #[allow(clippy::permissions_set_readonly_false)]
+                    permissions.set_readonly(false);
+                    let _ = std::fs::set_permissions(dest, permissions);
+                }
+            }
+            std::fs::remove_file(dest)?;
+            std::fs::rename(staged, dest)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 const DATA: u8 = 1;
@@ -1173,6 +1201,69 @@ mod tests {
         assert_eq!(progress.total_parts, None);
         assert!(progress.seen_parts.is_empty());
         assert_eq!(progress.last_status, "received part (no sequence info)");
+    }
+
+    /// A scratch directory under the platform temp dir, removed on drop. Unique per test via
+    /// the test name (tests run in one process, so pid alone wouldn't disambiguate them).
+    struct ScratchDir(PathBuf);
+
+    impl ScratchDir {
+        fn new(test_name: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("zcash-devtool-{test_name}-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn replace_file_replaces_an_existing_destination() {
+        let scratch = ScratchDir::new("replace-existing");
+        let staged = scratch.0.join("out.pczt.tmp");
+        let dest = scratch.0.join("out.pczt");
+        std::fs::write(&staged, b"signed").unwrap();
+        std::fs::write(&dest, b"unsigned original").unwrap();
+
+        replace_file(&staged, &dest).unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"signed");
+        assert!(!staged.exists());
+    }
+
+    #[test]
+    fn replace_file_replaces_a_read_only_destination() {
+        let scratch = ScratchDir::new("replace-read-only");
+        let staged = scratch.0.join("out.pczt.tmp");
+        let dest = scratch.0.join("out.pczt");
+        std::fs::write(&staged, b"signed").unwrap();
+        std::fs::write(&dest, b"unsigned original").unwrap();
+        let mut permissions = dest.metadata().unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&dest, permissions).unwrap();
+
+        replace_file(&staged, &dest).unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"signed");
+        assert!(!staged.exists());
+    }
+
+    #[test]
+    fn replace_file_works_when_destination_does_not_exist() {
+        let scratch = ScratchDir::new("replace-fresh");
+        let staged = scratch.0.join("out.pczt-signed.tmp");
+        let dest = scratch.0.join("out.pczt-signed");
+        std::fs::write(&staged, b"signed").unwrap();
+
+        replace_file(&staged, &dest).unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"signed");
+        assert!(!staged.exists());
     }
 
     /// Smoke test for `redact_for_batch_signer`: an empty PCZT (no Orchard/Ironwood actions,
