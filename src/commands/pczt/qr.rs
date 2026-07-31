@@ -1310,3 +1310,97 @@ mod tests {
         );
     }
 }
+
+/// The CBOR and UR encodings below are a wire format shared with Keystone
+/// hardware wallets. A dependency bump that still compiles can silently change
+/// the bytes on the wire and break signing against real devices, so these
+/// vectors pin the encoding rather than exercising the codec against itself.
+///
+/// The expected values were captured from this same code under the previous
+/// `minicbor` 0.19 / `ur` 0.4 pair and are unchanged under `minicbor` 2 / `ur` 0.5.
+#[cfg(test)]
+mod wire_format_tests {
+    use super::*;
+
+    /// Deterministic stand-in for a serialized PCZT: long enough that the UR
+    /// encoder must fragment it, so the fountain parts are covered too.
+    fn sample_payload() -> Vec<u8> {
+        (0u16..220).map(|i| (i % 251) as u8).collect()
+    }
+
+    const EXPECTED_PCZT_CBOR: &str = "a10158dc000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadb";
+
+    const EXPECTED_BATCH_CBOR: &str = "a20158dc000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadb0250aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    /// Four consecutive parts: the three that carry the payload, plus one
+    /// fountain-combined part, which exercises the XOR path as well.
+    const EXPECTED_UR_PARTS: &[&str] = &[
+        "ur:zcash-pczt/1-3/lpadaxcsvtcydyzmmnwkhdgroyadhduoaeadaoaxaaahamatayasbkbdbnbtbabsbebybgbwbbbzcmchcscfcycwcecackctcxclcpcndkdadsdidedtdrdndwdpdmdldyeheyeoeeecenemetesftfrfnfsfmfhfzfpfwfxfyfefgahsfyavl",
+        "ur:zcash-pczt/2-3/lpaoaxcsvtcydyzmmnwkhdgrflfdgagegrgsgtglgwgdgygmgughgohfhghdhkhthphhhlhyhehnhsidiaieihiyioisinimjejzjnjtjljojsjpjkjykpkoktkskkknkgkekikblblalylflslrlplnltloldlelulklgmnmymhmefhsprehl",
+        "ur:zcash-pczt/3-3/lpaxaxcsvtcydyzmmnwkhdgrmomumwmdmtmsmknlnyndnsntnnnenboyoeotoxonolospdptpkpypspmplpepfpaprqdqzrerprlrorhrdrkrfryrnrsrtsesasrssskswstspsosgsbsfsntotktitttdtetytltbtstptatnuyaesrbnzesb",
+        "ur:zcash-pczt/4-3/lpaaaxcsvtcydyzmmnwkhdgrvagabymtgrgtgwgtgrgohggohphlhehlhpgohggogrgtgwgtgrkpktkpkgkilbkikgkpktkpgrgtgwgtgrgohggohphlhehlhpgohggogrgtgwgtgrrerlrerkryrsryrkrerlresbsntksnsbtltsbtiaryga",
+    ];
+
+    #[test]
+    fn zcash_pczt_cbor_encoding_is_unchanged() {
+        let mut packet = vec![];
+        minicbor::encode(
+            &ZcashPczt {
+                data: sample_payload(),
+            },
+            &mut packet,
+        )
+        .expect("encoding succeeds");
+        assert_eq!(hex::encode(&packet), EXPECTED_PCZT_CBOR);
+    }
+
+    #[test]
+    fn zcash_sign_batch_cbor_encoding_is_unchanged() {
+        let mut packet = vec![];
+        minicbor::encode(
+            &ZcashSignBatch {
+                data: sample_payload(),
+                request_id: vec![0xAA; 16],
+            },
+            &mut packet,
+        )
+        .expect("encoding succeeds");
+        assert_eq!(hex::encode(&packet), EXPECTED_BATCH_CBOR);
+    }
+
+    #[test]
+    fn ur_fragmentation_is_unchanged() {
+        let mut packet = vec![];
+        minicbor::encode(
+            &ZcashPczt {
+                data: sample_payload(),
+            },
+            &mut packet,
+        )
+        .expect("encoding succeeds");
+
+        let mut encoder = ur::Encoder::new(&packet, 100, ZCASH_PCZT).expect("UR encoder builds");
+        let parts: Vec<String> = (0..EXPECTED_UR_PARTS.len())
+            .map(|_| encoder.next_part().expect("part encodes"))
+            .collect();
+
+        assert_eq!(parts, EXPECTED_UR_PARTS);
+    }
+
+    /// The decode side must still read what the encode side writes.
+    #[test]
+    fn zcash_pczt_cbor_round_trips() {
+        let payload = sample_payload();
+        let mut packet = vec![];
+        minicbor::encode(
+            &ZcashPczt {
+                data: payload.clone(),
+            },
+            &mut packet,
+        )
+        .expect("encoding succeeds");
+
+        let decoded = minicbor::decode::<'_, ZcashPczt>(&packet).expect("decoding succeeds");
+        assert_eq!(decoded.data, payload);
+    }
+}
