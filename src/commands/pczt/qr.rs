@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -604,6 +604,12 @@ fn decode_batch_sig_result(
 /// Applies a [`BatchSignResponse`]'s signatures onto the original (unredacted) PCZTs, in the
 /// same order as `paths`, and writes each result out -- overwriting in place, or alongside with
 /// `out_suffix` appended to the filename. Shared by `from-qr-batch` and `batch-sign`.
+///
+/// Signatures are applied through the Orchard signer role only. That matches every batch this
+/// tool produces today: an Orchard -> Ironwood migration batch's real spends are all Orchard,
+/// and its Ironwood actions' dummy `spend_auth_sig`s are still intact on the original files
+/// (redaction only ever touched the copies sent over the wire). A future batch carrying real
+/// Ironwood spends would need an Ironwood counterpart here, not silent reuse of this path.
 fn apply_batch_signatures_and_write(
     paths: &[PathBuf],
     pczts: Vec<Pczt>,
@@ -612,7 +618,7 @@ fn apply_batch_signatures_and_write(
 ) -> anyhow::Result<()> {
     if response.signatures().len() != pczts.len() {
         return Err(anyhow!(
-            "Batch sign response has {} PCZT('s) worth of signatures, but {} --pczt file(s) \
+            "Batch sign response has {} PCZT(s) worth of signatures, but {} --pczt file(s) \
              were given -- pass the SAME files, in the SAME order, given when sending the batch",
             response.signatures().len(),
             pczts.len()
@@ -636,12 +642,46 @@ fn apply_batch_signatures_and_write(
             Some(suffix) => PathBuf::from(format!("{}{suffix}", path.display())),
             None => path.clone(),
         };
-        std::fs::write(&out_path, &signed_bytes)
-            .map_err(|e| anyhow!("Failed to write {}: {e}", out_path.display()))?;
+        // Stage-and-rename rather than writing in place: without a suffix, `out_path` IS the
+        // unsigned original, and a crash mid-write would destroy both it and the signed result
+        // -- the only output of a signing session that cost a physical device round trip.
+        let staged_path = PathBuf::from(format!("{}.tmp", out_path.display()));
+        std::fs::write(&staged_path, &signed_bytes)
+            .map_err(|e| anyhow!("Failed to write {}: {e}", staged_path.display()))?;
+        replace_file(&staged_path, &out_path)
+            .map_err(|e| anyhow!("Failed to move signed PCZT to {}: {e}", out_path.display()))?;
         println!("  wrote signed PCZT to {}", out_path.display());
     }
 
     Ok(())
+}
+
+/// Moves `staged` over `dest`, replacing `dest` if it exists. `staged` must be on the same
+/// filesystem as `dest` (the callers stage as `<dest>.tmp`, so it always is).
+///
+/// A plain `std::fs::rename` replaces an existing destination on every supported platform
+/// (on Windows, Rust maps it to a replace-if-exists move rather than C `rename` semantics),
+/// but on Windows that replacement can still fail where Unix would succeed: the destination
+/// being momentarily held open by antivirus/indexing, or carrying the read-only attribute.
+/// If the rename fails while `dest` exists, clear `dest` and retry once. The fallback gives
+/// up crash-atomicity, but `staged` survives any failure, so the signed PCZT is never lost.
+fn replace_file(staged: &Path, dest: &Path) -> std::io::Result<()> {
+    match std::fs::rename(staged, dest) {
+        Ok(()) => Ok(()),
+        Err(_) if dest.exists() => {
+            if let Ok(metadata) = dest.metadata() {
+                let mut permissions = metadata.permissions();
+                if permissions.readonly() {
+                    #[allow(clippy::permissions_set_readonly_false)]
+                    permissions.set_readonly(false);
+                    let _ = std::fs::set_permissions(dest, permissions);
+                }
+            }
+            std::fs::remove_file(dest)?;
+            std::fs::rename(staged, dest)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 const DATA: u8 = 1;
@@ -904,9 +944,17 @@ async fn scan_for_ur(
         match &detected_result {
             Ok((_, Some(content))) if content.starts_with(expected_ur_type) => {
                 progress.record(content);
-                decoder
-                    .receive(content)
-                    .map_err(|e| anyhow!("Failed to parse QR code: {:?}", e))?;
+                // A frame of the right UR type can still be rejected by the decoder -- a stale
+                // QR from a previous run, the device looping back to an earlier message, or a
+                // corrupted read that kept the type prefix intact. That's a property of the one
+                // frame, not the scan: record it and keep scanning (same as grid-decode errors
+                // below) rather than aborting a possibly hundreds-of-parts session.
+                if let Err(e) = decoder.receive(content) {
+                    progress.last_status = format!("Rejected QR part: {e:?}");
+                    if no_preview {
+                        eprintln!("Rejected QR part: {e:?}");
+                    }
+                }
             }
             Ok((_, Some(content))) => {
                 progress.last_status = format!("Unexpected UR type: {content}");
@@ -1032,7 +1080,7 @@ fn render_preview(
         .map_or_else(|| "?".to_string(), |t| t.to_string());
     let _ = writeln!(
         out,
-        "QR detected: {}   |   unique parts seen: {}/{total}   |   frames read: {}   |   {}",
+        "QR detected: {}   |   unique parts seen: {}/{total}   |   matching frames read: {}   |   {}",
         if qr_detected {
             "yes"
         } else {
@@ -1049,8 +1097,10 @@ fn render_preview(
 fn convert_buffer_to_image(
     buffer: nokhwa::Buffer,
 ) -> anyhow::Result<image::ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
-    // `scan_camera_format` requests MJPEG, so this is the expected path -- see its doc comment
-    // for why the raw-YUYV path below is unreliable on macOS and MJPEG isn't.
+    // `scan_camera_format` does NOT request MJPEG (see its doc comment for why that was tried
+    // and abandoned on macOS), but nokhwa's negotiator may still hand back an MJPEG stream on
+    // other backends -- decode it via the JPEG decoder rather than falling through to the
+    // raw-YUYV path, which would misread compressed bytes as pixels.
     if buffer.source_frame_format() == FrameFormat::MJPEG {
         return Ok(image::load_from_memory(buffer.buffer())?.to_rgb8());
     }
@@ -1151,6 +1201,69 @@ mod tests {
         assert_eq!(progress.total_parts, None);
         assert!(progress.seen_parts.is_empty());
         assert_eq!(progress.last_status, "received part (no sequence info)");
+    }
+
+    /// A scratch directory under the platform temp dir, removed on drop. Unique per test via
+    /// the test name (tests run in one process, so pid alone wouldn't disambiguate them).
+    struct ScratchDir(PathBuf);
+
+    impl ScratchDir {
+        fn new(test_name: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("zcash-devtool-{test_name}-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn replace_file_replaces_an_existing_destination() {
+        let scratch = ScratchDir::new("replace-existing");
+        let staged = scratch.0.join("out.pczt.tmp");
+        let dest = scratch.0.join("out.pczt");
+        std::fs::write(&staged, b"signed").unwrap();
+        std::fs::write(&dest, b"unsigned original").unwrap();
+
+        replace_file(&staged, &dest).unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"signed");
+        assert!(!staged.exists());
+    }
+
+    #[test]
+    fn replace_file_replaces_a_read_only_destination() {
+        let scratch = ScratchDir::new("replace-read-only");
+        let staged = scratch.0.join("out.pczt.tmp");
+        let dest = scratch.0.join("out.pczt");
+        std::fs::write(&staged, b"signed").unwrap();
+        std::fs::write(&dest, b"unsigned original").unwrap();
+        let mut permissions = dest.metadata().unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&dest, permissions).unwrap();
+
+        replace_file(&staged, &dest).unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"signed");
+        assert!(!staged.exists());
+    }
+
+    #[test]
+    fn replace_file_works_when_destination_does_not_exist() {
+        let scratch = ScratchDir::new("replace-fresh");
+        let staged = scratch.0.join("out.pczt-signed.tmp");
+        let dest = scratch.0.join("out.pczt-signed");
+        std::fs::write(&staged, b"signed").unwrap();
+
+        replace_file(&staged, &dest).unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"signed");
+        assert!(!staged.exists());
     }
 
     /// Smoke test for `redact_for_batch_signer`: an empty PCZT (no Orchard/Ironwood actions,
