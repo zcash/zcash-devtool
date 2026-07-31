@@ -6,6 +6,7 @@ pub(crate) mod derive_address;
 pub(crate) mod derive_path;
 pub(crate) mod display_mnemonic;
 pub(crate) mod enhance;
+pub(crate) mod fan_out;
 pub(crate) mod gen_account;
 pub(crate) mod gen_addr;
 pub(crate) mod get_info;
@@ -98,6 +99,11 @@ pub(crate) enum Command {
 
     /// Send funds to the given address
     Send(send::Command),
+
+    /// Self-send a small payment with a high target note count, splitting
+    /// change into many notes. Run repeatedly (mining/syncing between
+    /// rounds on regtest) to build a synthetic "very active wallet."
+    FanOut(fan_out::Command),
 
     /// Create a transaction fulfilling a payment request
     Pay(pay::Command),

@@ -10,7 +10,10 @@ use zcash_address::ZcashAddress;
 use zcash_client_backend::{
     data_api::{
         Account as _, MaxSpendMode,
-        wallet::{ConfirmationsPolicy, create_pczt_from_proposal, propose_send_max_transfer},
+        wallet::{
+            ConfirmationsPolicy, create_pczt_from_proposal, input_selection::LockedInputPolicy,
+            propose_send_max_transfer,
+        },
     },
     fees::StandardFeeRule,
     wallet::OvkPolicy,
@@ -84,6 +87,8 @@ impl Command {
             memo,
             mode,
             ConfirmationsPolicy::default(),
+            &LockedInputPolicy::Exclude,
+            None,
         )
         .map_err(error::Error::SendMax)?;
 
@@ -95,7 +100,7 @@ impl Command {
             &proposal,
             // Use the builder-derived expiry and a standard Orchard-pool bundle.
             None,
-            orchard::builder::BundleType::DEFAULT,
+            zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
         )
         .map_err(error::Error::from)?;
 

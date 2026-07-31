@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use clap::Args;
 use uuid::Uuid;
+use zcash_client_backend::data_api::wallet::input_selection::LockFilter;
 use zcash_client_backend::data_api::{Account as _, InputSource, WalletRead};
 use zcash_client_sqlite::WalletDb;
 use zcash_protocol::ShieldedPool;
@@ -40,6 +41,7 @@ impl Command {
             ],
             target_height,
             &[],
+            LockFilter::Unfiltered,
         )?;
 
         let net = params.network_type();

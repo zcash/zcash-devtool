@@ -52,6 +52,9 @@ pub(crate) enum Command {
     /// Send funds using PCZTs
     Pczt(commands::Pczt),
 
+    /// Migrate wallet funds between value pools (Orchard -> Ironwood)
+    Migration(commands::Migration),
+
     /// Emulate a Keystone device
     #[cfg(feature = "pczt-qr")]
     Keystone(commands::Keystone),
@@ -172,6 +175,7 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::wallet::Command::Propose(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::Pay(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::Send(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::FanOut(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::Tree(command) => match command {
                     #[cfg(feature = "tui")]
                     commands::wallet::tree::Command::Explore(command) => {
@@ -203,6 +207,7 @@ fn main() -> Result<(), anyhow::Error> {
                     command.run(wallet_dir).await
                 }
                 commands::pczt::Command::Redact(command) => command.run().await,
+                commands::pczt::Command::PlanBatches(command) => command.run(),
                 commands::pczt::Command::Prove(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::Sign(command) => command.run(wallet_dir).await,
                 commands::pczt::Command::UpdateWithSignature(command) => command.run().await,
@@ -223,7 +228,22 @@ fn main() -> Result<(), anyhow::Error> {
                         .await
                 }
                 #[cfg(feature = "pczt-qr")]
+                commands::pczt::Command::ToQrBatch(command) => command.run(shutdown).await,
+                #[cfg(feature = "pczt-qr")]
                 commands::pczt::Command::FromQr(command) => command.run(shutdown).await,
+                #[cfg(feature = "pczt-qr")]
+                commands::pczt::Command::FromQrBatch(command) => command.run(shutdown).await,
+                #[cfg(feature = "pczt-qr")]
+                commands::pczt::Command::BatchSign(command) => command.run(shutdown).await,
+            },
+            Command::Migration(commands::Migration {
+                wallet_dir,
+                command,
+            }) => match command {
+                commands::migration::Command::Plan(command) => command.run(wallet_dir),
+                commands::migration::Command::Commit(command) => command.run(wallet_dir),
+                commands::migration::Command::Status(command) => command.run(wallet_dir),
+                commands::migration::Command::Advance(command) => command.run(wallet_dir),
             },
             #[cfg(feature = "pczt-qr")]
             Command::Keystone(commands::Keystone {

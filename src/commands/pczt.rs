@@ -7,6 +7,7 @@ pub(crate) mod create_max;
 pub(crate) mod extract;
 pub(crate) mod inspect;
 pub(crate) mod pay_manual;
+pub(crate) mod plan_batches;
 pub(crate) mod prove;
 pub(crate) mod redact;
 pub(crate) mod send;
@@ -38,6 +39,9 @@ pub(crate) enum Command {
     UpdateWithDerivation(update_with_derivation::Command),
     /// Redact a PCZT
     Redact(redact::Command),
+    /// Plan already-built unsigned PCZTs into Keystone-sized signing rounds by total action
+    /// count, and print ready-to-run to-qr-batch/from-qr-batch commands for each round
+    PlanBatches(plan_batches::Command),
     /// Create proofs for a PCZT
     Prove(prove::Command),
     /// Apply signatures to a PCZT
@@ -58,6 +62,17 @@ pub(crate) enum Command {
     /// Render a PCZT as an animated QR code
     ToQr(qr::Send),
     #[cfg(feature = "pczt-qr")]
+    /// Render multiple PCZTs as a single batch, animated QR code (Keystone's batch signing)
+    ToQrBatch(qr::SendBatch),
+    #[cfg(feature = "pczt-qr")]
     /// Read a PCZT from an animated QR code via the webcam
     FromQr(qr::Receive),
+    #[cfg(feature = "pczt-qr")]
+    /// Read a batch signing result from an animated QR code via the webcam, and apply the
+    /// signatures to the original unsigned PCZTs (in the same order given to `to-qr-batch`)
+    FromQrBatch(qr::ReceiveBatch),
+    #[cfg(feature = "pczt-qr")]
+    /// Combines `to-qr-batch` and `from-qr-batch` into one round trip: shows the outgoing batch
+    /// QR, then -- once you press Enter -- opens the camera and scans for the signed response
+    BatchSign(qr::BatchSign),
 }

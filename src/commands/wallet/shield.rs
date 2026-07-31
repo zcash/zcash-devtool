@@ -147,6 +147,7 @@ impl Command {
             account.id(),
             confirmations_policy,
             CoinbaseFilter::AllTransparentOutputs,
+            None,
         )
         .map_err(error::Error::Shield)?;
 
@@ -158,6 +159,8 @@ impl Command {
             &SpendingKeys::from_unified_spending_key(usk),
             OvkPolicy::Sender,
             &proposal,
+            // Use the builder-derived expiry (no override).
+            None,
         )
         .map_err(error::Error::Shield)?;
 

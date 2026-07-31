@@ -111,6 +111,7 @@ impl Command {
             // transparent UTXOs; they must be shielded first.
             &SpendPolicy::default(),
             None,
+            None,
         )
         .map_err(error::Error::from)?;
 
@@ -122,7 +123,7 @@ impl Command {
             &proposal,
             // Use the builder-derived expiry and a standard Orchard-pool bundle.
             None,
-            orchard::builder::BundleType::DEFAULT,
+            zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
         )
         .map_err(error::Error::from)?;
 

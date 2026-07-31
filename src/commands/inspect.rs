@@ -131,13 +131,7 @@ where
 {
     let mut cursor = Cursor::new(bytes);
     let res = f(&mut cursor);
-    res.ok().and_then(|t| {
-        if cursor.position() >= bytes.len() as u64 {
-            Some(t)
-        } else {
-            None
-        }
-    })
+    res.ok().filter(|_| cursor.position() >= bytes.len() as u64)
 }
 
 async fn inspect_bytes(bytes: Vec<u8>, context: Option<Context>, lookup: bool) {
