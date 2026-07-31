@@ -183,11 +183,11 @@ impl Command {
             let mut scan_ranges = db_data.suggest_scan_ranges()?;
             info!("Fetched {} scan ranges", scan_ranges.len());
             #[cfg(feature = "tui")]
-            if let Some(handle) = tui_handle {
-                if handle.set_scan_ranges(&scan_ranges, _chain_tip) {
-                    // TUI exited.
-                    return Ok(false);
-                }
+            if let Some(handle) = tui_handle
+                && handle.set_scan_ranges(&scan_ranges, _chain_tip)
+            {
+                // TUI exited.
+                return Ok(false);
             }
             if shutdown.requested() {
                 return Ok(false);
@@ -248,11 +248,11 @@ impl Command {
                             // The suggested scan ranges have been updated, so we re-request.
                             scan_ranges = db_data.suggest_scan_ranges()?;
                             #[cfg(feature = "tui")]
-                            if let Some(handle) = tui_handle {
-                                if handle.set_scan_ranges(&scan_ranges, _chain_tip) {
-                                    // TUI exited.
-                                    return Ok(false);
-                                }
+                            if let Some(handle) = tui_handle
+                                && handle.set_scan_ranges(&scan_ranges, _chain_tip)
+                            {
+                                // TUI exited.
+                                return Ok(false);
                             }
                             if shutdown.requested() {
                                 return Ok(false);
@@ -278,11 +278,11 @@ impl Command {
             let scan_ranges = db_data.suggest_scan_ranges()?;
             debug!("Suggested ranges: {:?}", scan_ranges);
             #[cfg(feature = "tui")]
-            if let Some(handle) = tui_handle {
-                if handle.set_scan_ranges(&scan_ranges, _chain_tip) {
-                    // TUI exited.
-                    return Ok(false);
-                }
+            if let Some(handle) = tui_handle
+                && handle.set_scan_ranges(&scan_ranges, _chain_tip)
+            {
+                // TUI exited.
+                return Ok(false);
             }
             if shutdown.requested() {
                 return Ok(false);
@@ -548,10 +548,10 @@ fn delete_block_files_above(fsblockdb_root: &Path, height: BlockHeight) {
             .and_then(|h| h.parse::<u32>().ok());
         if file_height.is_some_and(|h| h > u32::from(height)) {
             // Best-effort: a missing file has already served our purpose.
-            if let Err(e) = std::fs::remove_file(entry.path()) {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    error!("Failed to delete cached block {:?}: {}", entry.path(), e);
-                }
+            if let Err(e) = std::fs::remove_file(entry.path())
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                error!("Failed to delete cached block {:?}: {}", entry.path(), e);
             }
         }
     }
@@ -743,11 +743,11 @@ fn scan_blocks<P: Parameters + Send + 'static>(
             // higher priority than the current range, invalidate the current ranges.
             let latest_ranges = db_data.suggest_scan_ranges()?;
             #[cfg(feature = "tui")]
-            if let Some(handle) = tui_handle {
-                if handle.set_scan_ranges(&latest_ranges, chain_tip) {
-                    // TUI exited.
-                    return Ok(false);
-                }
+            if let Some(handle) = tui_handle
+                && handle.set_scan_ranges(&latest_ranges, chain_tip)
+            {
+                // TUI exited.
+                return Ok(false);
             }
 
             Ok(if let Some(range) = latest_ranges.first() {

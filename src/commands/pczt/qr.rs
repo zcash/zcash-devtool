@@ -586,15 +586,15 @@ fn decode_batch_sig_result(
         hex::encode(&result.request_id),
     );
 
-    if let Some(expected) = expected_request_id {
-        if result.request_id != expected {
-            return Err(anyhow!(
-                "Response request id {} does not match the request id {} this batch was sent \
+    if let Some(expected) = expected_request_id
+        && result.request_id != expected
+    {
+        return Err(anyhow!(
+            "Response request id {} does not match the request id {} this batch was sent \
                  with -- this response may belong to a different, unrelated batch request",
-                hex::encode(&result.request_id),
-                hex::encode(expected),
-            ));
-        }
+            hex::encode(&result.request_id),
+            hex::encode(expected),
+        ));
     }
 
     BatchSignResponse::parse(&result.data)
@@ -812,10 +812,10 @@ where
         let key = d.int()?;
         (cb)(key, obj, d)?;
         index += 1;
-        if let Some(len) = entries {
-            if len == index {
-                break;
-            }
+        if let Some(len) = entries
+            && len == index
+        {
+            break;
         }
         if let Type::Break = d.datatype()? {
             d.skip()?;
