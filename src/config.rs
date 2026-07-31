@@ -413,6 +413,14 @@ jRW+ziYGUZgR+/lTdkPqVkIYF3HD73VeQcAN6Q==
         TEST_PHRASE.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 
+    /// BIP-39 seed for `TEST_PHRASE` with an empty passphrase, computed
+    /// independently of this crate's dependencies as
+    /// `PBKDF2-HMAC-SHA512(phrase, "mnemonic", 2048, 64)`. Hard-coded rather
+    /// than derived through `bip0039` so that a change in how that crate
+    /// derives seeds is caught here instead of cancelling itself out.
+    const EXPECTED_SEED_HEX: &str = "9070562a53e5306c09ff0b3f30924658001139798a7a07c42b43c07751fdb43a\
+                                     6ac32f5a11f7015025b4558a115ecbee7a6aa62824f698f844d49e97550d20db";
+
     fn identity() -> age::x25519::Identity {
         TEST_IDENTITY.parse().expect("test identity parses")
     }
@@ -443,11 +451,10 @@ jRW+ziYGUZgR+/lTdkPqVkIYF3HD73VeQcAN6Q==
         )
         .expect("seed derives from the age 0.11 ciphertext");
 
-        let expected = <Mnemonic<English>>::from_phrase(phrase())
-            .expect("test phrase is a valid mnemonic")
-            .to_seed("");
-
-        assert_eq!(seed.expose_secret().as_slice(), &expected[..]);
+        assert_eq!(
+            hex::encode(seed.expose_secret()),
+            EXPECTED_SEED_HEX.split_whitespace().collect::<String>(),
+        );
     }
 
     /// Guard the other direction: what we write today must read back.
