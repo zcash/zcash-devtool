@@ -605,11 +605,15 @@ fn decode_batch_sig_result(
 /// same order as `paths`, and writes each result out -- overwriting in place, or alongside with
 /// `out_suffix` appended to the filename. Shared by `from-qr-batch` and `batch-sign`.
 ///
-/// Signatures are applied through the Orchard signer role only. That matches every batch this
-/// tool produces today: an Orchard -> Ironwood migration batch's real spends are all Orchard,
-/// and its Ironwood actions' dummy `spend_auth_sig`s are still intact on the original files
-/// (redaction only ever touched the copies sent over the wire). A future batch carrying real
-/// Ironwood spends would need an Ironwood counterpart here, not silent reuse of this path.
+/// Each signature is applied via [`Signer::apply_orchard_spend_auth_signature`], which --
+/// despite its name -- dispatches on the signature's value pool, routing Ironwood signatures
+/// to the Ironwood bundle: a future batch carrying real Ironwood spends is already handled
+/// here. Every batch this tool produces today only exercises the Orchard arm (a migration
+/// batch's real spends are all Orchard, and its Ironwood actions' dummy `spend_auth_sig`s are
+/// still intact on the original files -- redaction only ever touched the copies sent over the
+/// wire). The crate verifies each signature against its action's randomized verification key
+/// (`rk`) before storing it, so a wrong or hostile response errors out with nothing written --
+/// which is what makes `from-qr-batch`'s documented opt-out of request-id correlation safe.
 fn apply_batch_signatures_and_write(
     paths: &[PathBuf],
     pczts: Vec<Pczt>,
