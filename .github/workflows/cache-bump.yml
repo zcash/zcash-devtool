@@ -5,6 +5,12 @@ on:
     # Daily at 2:42pm UTC
     - cron: '42 14 * * *'
 
+# Restrict the default GITHUB_TOKEN to read-only. This workflow never checks out
+# the repository and only touches the Actions cache, which authenticates with the
+# runtime token rather than GITHUB_TOKEN, so it needs nothing beyond this.
+permissions:
+  contents: read
+
 jobs:
   wallet-sync:
     name: Refresh cached wallet state from ${{ matrix.days }} days ago

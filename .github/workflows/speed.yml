@@ -12,6 +12,12 @@ on:
         default: false
         type: boolean
 
+# Restrict the default GITHUB_TOKEN to read-only; jobs that need more opt in below.
+# Nothing here does: checkout only reads, the artifact and cache actions authenticate
+# with the runtime token rather than GITHUB_TOKEN, and bencher uses its own API token.
+permissions:
+  contents: read
+
 jobs:
   build-binary:
     name: Build binary for testing
