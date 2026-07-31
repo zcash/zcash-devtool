@@ -71,7 +71,7 @@ impl PaymentContext for FanOutRound {
         self.account_id
     }
 
-    fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity>>> {
+    fn age_identities(&self) -> anyhow::Result<Vec<Box<dyn Identity + Send + Sync>>> {
         let identities = age::IdentityFile::from_file(self.identity.clone())?.into_identities()?;
         Ok(identities)
     }
