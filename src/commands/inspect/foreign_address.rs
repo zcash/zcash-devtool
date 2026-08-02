@@ -9,42 +9,39 @@ pub(crate) fn detect(s: &str) -> Option<ForeignAddress> {
     let s = s.trim();
 
     // Try decoding as Bech32.
-    if let Ok(parsed) = CheckedHrpstring::new::<Bech32>(s) {
+    if let Ok(parsed) = CheckedHrpstring::new::<Bech32>(s)
         // If we reached this point, the encoding is found to be valid Bech32.
-        if let Some(&token_class) = BECH32_HRP.get(parsed.hrp().as_str()) {
-            return Some(ForeignAddress { token_class });
-        }
+        && let Some(&token_class) = BECH32_HRP.get(parsed.hrp().as_str())
+    {
+        return Some(ForeignAddress { token_class });
     }
 
     // Try decoding as Bech32m.
-    if let Ok(parsed) = CheckedHrpstring::new::<Bech32m>(s) {
+    if let Ok(parsed) = CheckedHrpstring::new::<Bech32m>(s)
         // If we reached this point, the encoding is found to be valid Bech32m.
-        if let Some(&token_class) = BECH32M_HRP.get(parsed.hrp().as_str()) {
-            return Some(ForeignAddress { token_class });
-        }
+        && let Some(&token_class) = BECH32M_HRP.get(parsed.hrp().as_str())
+    {
+        return Some(ForeignAddress { token_class });
     }
 
     // Try decoding as Base58Check.
-    if let Ok(decoded) = bs58::decode(s).with_check(None).into_vec() {
-        if !decoded.is_empty() {
-            if let Some(&token_class) = B58CHECK_BITCOIN_PREFIX_1.get(&decoded[..1]) {
-                return Some(ForeignAddress { token_class });
-            }
-        }
-    };
+    if let Ok(decoded) = bs58::decode(s).with_check(None).into_vec()
+        && !decoded.is_empty()
+        && let Some(&token_class) = B58CHECK_BITCOIN_PREFIX_1.get(&decoded[..1])
+    {
+        return Some(ForeignAddress { token_class });
+    }
 
     // Try decoding as Base58Check.
     if let Ok(decoded) = bs58::decode(s)
         .with_alphabet(bs58::Alphabet::RIPPLE)
         .with_check(None)
         .into_vec()
+        && !decoded.is_empty()
+        && let Some(&token_class) = B58CHECK_RIPPLE_PREFIX_1.get(&decoded[..1])
     {
-        if !decoded.is_empty() {
-            if let Some(&token_class) = B58CHECK_RIPPLE_PREFIX_1.get(&decoded[..1]) {
-                return Some(ForeignAddress { token_class });
-            }
-        }
-    };
+        return Some(ForeignAddress { token_class });
+    }
 
     // Try decoding as an Ethereum address.
     if Regex::new(r"^0x[0-9a-fA-F]{40}$")
