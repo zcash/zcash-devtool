@@ -270,10 +270,9 @@ impl Command {
             .serialize()
             .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
         if let Some(output_path) = &self.output {
-            File::create(output_path)
-                .await?
-                .write_all(&pczt_bytes)
-                .await?;
+            let mut file = File::create(output_path).await?;
+            file.write_all(&pczt_bytes).await?;
+            file.flush().await?;
         } else {
             let mut stdout = stdout();
             stdout.write_all(&pczt_bytes).await?;
