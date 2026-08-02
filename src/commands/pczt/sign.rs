@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, convert::Infallible};
+use std::{collections::BTreeMap, convert::Infallible, path::PathBuf};
 
 use anyhow::anyhow;
 use clap::Args;
@@ -7,7 +7,10 @@ use pczt::{
     roles::{signer::Signer, verifier::Verifier},
 };
 use secrecy::ExposeSecret;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, stdin, stdout};
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncWriteExt, stdin, stdout},
+};
 
 use ::transparent::{
     keys::{NonHardenedChildIndex, TransparentKeyScope},
@@ -25,6 +28,13 @@ pub(crate) struct Command {
     /// age identity file to decrypt the mnemonic phrase with
     #[arg(short, long)]
     identity: String,
+
+    /// Path to a file from which to read the PCZT. If not provided, reads from stdin.
+    input: Option<PathBuf>,
+
+    /// Path to a file to which to write the PCZT. If not provided, writes to stdout.
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 impl Command {
@@ -33,7 +43,11 @@ impl Command {
         let params = config.network();
 
         let mut buf = vec![];
-        stdin().read_to_end(&mut buf).await?;
+        if let Some(input_path) = &self.input {
+            File::open(input_path).await?.read_to_end(&mut buf).await?;
+        } else {
+            stdin().read_to_end(&mut buf).await?;
+        }
 
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 
@@ -205,7 +219,15 @@ impl Command {
         let pczt_bytes = pczt
             .serialize()
             .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
-        stdout().write_all(&pczt_bytes).await?;
+        if let Some(output_path) = &self.output {
+            let mut file = File::create(output_path).await?;
+            file.write_all(&pczt_bytes).await?;
+            file.flush().await?;
+        } else {
+            let mut stdout = stdout();
+            stdout.write_all(&pczt_bytes).await?;
+            stdout.flush().await?;
+        }
 
         Ok(())
     }

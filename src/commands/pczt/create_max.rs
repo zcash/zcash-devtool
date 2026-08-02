@@ -1,9 +1,12 @@
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 use anyhow::anyhow;
 use clap::Args;
 use rand::rngs::OsRng;
-use tokio::io::{AsyncWriteExt, stdout};
+use tokio::{
+    fs::File,
+    io::{AsyncWriteExt, stdout},
+};
 use uuid::Uuid;
 
 use zcash_address::ZcashAddress;
@@ -48,6 +51,10 @@ pub(crate) struct Command {
     /// wallet or if the wallet is not yet synced.
     #[arg(long)]
     only_spendable: bool,
+
+    /// Path to a file to which to write the PCZT. If not provided, writes to stdout.
+    #[arg(long)]
+    output: Option<PathBuf>,
 }
 
 impl Command {
@@ -107,7 +114,15 @@ impl Command {
         let pczt_bytes = pczt
             .serialize()
             .map_err(|e| anyhow!("Failed to serialize PCZT: {:?}", e))?;
-        stdout().write_all(&pczt_bytes).await?;
+        if let Some(output_path) = &self.output {
+            let mut file = File::create(output_path).await?;
+            file.write_all(&pczt_bytes).await?;
+            file.flush().await?;
+        } else {
+            let mut stdout = stdout();
+            stdout.write_all(&pczt_bytes).await?;
+            stdout.flush().await?;
+        }
 
         Ok(())
     }
