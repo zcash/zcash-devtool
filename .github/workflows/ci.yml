@@ -49,6 +49,26 @@ jobs:
       - name: Clippy with regtest_support
         run: cargo clippy --all-targets --features regtest_support -- -D warnings
 
+  # The pczt-qr feature carries the CBOR/UR wire format shared with Keystone
+  # hardware wallets, and its fixed-vector tests are what protect that
+  # interoperability across dependency bumps -- so they must run in CI, not
+  # just compile. nokhwa's camera backends are platform-specific native code,
+  # hence the OS matrix.
+  pczt-qr:
+    name: Build, test, and lint with pczt-qr on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build with pczt-qr
+        run: cargo build --features pczt-qr
+      - name: Test with pczt-qr
+        run: cargo test --features pczt-qr
+      - name: Clippy with pczt-qr
+        run: cargo clippy --all-targets --features pczt-qr -- -D warnings
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
