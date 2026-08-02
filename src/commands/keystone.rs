@@ -132,7 +132,7 @@ impl<C> minicbor::Encode<C> for ZcashAccounts {
         e.int(Int::from(ACCOUNTS))?
             .array(self.accounts.len() as u64)?;
         for account in &self.accounts {
-            e.tag(Tag::Unassigned(ZCASH_UNIFIED_FULL_VIEWING_KEY))?;
+            e.tag(Tag::new(ZCASH_UNIFIED_FULL_VIEWING_KEY))?;
             ZcashUnifiedFullViewingKey::encode(account, e, _ctx)?;
         }
 

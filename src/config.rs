@@ -376,3 +376,106 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 }
+
+/// Seed encryption is the one place where a dependency upgrade can silently
+/// lock users out of an existing wallet, so these tests pin the on-disk
+/// format rather than just exercising the current API against itself.
+#[cfg(test)]
+mod age_compat_tests {
+    use super::*;
+
+    /// Test-only key. It protects nothing but the fixture below.
+    const TEST_IDENTITY: &str =
+        "AGE-SECRET-KEY-1T2376TDD3NNRFPKVU9VAK8E8HP6P5HW6KL0WTYZAFKAFMQX8SKMSHNQELQ";
+
+    /// The same throwaway mnemonic already published in `.github/workflows/speed.yml`.
+    const TEST_PHRASE: &str = "wine gesture someone salmon deposit fit depart marble seed chat \
+                               sick wood illegal trim coast scheme sword enter shiver disagree \
+                               marble short blind carry";
+
+    /// Produced by `encrypt_mnemonic` while this crate was still on age 0.11,
+    /// standing in for a `keys.toml` written by an older build of the tool.
+    const AGE_0_11_CIPHERTEXT: &str = "\
+-----BEGIN AGE ENCRYPTED FILE-----
+YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSArei9Ua29rWlg3aFdqSTcx
+YzBKbExoWFUxYUhwaFl5Y0xSVzJlaTV2U3hRCjBWMkhRdDVhWjJsM0Q3dVhCZnNE
+ZU9VcVV6bW9TTE1DdVNVbEluMi9uL2sKLT4gMlNFc30tZ3JlYXNlIEVgClVKYUhy
+Rm9nRjltclg1Vks3SlVyUG5Vc2RWdGNaYmxOS0RtVjlZam0KLS0tIFkrR0dBbjdW
+STErSXlNZWhFcnNMaGYxZjN6bTJQd0xROUJKMlZSOWhkYTgK6aEEcSwPN4JRdAhP
+2m8mgN+4f/4hIRMsBuiMm1GYQyYJzLQ4z2pK+QMzJVsUYcG7QOGRaDeOr0F9n45k
+j3GXXXAowjUwmgG6J34Z2PR904VFX35hdgxoaZZiijrJzvZ2N+6NI9r6FdNq5HWs
+YbqDyi3goiJhF8/i5yYqiwrQXvZ/TzK026b7iVHT45qGGzDwYIjy3JDIz8NRXZmB
+jRW+ziYGUZgR+/lTdkPqVkIYF3HD73VeQcAN6Q==
+-----END AGE ENCRYPTED FILE-----
+";
+
+    fn phrase() -> String {
+        TEST_PHRASE.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// BIP-39 seed for `TEST_PHRASE` with an empty passphrase, computed
+    /// independently of this crate's dependencies as
+    /// `PBKDF2-HMAC-SHA512(phrase, "mnemonic", 2048, 64)`. Hard-coded rather
+    /// than derived through `bip0039` so that a change in how that crate
+    /// derives seeds is caught here instead of cancelling itself out.
+    const EXPECTED_SEED_HEX: &str = "9070562a53e5306c09ff0b3f30924658001139798a7a07c42b43c07751fdb43a\
+                                     6ac32f5a11f7015025b4558a115ecbee7a6aa62824f698f844d49e97550d20db";
+
+    fn identity() -> age::x25519::Identity {
+        TEST_IDENTITY.parse().expect("test identity parses")
+    }
+
+    /// A wallet whose seed was encrypted by an age 0.11 build must still open.
+    #[test]
+    fn ciphertext_written_by_age_0_11_still_decrypts() {
+        let id = identity();
+        let recovered = decrypt_mnemonic(
+            std::iter::once(&id as &dyn age::Identity),
+            AGE_0_11_CIPHERTEXT,
+        )
+        .expect("age 0.11 ciphertext decrypts under the current age release");
+
+        assert_eq!(
+            std::str::from_utf8(recovered.expose_secret()).unwrap(),
+            phrase(),
+        );
+    }
+
+    /// ...and must derive the same seed, not merely the same mnemonic bytes.
+    #[test]
+    fn seed_from_age_0_11_ciphertext_is_unchanged() {
+        let id = identity();
+        let seed = decrypt_seed(
+            std::iter::once(&id as &dyn age::Identity),
+            AGE_0_11_CIPHERTEXT,
+        )
+        .expect("seed derives from the age 0.11 ciphertext");
+
+        assert_eq!(
+            hex::encode(seed.expose_secret()),
+            EXPECTED_SEED_HEX.split_whitespace().collect::<String>(),
+        );
+    }
+
+    /// Guard the other direction: what we write today must read back.
+    #[test]
+    fn encrypt_decrypt_round_trips() {
+        let id = identity();
+        let recipient = id.to_public();
+        let mnemonic = <Mnemonic<English>>::from_phrase(phrase()).unwrap();
+
+        let ciphertext = encrypt_mnemonic(
+            std::iter::once(&recipient as &dyn age::Recipient),
+            &mnemonic,
+        )
+        .expect("encryption succeeds");
+
+        let recovered = decrypt_mnemonic(std::iter::once(&id as &dyn age::Identity), &ciphertext)
+            .expect("round trip decrypts");
+
+        assert_eq!(
+            std::str::from_utf8(recovered.expose_secret()).unwrap(),
+            phrase(),
+        );
+    }
+}
