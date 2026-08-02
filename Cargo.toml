@@ -82,7 +82,7 @@ zcash_pool_migration = { git = "https://github.com/zcash/librustzcash.git", rev 
 clap = { version = "4.5", features = ["derive", "string", "unstable-styles"] }
 
 # CSPRNG
-rand = { version = "0.8", default-features = false }
+rand = { version = "0.10", default-features = false }
 
 # Seed encryption
 age = { version = "0.12", features = ["armor", "plugin"] }

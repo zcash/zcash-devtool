@@ -9487,7 +9487,7 @@ dependencies = [
  "phf 0.11.3",
  "prost",
  "qrcode",
- "rand 0.8.7",
+ "rand 0.10.2",
  "ratatui",
  "rayon",
  "regex",
