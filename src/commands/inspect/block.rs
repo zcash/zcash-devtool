@@ -11,7 +11,9 @@ use zcash_client_backend::proto::compact_formats::CompactBlock;
 
 use zcash_encoding::Vector;
 use zcash_primitives::{block::BlockHeader, transaction::Transaction};
-use zcash_protocol::consensus::{BlockHeight, BranchId, Network, NetworkUpgrade, Parameters};
+use zcash_protocol::consensus::{self, BlockHeight, BranchId, NetworkUpgrade, Parameters};
+
+use crate::data::Network;
 
 use super::{
     Context, ZUint256,
@@ -48,44 +50,77 @@ pub(crate) trait BlockParams: Parameters {
     fn pow_limit(&self) -> U256;
 }
 
+// Consensus parameters from zcashd's chainparams.cpp: regtest is the only
+// Zcash network with Equihash (48, 5) and a powLimit above testnet's.
 impl BlockParams for Network {
     fn equihash_n(&self) -> u32 {
         match self {
-            Self::MainNetwork | Self::TestNetwork => 200,
+            Self::Main | Self::Test => 200,
+            #[cfg(feature = "regtest_support")]
+            Self::Regtest(_) => 48,
         }
     }
 
     fn equihash_k(&self) -> u32 {
         match self {
-            Self::MainNetwork | Self::TestNetwork => 9,
+            Self::Main | Self::Test => 9,
+            #[cfg(feature = "regtest_support")]
+            Self::Regtest(_) => 5,
         }
     }
 
     fn pow_limit(&self) -> U256 {
         match self {
-            Self::MainNetwork => U256::from_big_endian(
+            Self::Main => U256::from_big_endian(
                 &hex::decode("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
                     .unwrap(),
             ),
-            Self::TestNetwork => U256::from_big_endian(
+            Self::Test => U256::from_big_endian(
                 &hex::decode("07ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+                    .unwrap(),
+            ),
+            #[cfg(feature = "regtest_support")]
+            Self::Regtest(_) => U256::from_big_endian(
+                &hex::decode("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f")
                     .unwrap(),
             ),
         }
     }
 }
 
+/// The encoded size of an Equihash (48, 5) solution: 2^5 indices of
+/// 48/(5+1) + 1 = 9 bits each. Mainnet and testnet's (200, 9) solutions are
+/// 1344 bytes, so the length alone identifies a regtest header.
+#[cfg(feature = "regtest_support")]
+const EQUIHASH_48_5_SOLUTION_SIZE: usize = 36;
+
 pub(crate) fn guess_params(header: &BlockHeader) -> Option<Network> {
+    // Regtest is the only Zcash network using Equihash (48, 5), whose
+    // solution size differs from the (200, 9) networks.
+    #[cfg(feature = "regtest_support")]
+    if header.solution.len() == EQUIHASH_48_5_SOLUTION_SIZE {
+        return Some(Network::default_regtest());
+    }
+
     // If the block target falls between the testnet and mainnet powLimit, assume testnet.
     let (target, is_negative, did_overflow) = U256::from_compact(header.bits);
     if !(is_negative || did_overflow)
-        && target > Network::MainNetwork.pow_limit()
-        && target <= Network::TestNetwork.pow_limit()
+        && target > Network::Main.pow_limit()
+        && target <= Network::Test.pow_limit()
     {
-        return Some(Network::TestNetwork);
+        return Some(Network::Test);
     }
 
     None
+}
+
+/// Maps an inspection context network (which can only name main or test) onto
+/// the wallet network type that carries block consensus parameters.
+fn from_context(network: consensus::Network) -> Network {
+    match network {
+        consensus::Network::MainNetwork => Network::Main,
+        consensus::Network::TestNetwork => Network::Test,
+    }
 }
 
 fn check_equihash_solution(header: &BlockHeader, params: Network) -> Result<(), equihash::Error> {
@@ -256,7 +291,7 @@ pub(crate) fn inspect_header(header: &BlockHeader, context: Option<Context>) {
     eprintln!("Zcash block header");
     inspect_header_inner(
         header,
-        guess_params(header).or_else(|| context.and_then(|c| c.network())),
+        guess_params(header).or_else(|| context.and_then(|c| c.network()).map(from_context)),
     );
 }
 
@@ -268,6 +303,13 @@ fn inspect_header_inner(header: &BlockHeader, params: Option<Network>) {
         eprintln!("⚠️  Version too low",);
     }
     if let Some(params) = params {
+        eprintln!(" - Network: {}", params.name());
+        #[cfg(feature = "regtest_support")]
+        if matches!(params, Network::Regtest(_)) {
+            eprintln!(
+                "🔎 Regtest detected from the Equihash (48, 5) solution size; height-dependent checks use the default regtest activation heights"
+            );
+        }
         if let Err(e) = check_equihash_solution(header, params) {
             // zcashd: invalid-solution
             eprintln!("⚠️  Invalid Equihash solution: {e}");
@@ -294,7 +336,7 @@ pub(crate) fn inspect(block: &Block, context: Option<Context>) {
     eprintln!("Zcash block");
     let params = block
         .guess_params()
-        .or_else(|| context.as_ref().and_then(|c| c.network()));
+        .or_else(|| context.as_ref().and_then(|c| c.network()).map(from_context));
     inspect_header_inner(&block.header, params);
 
     let height = match block.txs.len() {
@@ -407,5 +449,72 @@ pub(crate) fn inspect(block: &Block, context: Option<Context>) {
         } else {
             eprintln!("🔎 To check header.blockcommitments, add \"chainhistoryroot\" to context");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zcash_primitives::block::{BlockHash, BlockHeaderData};
+
+    /// Equihash (200, 9) solution size, used by mainnet and testnet.
+    const EQUIHASH_200_9_SOLUTION_SIZE: usize = 1344;
+
+    fn header(bits: u32, solution_len: usize) -> BlockHeader {
+        BlockHeaderData {
+            version: 4,
+            prev_block: BlockHash([0; 32]),
+            merkle_root: [0; 32],
+            final_sapling_root: [0; 32],
+            time: 0,
+            bits,
+            nonce: [0; 32],
+            solution: vec![0; solution_len],
+        }
+        .freeze()
+        .expect("header serializes")
+    }
+
+    /// zcashd testnet genesis nBits, which encodes exactly the testnet
+    /// powLimit -- above mainnet's limit, so it identifies testnet.
+    const TESTNET_POW_LIMIT_BITS: u32 = 0x2007ffff;
+
+    #[test]
+    fn guess_params_identifies_testnet_by_target_range() {
+        let guessed = guess_params(&header(
+            TESTNET_POW_LIMIT_BITS,
+            EQUIHASH_200_9_SOLUTION_SIZE,
+        ));
+        assert!(matches!(guessed, Some(Network::Test)));
+    }
+
+    #[test]
+    fn guess_params_cannot_distinguish_mainnet() {
+        // A target below mainnet's powLimit is valid on every network, so
+        // nothing can be inferred from it.
+        let guessed = guess_params(&header(0x1d00ffff, EQUIHASH_200_9_SOLUTION_SIZE));
+        assert!(guessed.is_none());
+    }
+
+    #[cfg(feature = "regtest_support")]
+    #[test]
+    fn guess_params_identifies_regtest_by_solution_size() {
+        // Regtest's Equihash (48, 5) solution size differs from the 1344
+        // bytes of the (200, 9) networks, regardless of the target.
+        let guessed = guess_params(&header(0x200f0f0f, EQUIHASH_48_5_SOLUTION_SIZE));
+        assert!(matches!(guessed, Some(Network::Regtest(_))));
+    }
+
+    #[cfg(feature = "regtest_support")]
+    #[test]
+    fn regtest_block_params_match_zcashd_chainparams() {
+        // https://github.com/zcash/zcash/blob/master/src/chainparams.cpp (CRegTestParams)
+        let params = Network::default_regtest();
+        assert_eq!(params.equihash_n(), 48);
+        assert_eq!(params.equihash_k(), 5);
+        assert_eq!(params.pow_limit(), U256::from_big_endian(&[0x0f; 32]),);
+        // The powLimit ordering the testnet guess relies on: main < test < regtest.
+        assert!(Network::Main.pow_limit() < Network::Test.pow_limit());
+        assert!(Network::Test.pow_limit() < params.pow_limit());
     }
 }
