@@ -65,6 +65,9 @@ impl Command {
             Orchard {
                 index: usize,
             },
+            Ironwood {
+                index: usize,
+            },
             Sapling {
                 index: usize,
             },
@@ -97,6 +100,27 @@ impl Command {
                         keys.entry(account_index)
                             .or_default()
                             .push(KeyRef::Orchard { index });
+                    }
+                }
+                Ok(())
+            })
+            .map_err(|e| anyhow!("Invalid PCZT: {:?}", e))?
+            .with_ironwood::<Infallible, _>(|bundle| {
+                for (index, action) in bundle.actions().iter().enumerate() {
+                    if let Some(account_index) = action
+                        .spend()
+                        .zip32_derivation()
+                        .as_ref()
+                        .and_then(|derivation| {
+                            derivation.extract_account_index(
+                                &seed_fp,
+                                zip32::ChildIndex::hardened(params.network_type().coin_type()),
+                            )
+                        })
+                    {
+                        keys.entry(account_index)
+                            .or_default()
+                            .push(KeyRef::Ironwood { index });
                     }
                 }
                 Ok(())
@@ -171,6 +195,16 @@ impl Command {
                             )
                             .map_err(|e| {
                                 anyhow!("Failed to sign Orchard spend {index}: {:?}", e)
+                            })?;
+                    }
+                    KeyRef::Ironwood { index } => {
+                        signer
+                            .sign_ironwood(
+                                index,
+                                &orchard::keys::SpendAuthorizingKey::from(usk.orchard()),
+                            )
+                            .map_err(|e| {
+                                anyhow!("Failed to sign Ironwood spend {index}: {:?}", e)
                             })?;
                     }
                     KeyRef::Sapling { index } => {
