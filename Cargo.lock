@@ -52,7 +52,7 @@ checksum = "fd290633c2482479f70f6d1d96ae0e9f52c6a26cd5859edd47ee1fe33fc89f26"
 dependencies = [
  "age-core",
  "base64",
- "bech32",
+ "bech32 0.11.1",
  "chacha20poly1305",
  "cipher",
  "cookie-factory",
@@ -85,7 +85,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01d4375964d1501e5f1b32aef2ead573913893ff238448d4e9fdf1522d828656"
 dependencies = [
  "base64",
- "bech32",
+ "bech32 0.11.1",
  "chacha20poly1305",
  "cookie-factory",
  "hkdf",
@@ -633,6 +633,12 @@ name = "bech32"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32637268377fc7b10a8c6d51de3e7fba1ce5dd371a96e342b34e6078db558e7f"
+
+[[package]]
+name = "bech32"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efbd3e1070bbdf4cd88a75264e18e8a26f7cb5c6949eadf0ceb85fb159cf08f8"
 
 [[package]]
 name = "bellman"
@@ -9469,7 +9475,7 @@ version = "0.1.0"
 dependencies = [
  "age",
  "anyhow",
- "bech32",
+ "bech32 0.12.0",
  "bellman",
  "bip0039",
  "bip32",
@@ -9551,7 +9557,7 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a854b28c07dba372f4410ea8ad62b4bf7d5c2bf8be32fc4b31bc0db6521a975"
 dependencies = [
- "bech32",
+ "bech32 0.11.1",
  "bs58",
  "corez",
  "f4jumble",
@@ -9569,7 +9575,7 @@ dependencies = [
  "arti-client",
  "assert_matches",
  "base64",
- "bech32",
+ "bech32 0.11.1",
  "bip32",
  "bls12_381",
  "bs58",
@@ -9703,7 +9709,7 @@ version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "def800f128e459eedebc900f36f408eaf0687634128dcf64ecfeaeebc3e16c14"
 dependencies = [
- "bech32",
+ "bech32 0.11.1",
  "bip32",
  "blake2b_simd",
  "bls12_381",
@@ -9948,7 +9954,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b64bf5186a8916f7a48f2a98ef599bf9c099e2458b36b819e393db1c0e768c4b"
 dependencies = [
- "bech32",
+ "bech32 0.11.1",
  "blake2b_simd",
  "memuse",
  "subtle",
