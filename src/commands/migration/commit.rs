@@ -12,6 +12,7 @@ use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_pool_migration::engine::{
     CommitError, build_preparation_unsigned, commit_preparation, plan_migration,
 };
+use zcash_pool_migration::satisfiability::ReplanThreshold;
 use zcash_pool_migration::wallet::WalletMigration;
 
 use crate::{commands::select_account, config::WalletConfig, data::get_db_paths};
@@ -24,15 +25,29 @@ pub(crate) struct Command {
     /// The UUID of the account to commit a migration for
     account_id: Option<Uuid>,
 
-    /// age identity file to decrypt the mnemonic phrase with
-    #[arg(short, long)]
-    identity: String,
+    /// age identity file to decrypt the mnemonic phrase with. Not required with `--external`:
+    /// building a migration for an external signer is a viewing-key operation, so no spending
+    /// key is derived for it.
+    #[arg(short, long, required_unless_present = "external")]
+    identity: Option<String>,
 
     /// Build the migration for an EXTERNAL signer (e.g. Keystone) instead of signing
     /// in-process: leaves every transaction unsigned in the persisted state, and additionally
     /// writes each one to `<wallet-dir>/unsigned-pczts/<id>.pczt` for `pczt to-qr-batch`.
     #[arg(long)]
     external: bool,
+}
+
+/// Where this run's spend authority comes from. Everything a migration does short of signing is
+/// a viewing-key operation, so the spending key exists only on the path that actually signs --
+/// and this makes "external signing, but a spending key was derived anyway" unrepresentable.
+enum Signing {
+    /// Sign in-process with the account's own spend authority, live for the commit call alone.
+    /// Boxed: a `UnifiedSpendingKey` is several hundred bytes, and the external variant carries
+    /// none.
+    InProcess(Box<UnifiedSpendingKey>),
+    /// Leave every transaction unsigned, for a hardware or offline signer.
+    External,
 }
 
 impl Command {
@@ -42,50 +57,43 @@ impl Command {
         let (_, db_path) = get_db_paths(wallet_dir.as_ref());
         let mut conn = open_connection(&db_path)?;
 
-        // `PoolMigrations` is account-scoped now, so the account must be resolved before loading
-        // -- in its own scope, since `WalletDb::from_connection` and a direct `&conn` borrow for
-        // `load_migration` can't both be alive at once.
-        let account_id = {
+        // The account's identity, viewing key, and derivation path, read through a `WalletDb`
+        // view that is dropped before the migration store borrows the same connection.
+        // `PoolMigrations` is account-scoped, so the account must be resolved before loading.
+        let (account_id, ufvk, account_index) = {
             let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
-            select_account(&wallet_db, self.account_id)?.id()
+            let account = select_account(&wallet_db, self.account_id)?;
+            // Only the in-process signing path needs a derivation path; an account whose spend
+            // authority lives on a device may legitimately have none.
+            let account_index = account.source().key_derivation().map(|d| d.account_index());
+            // The key the account's notes were received with: the engine derives the Orchard
+            // full viewing key it plans, builds and stores against from this, and checks the
+            // spend authority passed to `commit_preparation` against it.
+            let ufvk = account.ufvk().cloned().ok_or_else(|| {
+                anyhow!("Cannot commit a migration for an account with no unified full viewing key")
+            })?;
+            (account.id(), ufvk, account_index)
         };
-        let loaded = load_migration(&conn, account_id)?;
+        let loaded = load_migration(params, &conn, account_id)?;
 
-        let identities = age::IdentityFile::from_file(self.identity)?.into_identities()?;
-        let seed = config
-            .decrypt_seed(identities.iter().map(|i| i.as_ref() as _))?
-            .ok_or_else(|| anyhow!("Seed must be present to commit a migration"))?;
-
-        let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
-        let account = select_account(&wallet_db, self.account_id)?;
-        let derivation = account
-            .source()
-            .key_derivation()
-            .ok_or_else(|| anyhow!("Cannot commit a migration for a view-only account"))?;
-        let usk = UnifiedSpendingKey::from_seed(
-            &params,
-            seed.expose_secret(),
-            derivation.account_index(),
-        )
-        .map_err(|e| anyhow!("{e:?}"))?;
-
-        let target_height = wallet_db
-            .chain_height()
-            .map_err(|e| anyhow!("wallet read failed: {e:?}"))?
-            .ok_or_else(|| anyhow!("wallet is not synced"))?;
-        let target_height = target_height + 1;
-
-        let mut migration =
-            WalletMigration::new(&wallet_db, account.id(), usk, InMemoryStore::from(loaded));
-        let mut rng = OsRng;
-        let plan = plan_migration(&params, &migration, &mut rng).map_err(|e| anyhow!("{e}"))?;
-
-        println!(
-            "Committing migration: {} funding note(s), {} preparation layer(s), {} preparation transaction(s)",
-            plan.funding_notes().len(),
-            plan.preparation().layer_count(),
-            plan.preparation().transaction_count(),
-        );
+        let signing = if self.external {
+            Signing::External
+        } else {
+            let identity = self.identity.as_ref().ok_or_else(|| {
+                anyhow!("An age identity is required to sign a migration in-process")
+            })?;
+            let account_index = account_index.ok_or_else(|| {
+                anyhow!("Cannot sign a migration in-process for an account with no key derivation")
+            })?;
+            let identities = age::IdentityFile::from_file(identity.clone())?.into_identities()?;
+            let seed = config
+                .decrypt_seed(identities.iter().map(|i| i.as_ref() as _))?
+                .ok_or_else(|| anyhow!("Seed must be present to sign a migration in-process"))?;
+            Signing::InProcess(Box::new(
+                UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account_index)
+                    .map_err(|e| anyhow!("{e:?}"))?,
+            ))
+        };
 
         let map_commit_err = |e: CommitError<_>| match e {
             CommitError::MigrationInProgress => anyhow!(
@@ -116,13 +124,54 @@ impl Command {
             None
         };
 
-        let (state, unsigned) = if self.external {
-            build_preparation_unsigned(&params, target_height, &mut migration, &plan, &mut rng)
-                .map_err(map_commit_err)?
-        } else {
-            let state = commit_preparation(&params, target_height, &mut migration, &plan, &mut rng)
-                .map_err(map_commit_err)?;
-            (state, Vec::new())
+        let mut rng = OsRng;
+        let (state, unsigned) = {
+            let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
+
+            let target_height = wallet_db
+                .chain_height()
+                .map_err(|e| anyhow!("wallet read failed: {e:?}"))?
+                .ok_or_else(|| anyhow!("wallet is not synced"))?
+                + 1;
+
+            let mut migration =
+                WalletMigration::new(&wallet_db, account_id, ufvk, InMemoryStore::from(loaded));
+            let plan = plan_migration(&params, &migration, &mut rng).map_err(|e| anyhow!("{e}"))?;
+
+            println!(
+                "Committing migration: {} funding note(s), {} preparation layer(s), {} preparation transaction(s)",
+                plan.funding_notes().len(),
+                plan.preparation().layer_count(),
+                plan.preparation().transaction_count(),
+            );
+
+            match &signing {
+                Signing::External => build_preparation_unsigned(
+                    &params,
+                    target_height,
+                    &mut migration,
+                    &plan,
+                    &mut rng,
+                    ReplanThreshold::DEFAULT,
+                )
+                .map_err(map_commit_err)?,
+                // The spend authority is the CALL's, not the adapter's: `WalletMigration` holds
+                // only viewing authority, and the Orchard spending key is live just for this
+                // call (checked against the account's viewing key before anything is built).
+                Signing::InProcess(usk) => {
+                    let state = commit_preparation(
+                        &params,
+                        target_height,
+                        &mut migration,
+                        usk.orchard(),
+                        &plan,
+                        &mut rng,
+                        ReplanThreshold::DEFAULT,
+                    )
+                    .map_err(map_commit_err)?;
+                    (state, Vec::new())
+                }
+            }
         };
 
         if let Some(out_dir) = &external_out_dir {
@@ -157,7 +206,7 @@ impl Command {
             );
         }
 
-        persist_migration(&mut conn, account.id(), &state)?;
+        persist_migration(params, &mut conn, account_id, &state)?;
 
         println!(
             "Migration committed: status={}, {} transaction(s) recorded",

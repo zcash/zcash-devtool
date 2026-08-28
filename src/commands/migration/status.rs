@@ -6,7 +6,8 @@ use uuid::Uuid;
 use zcash_client_backend::data_api::{Account as _, WalletRead};
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_pool_migration::engine::{MigrationTxKind, MigrationTxState};
-use zcash_pool_migration::state::{AdvanceStep, Blocker};
+use zcash_pool_migration::satisfiability::DuenessTargets;
+use zcash_pool_migration::state::{Blocker, NextAction};
 
 use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths};
 
@@ -25,32 +26,43 @@ impl Command {
         let (_, db_path) = get_db_paths(wallet_dir.as_ref());
         let mut conn = open_connection(&db_path)?;
 
-        // `PoolMigrations` is account-scoped now, so the account must be resolved before loading
-        // -- in its own scope, since `WalletDb::from_connection` and a direct `&conn` borrow for
-        // `load_migration` can't both be alive at once.
-        let account_id = {
+        // `PoolMigrations` is account-scoped, so the account must be resolved before loading --
+        // in its own scope, since `WalletDb::from_connection` and the store's borrow of the same
+        // connection can't both be alive at once.
+        //
+        // The two heights must come from the wallet, not from anything derived from the
+        // migration's own schedule: dueness is judged against them, so a synthetic stand-in (the
+        // schedule's own maximum, say) would make transactions look ready regardless of the real
+        // chain. Matches `migration advance`.
+        let (account_id, scanned, tip) = {
             let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
-            select_account(&wallet_db, self.account_id)?.id()
+            let account = select_account(&wallet_db, self.account_id)?;
+            let scanned = wallet_db
+                .block_fully_scanned()
+                .map_err(|e| anyhow!("wallet read failed: {e:?}"))?
+                .ok_or_else(|| anyhow!("wallet has not scanned any blocks yet"))?
+                .block_height();
+            let tip = wallet_db
+                .chain_height()
+                .map_err(|e| anyhow!("wallet read failed: {e:?}"))?
+                .ok_or_else(|| anyhow!("wallet is not synced"))?;
+            (account.id(), scanned, tip)
         };
+        let targets = DuenessTargets::new(scanned + 1, tip + 1);
 
-        let Some(state) = load_migration(&conn, account_id)? else {
+        let Some(state) = load_migration(params, &conn, account_id)? else {
             println!("No migration in progress.");
             return Ok(());
         };
 
         println!("Status: {}", state.status().as_ref());
-        // Must be the LIVE chain tip, not a synthetic stand-in: next_step()/transaction_statuses()
-        // treat anything with scheduled_height <= target_height as due, so a synthetic height
-        // derived from the migration's OWN schedule (e.g. its max) would make transactions look
-        // ready regardless of the real chain -- the opposite of "safe". Matches migration advance.
-        let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
-        let tip = wallet_db
-            .chain_height()
-            .map_err(|e| anyhow!("wallet read failed: {e:?}"))?
-            .ok_or_else(|| anyhow!("wallet is not synced"))?;
-        let target_height = tip + 1;
+        println!(
+            "Judged at scanned target {}, estimated target {}",
+            targets.scanned(),
+            targets.effective()
+        );
 
-        let statuses = state.transaction_statuses(target_height);
+        let statuses = state.transaction_statuses(targets);
         println!("Transactions ({}):", statuses.len());
         for tx in &statuses {
             let kind = match tx.kind() {
@@ -66,44 +78,84 @@ impl Command {
                 MigrationTxState::Broadcast { txid } => {
                     format!("broadcast (txid {})", hex::encode(*txid.as_ref()))
                 }
-                MigrationTxState::Mined { height } => format!("mined at {height}"),
+                MigrationTxState::Mined { txid, height } => {
+                    format!("mined at {height} (txid {})", hex::encode(*txid.as_ref()))
+                }
             };
             let blocker = match tx.blocked_on() {
-                Some(Blocker::Dependencies) => " [blocked: dependencies]",
-                Some(Blocker::Schedule) => " [blocked: schedule]",
-                Some(Blocker::AnchorBoundary) => " [blocked: anchor boundary not yet settled]",
-                Some(Blocker::Signature) => " [blocked: awaiting external signature]",
-                Some(Blocker::Expired) => " [blocked: expired, needs rebuild]",
-                None => "",
+                Some(Blocker::Dependencies) => " [blocked: dependencies]".to_string(),
+                Some(Blocker::Schedule) => " [blocked: schedule]".to_string(),
+                Some(Blocker::AnchorBoundary) => {
+                    " [blocked: anchor boundary not yet settled]".to_string()
+                }
+                Some(Blocker::Signature) => " [blocked: awaiting external signature]".to_string(),
+                Some(Blocker::ExpiryImminent) => {
+                    " [blocked: expiry probably passed, withheld pending scan]".to_string()
+                }
+                Some(Blocker::Expired) => " [blocked: expired, needs rebuild]".to_string(),
+                Some(Blocker::AwaitingReevaluation) => {
+                    " [blocked: a node rejected its broadcast; sync and re-drive]".to_string()
+                }
+                Some(Blocker::Unsatisfiable) => {
+                    // `UnsatisfiableKind` is `#[non_exhaustive]`; its stable wire name is what
+                    // there is to render, and a future release may add one this build cannot
+                    // name.
+                    let kind = tx
+                        .unsatisfiable_kind()
+                        .map(|k| k.as_ref().to_owned())
+                        .unwrap_or_else(|| "unknown".to_owned());
+                    format!(" [blocked: can never mine ({kind})]")
+                }
+                None => match tx.action() {
+                    Some(NextAction::Prove) if tx.ready() => " [ready: prove]".to_string(),
+                    Some(NextAction::Broadcast) if tx.ready() => " [ready: broadcast]".to_string(),
+                    _ => String::new(),
+                },
             };
             println!(
-                "  [{}] {kind}: {state_str}, scheduled >= {}{blocker}",
+                "  [{}] {kind}: {state_str}, scheduled >= {}, expires after {}{blocker}",
                 u32::from(tx.id()),
                 tx.scheduled_height(),
+                tx.expiry_height(),
             );
         }
 
-        match state.next_step(target_height) {
-            AdvanceStep::Prove { id } => {
-                println!(
-                    "Next: prove transaction {} (`migration advance`)",
-                    u32::from(id)
-                )
-            }
-            AdvanceStep::Broadcast { id } => {
-                println!(
-                    "Next: broadcast transaction {} (`migration advance`)",
-                    u32::from(id)
-                )
-            }
-            AdvanceStep::Rebuild { id } => {
-                println!(
-                    "Next: rebuild expired transfer {} (`migration advance`)",
-                    u32::from(id)
-                )
-            }
-            AdvanceStep::Waiting => println!("Next: waiting on dependencies or a scheduled height"),
-            AdvanceStep::Complete => println!("Migration complete."),
+        // A read-only summary. The authoritative decision of what to do next is made by
+        // `advance_migration` (which `migration advance` drives): it puts each candidate to the
+        // wallet's satisfiability oracle and records what it finds, so it writes and this does
+        // not. What is reported here is the state machine's own view, unverified.
+        if state.is_terminal() {
+            println!("Next: nothing -- the migration has reached a terminal status.");
+        } else if state.replan_required() {
+            println!(
+                "Next: re-plan -- too much of the planned value can never mine (`migration \
+                 advance` will say so)."
+            );
+        } else if let Some(tx) = statuses.iter().find(|tx| tx.ready()) {
+            let action = match tx.action() {
+                Some(NextAction::Prove) => "prove",
+                Some(NextAction::Broadcast) => "broadcast",
+                None => "act on",
+            };
+            println!(
+                "Next: {action} transaction {} (`migration advance`)",
+                u32::from(tx.id())
+            );
+        } else {
+            println!("Next: waiting on dependencies, an anchor boundary, or a scheduled height");
+        }
+
+        let expired = state.expired_transactions(targets);
+        if !expired.is_empty() {
+            println!(
+                "Expired without mining ({}): {}",
+                expired.len(),
+                expired
+                    .iter()
+                    .map(|id| u32::from(*id).to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
         }
 
         Ok(())
