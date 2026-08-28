@@ -31,7 +31,7 @@ serde = "1.0"
 time = "0.3"
 tokio = { version = "1.21.0", features = ["fs", "io-std", "macros", "rt-multi-thread", "signal"] }
 tokio-socks = "0.5"
-toml = "0.8"
+toml = "0.9"
 tonic = { version = "0.14", features = ["gzip", "tls-webpki-roots"] }
 tower = { version = "0.5", features = ["util"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
