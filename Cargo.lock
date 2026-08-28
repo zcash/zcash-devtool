@@ -66,7 +66,7 @@ dependencies = [
  "nom 8.0.0",
  "p256",
  "pin-project",
- "rand 0.8.7",
+ "rand 0.8.8",
  "rust-embed",
  "scrypt",
  "sha2 0.10.9",
@@ -92,7 +92,7 @@ dependencies = [
  "hpke",
  "io_tee",
  "nom 8.0.0",
- "rand 0.8.7",
+ "rand 0.8.8",
  "secrecy 0.10.3",
  "sha2 0.10.9",
  "tempfile",
@@ -2915,7 +2915,7 @@ dependencies = [
  "halo2_proofs",
  "lazy_static",
  "pasta_curves",
- "rand 0.8.7",
+ "rand 0.8.8",
  "sinsemilla",
  "subtle",
  "uint 0.9.5",
@@ -3377,7 +3377,7 @@ checksum = "30821f91f0fa8660edca547918dc59812893b497d07c1144f326f07fdd94aba9"
 dependencies = [
  "either",
  "proptest",
- "rand 0.8.7",
+ "rand 0.8.8",
  "rand_core 0.6.4",
 ]
 
@@ -4310,7 +4310,7 @@ dependencies = [
  "num-integer",
  "num-iter",
  "num-traits",
- "rand 0.8.7",
+ "rand 0.8.8",
  "smallvec",
  "zeroize",
 ]
@@ -4524,7 +4524,7 @@ dependencies = [
  "nonempty",
  "pasta_curves",
  "proptest",
- "rand 0.8.7",
+ "rand 0.8.8",
  "rand_core 0.6.4",
  "reddsa",
  "serde",
@@ -4685,7 +4685,7 @@ dependencies = [
  "ff",
  "group",
  "lazy_static",
- "rand 0.8.7",
+ "rand 0.8.8",
  "static_assertions",
  "subtle",
 ]
@@ -4880,7 +4880,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c80231409c20246a13fddb31776fb942c38553c51e871f8cbd687a4cfb5843d"
 dependencies = [
  "phf_shared 0.11.3",
- "rand 0.8.7",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -5212,7 +5212,7 @@ dependencies = [
  "bitflags 2.13.1",
  "lazy_static",
  "num-traits",
- "rand 0.8.7",
+ "rand 0.8.8",
  "rand_chacha 0.3.1",
  "rand_xorshift",
  "regex-syntax",
@@ -5389,9 +5389,9 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "rand"
-version = "0.8.7"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22f6172bdec972074665ed81ed53b71da00bfc44b65a753cfde883ec4c702a1a"
+checksum = "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c"
 dependencies = [
  "libc",
  "rand_chacha 0.3.1",
@@ -5470,7 +5470,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
- "rand 0.8.7",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -6015,7 +6015,7 @@ dependencies = [
  "borsh",
  "bytes",
  "num-traits",
- "rand 0.8.7",
+ "rand 0.8.8",
  "rkyv",
  "serde",
  "serde_json",
@@ -6201,7 +6201,7 @@ dependencies = [
  "lazy_static",
  "memuse",
  "proptest",
- "rand 0.8.7",
+ "rand 0.8.8",
  "rand_core 0.6.4",
  "redjubjub",
  "subtle",
@@ -9497,7 +9497,7 @@ dependencies = [
  "phf 0.11.3",
  "prost",
  "qrcode",
- "rand 0.8.7",
+ "rand 0.10.2",
  "ratatui",
  "rayon",
  "regex",
@@ -9596,7 +9596,7 @@ dependencies = [
  "postcard",
  "proptest",
  "prost",
- "rand 0.8.7",
+ "rand 0.8.8",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
  "rayon",
@@ -9655,7 +9655,7 @@ dependencies = [
  "pastey 0.2.3",
  "pczt",
  "prost",
- "rand 0.8.7",
+ "rand 0.8.8",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
  "rand_distr",
