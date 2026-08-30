@@ -714,6 +714,26 @@ mod tests {
     }
 
     #[test]
+    fn offline_file_to_wallet_end_to_end() {
+        let (dir, mut db) = test_wallet_db("end-to-end");
+        let mut doc = document(vec![ufvk_account("e2e")]);
+        doc.set_secrets(plain_secrets());
+        let path = dir.join("wallet.zewif");
+        std::fs::write(&path, doc.to_bytes().unwrap()).unwrap();
+
+        let document = read_zewif_file(&path).unwrap();
+        let prepared = prepare_document(&document, &HashMap::new());
+        let report = import_prepared(&mut db, &prepared).unwrap();
+        assert_eq!(report.imported_accounts.len(), 1);
+        assert_eq!(
+            db.get_wallet_birthday().unwrap(),
+            Some(BlockHeight::from_u32(2_600_000)),
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn frontier_conversion() {
         use incrementalmerkletree::Hashable as _;
         use incrementalmerkletree::frontier::Frontier;
