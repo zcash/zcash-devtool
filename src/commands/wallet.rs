@@ -11,6 +11,7 @@ pub(crate) mod gen_account;
 pub(crate) mod gen_addr;
 pub(crate) mod get_info;
 pub(crate) mod import_ufvk;
+pub(crate) mod import_zewif;
 pub(crate) mod init;
 pub(crate) mod init_fvk;
 pub(crate) mod init_zewif;
@@ -51,6 +52,9 @@ pub(crate) enum Command {
 
     /// Import a UFVK
     ImportUfvk(import_ufvk::Command),
+
+    /// Import accounts from a ZeWIF interchange file into an existing wallet
+    ImportZewif(import_zewif::Command),
 
     /// Upgrade an existing light wallet
     Upgrade(upgrade::Command),

@@ -147,6 +147,7 @@ fn main() -> Result<(), anyhow::Error> {
                 commands::wallet::Command::DisplayMnemonic(command) => command.run(wallet_dir),
                 commands::wallet::Command::Reset(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::ImportUfvk(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::ImportZewif(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::Upgrade(command) => command.run(wallet_dir),
                 commands::wallet::Command::Sync(command) => {
                     command
