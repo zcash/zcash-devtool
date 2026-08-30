@@ -6,10 +6,12 @@
 //! capability that devtool does not hold. Spending imports await a multi-seed
 //! keystore.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 
 use zcash_client_sqlite::zewif::ZewifImportError;
+use zcash_protocol::consensus::BlockHeight;
 
 /// Errors produced by the ZeWIF import commands.
 #[derive(Debug)]
@@ -88,6 +90,67 @@ pub(crate) fn read_zewif_file(path: &Path) -> Result<::zewif::Zewif, ZewifComman
     ::zewif::Zewif::from_bytes(&bytes).map_err(ZewifCommandError::Parse)
 }
 
+/// The chain state to attach to an account whose document birthday lacked
+/// one, keyed in [`BirthdayEnrichments`] by (wallet index, account index).
+pub(crate) struct AccountEnrichment {
+    /// The tree state as of the block prior to the account's birthday height.
+    pub(crate) chain_state: ::zewif::ChainState,
+    /// The chain tip at import time, below which no new outputs are expected.
+    pub(crate) recover_until: BlockHeight,
+}
+
+/// Per-account birthday chain states fetched from the server, keyed by
+/// (wallet index, account index) within the source document.
+pub(crate) type BirthdayEnrichments = HashMap<(usize, usize), AccountEnrichment>;
+
+/// Rebuilds `document` for a view-only import.
+///
+/// The result carries no secret store (an encrypted store is dropped without
+/// being decrypted), and every account's purpose is set to `ViewOnly`, so the
+/// importer cannot record spending capability the wallet does not hold.
+/// Accounts with an entry in `enrichments` additionally receive the fetched
+/// birthday chain state and recover-until height. Wallets, address books,
+/// extensions, and the full transaction table are carried through unchanged.
+pub(crate) fn prepare_document(
+    document: &::zewif::Zewif,
+    enrichments: &BirthdayEnrichments,
+) -> ::zewif::Zewif {
+    let mut out = ::zewif::Zewif::new(
+        document.export_height(),
+        document.export_height_block_hash(),
+    );
+
+    for (w, wallet) in document.wallets().iter().enumerate() {
+        let mut out_wallet = ::zewif::ZewifWallet::new(wallet.network().clone());
+        for (a, account) in wallet.accounts().iter().enumerate() {
+            let mut account = account.clone();
+            account.set_purpose(::zewif::AccountPurpose::ViewOnly);
+            if let Some(enrichment) = enrichments.get(&(w, a)) {
+                account.set_birthday_chain_state(enrichment.chain_state.clone());
+                account.set_recover_until_height(::zewif::BlockHeight::from(u32::from(
+                    enrichment.recover_until,
+                )));
+            }
+            out_wallet.add_account(account);
+        }
+        for entry in wallet.address_book() {
+            out_wallet.add_address_book_entry(entry.clone());
+        }
+        *out_wallet.extensions_mut() = wallet.extensions().clone();
+        out.add_wallet(out_wallet);
+    }
+
+    out.set_transactions(document.transactions().clone());
+    if let Some(export_id) = document.export_id() {
+        out.set_export_id(*export_id);
+    }
+    if let Some(schema) = document.embedded_schema() {
+        out.set_embedded_schema(schema);
+    }
+    *out.extensions_mut() = document.extensions().clone();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,6 +191,88 @@ mod tests {
         }
         doc.add_wallet(wallet);
         doc
+    }
+
+    /// A plaintext secret store holding one mnemonic seed.
+    fn plain_secrets() -> ::zewif::Secrets {
+        let mut store = ::zewif::SecretStore::new();
+        store.add_seed(::zewif::SeedEntry::new(
+            ::zewif::SeedFingerprint::new("test-fingerprint".to_string()),
+            ::zewif::SeedMaterial::Bip39Mnemonic(::zewif::Bip39Mnemonic::new(
+                <Mnemonic<English>>::from_entropy([0xAB; 32])
+                    .unwrap()
+                    .phrase(),
+                None,
+            )),
+        ));
+        ::zewif::Secrets::Plain(store)
+    }
+
+    #[test]
+    fn prepare_strips_plain_secrets() {
+        let mut doc = document(vec![ufvk_account("plain")]);
+        doc.set_secrets(plain_secrets());
+
+        let prepared = prepare_document(&doc, &HashMap::new());
+        assert!(prepared.secrets().is_none());
+        // Everything else is carried through.
+        assert_eq!(prepared.wallets().len(), 1);
+        assert_eq!(prepared.wallets()[0].accounts().len(), 1);
+        assert_eq!(prepared.export_height(), doc.export_height());
+    }
+
+    #[test]
+    fn prepare_strips_encrypted_secrets_without_decryption() {
+        let mut doc = document(vec![ufvk_account("encrypted")]);
+        doc.set_secrets(::zewif::Secrets::Encrypted(::zewif::EncryptedStore::new(
+            ::zewif::Data::from_vec(vec![0u8; 16]),
+        )));
+
+        let prepared = prepare_document(&doc, &HashMap::new());
+        assert!(prepared.secrets().is_none());
+    }
+
+    #[test]
+    fn prepare_normalizes_purpose_to_view_only() {
+        let mut account = ufvk_account("spending");
+        account.set_purpose(::zewif::AccountPurpose::Spending);
+        let doc = document(vec![account]);
+
+        let prepared = prepare_document(&doc, &HashMap::new());
+        assert_eq!(
+            prepared.wallets()[0].accounts()[0].purpose(),
+            Some(::zewif::AccountPurpose::ViewOnly),
+        );
+    }
+
+    #[test]
+    fn prepare_applies_birthday_enrichment() {
+        let doc = document(vec![ufvk_account("enriched")]);
+
+        let mut chain_state = ::zewif::ChainState::new(::zewif::BlockHeight::from(2_599_999u32));
+        chain_state.set_block_hash(::zewif::BlockHash::from_bytes([0xBB; 32]));
+        chain_state.set_sapling_tree(::zewif::Frontier::Empty);
+        chain_state.set_orchard_tree(::zewif::Frontier::Empty);
+        let enrichments = HashMap::from([(
+            (0, 0),
+            AccountEnrichment {
+                chain_state,
+                recover_until: BlockHeight::from_u32(3_000_000),
+            },
+        )]);
+
+        let prepared = prepare_document(&doc, &enrichments);
+        let account = &prepared.wallets()[0].accounts()[0];
+        assert_eq!(
+            account
+                .birthday_chain_state()
+                .map(|cs| u32::from(cs.height())),
+            Some(2_599_999),
+        );
+        assert_eq!(
+            account.recover_until_height().map(u32::from),
+            Some(3_000_000)
+        );
     }
 
     #[test]
