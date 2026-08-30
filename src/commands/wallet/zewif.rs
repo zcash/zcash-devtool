@@ -10,13 +10,18 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 
+use rand::rngs::OsRng;
 use tonic::transport::Channel;
 
 use zcash_client_backend::{
     data_api::chain::ChainState,
     proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
 };
-use zcash_client_sqlite::zewif::ZewifImportError;
+use zcash_client_sqlite::{
+    WalletDb,
+    util::SystemClock,
+    zewif::{DiscardSecrets, ZewifImportError, ZewifImportReport},
+};
 use zcash_protocol::consensus::{BlockHeight, NetworkUpgrade, Parameters};
 
 /// Errors produced by the ZeWIF import commands.
@@ -324,6 +329,91 @@ pub(crate) async fn fetch_birthday_enrichments<P: Parameters>(
     Ok(enrichments)
 }
 
+/// Prints a human-readable summary of an import report on stdout, including a
+/// `WARNING:` line for each item the importer could not represent.
+fn print_report(report: &ZewifImportReport) {
+    println!("Imported {} account(s):", report.imported_accounts.len());
+    for account in &report.imported_accounts {
+        println!(
+            "  - '{}' as {:?} (birthday basis: {:?})",
+            account.name, account.account_uuid, account.birthday_basis,
+        );
+    }
+    for skipped in &report.skipped_accounts {
+        println!(
+            "WARNING: account '{}' was not imported: {:?}",
+            skipped.name, skipped.reason,
+        );
+    }
+    if report.redeem_scripts_registered > 0 {
+        println!(
+            "Registered {} P2SH redeem scripts",
+            report.redeem_scripts_registered,
+        );
+    }
+    if report.redeem_scripts_not_representable > 0 {
+        println!(
+            "WARNING: skipped {} watch-only redeem scripts that the wallet cannot represent",
+            report.redeem_scripts_not_representable,
+        );
+    }
+    println!(
+        "Marked {} transparent address(es) with document-recorded exposures as exposed",
+        report.addresses_marked_exposed,
+    );
+    if report.transactions_stored > 0 || report.transactions_without_wallet_relevance > 0 {
+        println!(
+            "Stored {} wallet transaction(s) ({} were not relevant to any imported account)",
+            report.transactions_stored, report.transactions_without_wallet_relevance,
+        );
+    }
+    if report.transactions_without_raw_data > 0 {
+        println!(
+            "WARNING: {} transaction(s) carried no raw data and were not stored",
+            report.transactions_without_raw_data,
+        );
+    }
+    if report.address_book_entries_not_imported > 0 {
+        println!(
+            "WARNING: the document's address book ({} entries) was not imported; \
+             devtool does not store address book entries.",
+            report.address_book_entries_not_imported,
+        );
+    }
+}
+
+/// Imports a prepared (view-only) ZeWIF document into the wallet database,
+/// printing the import report.
+///
+/// A document containing no accounts, or from which the importer could import
+/// none, is an error; accounts the importer skips are itemized warnings —
+/// nothing spendable can be lost by a view-only import, and the source file
+/// remains authoritative.
+pub(crate) fn import_prepared<P: Parameters>(
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
+    document: &::zewif::Zewif,
+) -> Result<ZewifImportReport, ZewifCommandError> {
+    let document_account_count: usize = document
+        .wallets()
+        .iter()
+        .map(|wallet| wallet.accounts().len())
+        .sum();
+    if document_account_count == 0 {
+        return Err(ZewifCommandError::NoAccounts);
+    }
+
+    let report = zcash_client_sqlite::zewif::import_wallet(db_data, document, &mut DiscardSecrets)
+        .map_err(ZewifCommandError::Import)?;
+    print_report(&report);
+
+    if report.imported_accounts.is_empty() {
+        return Err(ZewifCommandError::NothingImported {
+            document_account_count,
+        });
+    }
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -499,6 +589,113 @@ mod tests {
             min_birthday_height(&Network::Test, &doc),
             BlockHeight::from_u32(2_500_000),
         );
+    }
+
+    use rand::rngs::OsRng;
+    use zcash_client_backend::data_api::{
+        Account as _, AccountPurpose, AccountSource, WalletRead as _,
+    };
+    use zcash_client_sqlite::{WalletDb, util::SystemClock, wallet::init::init_wallet_db};
+
+    /// An initialized wallet database over a fresh temporary directory. The
+    /// directory (returned for cleanup) holds the SQLite file.
+    fn test_wallet_db(
+        name: &str,
+    ) -> (
+        std::path::PathBuf,
+        WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+    ) {
+        let dir =
+            std::env::temp_dir().join(format!("devtool-zewif-db-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut db =
+            WalletDb::for_path(dir.join("data.sqlite"), Network::Test, SystemClock, OsRng).unwrap();
+        init_wallet_db(&mut db, None).unwrap();
+        (dir, db)
+    }
+
+    #[test]
+    fn view_only_account_imports() {
+        let (dir, mut db) = test_wallet_db("view-only");
+        let doc = document(vec![ufvk_account("primary")]);
+
+        let prepared = prepare_document(&doc, &HashMap::new());
+        let report = import_prepared(&mut db, &prepared).unwrap();
+        assert_eq!(report.imported_accounts.len(), 1);
+
+        let account_uuid = report.imported_accounts[0].account_uuid;
+        let imported = db.get_account(account_uuid).unwrap().unwrap();
+        assert!(matches!(
+            imported.source(),
+            AccountSource::Imported {
+                purpose: AccountPurpose::ViewOnly,
+                ..
+            }
+        ));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn spending_purpose_document_imports_view_only() {
+        // The capability invariant: a document that carries secrets and marks
+        // its account for spending must still come out view-only.
+        let (dir, mut db) = test_wallet_db("spending-doc");
+        let mut account = ufvk_account("spending");
+        account.set_purpose(::zewif::AccountPurpose::Spending);
+        let mut doc = document(vec![account]);
+        doc.set_secrets(plain_secrets());
+
+        let prepared = prepare_document(&doc, &HashMap::new());
+        let report = import_prepared(&mut db, &prepared).unwrap();
+        assert_eq!(report.imported_accounts.len(), 1);
+
+        let account_uuid = report.imported_accounts[0].account_uuid;
+        let imported = db.get_account(account_uuid).unwrap().unwrap();
+        assert!(matches!(
+            imported.source(),
+            AccountSource::Imported {
+                purpose: AccountPurpose::ViewOnly,
+                ..
+            }
+        ));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn document_without_accounts_is_rejected() {
+        let (dir, mut db) = test_wallet_db("no-accounts");
+        let doc = document(vec![]);
+
+        let prepared = prepare_document(&doc, &HashMap::new());
+        assert!(matches!(
+            import_prepared(&mut db, &prepared),
+            Err(ZewifCommandError::NoAccounts),
+        ));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn nothing_imported_is_an_error() {
+        let (dir, mut db) = test_wallet_db("nothing-imported");
+        // A transparent-address-set account has no viewing key and no seed in
+        // a view-only import, so the importer skips it.
+        let mut account = ::zewif::Account::new(::zewif::AccountViewingKey::TransparentAddressSet);
+        account.set_name("taddrs-only");
+        let doc = document(vec![account]);
+
+        let prepared = prepare_document(&doc, &HashMap::new());
+        assert!(matches!(
+            import_prepared(&mut db, &prepared),
+            Err(ZewifCommandError::NothingImported {
+                document_account_count: 1,
+            }),
+        ));
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
