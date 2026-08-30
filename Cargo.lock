@@ -690,6 +690,20 @@ dependencies = [
 
 [[package]]
 name = "bip0039"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "568b6890865156d9043af490d4c4081c385dd68ea10acd6ca15733d511e6b51c"
+dependencies = [
+ "hmac 0.12.1",
+ "pbkdf2",
+ "rand 0.8.7",
+ "sha2 0.10.9",
+ "unicode-normalization",
+ "zeroize",
+]
+
+[[package]]
+name = "bip0039"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2da3803045ec5ba2ee8f65eb36b29115ec8a05fe519a7ae023c84770bd5f676b"
@@ -4010,6 +4024,20 @@ name = "minicbor"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c12b4033ffaa92fbf9df03df38d19324f52bad130dd223f811734a8006dd2d69"
+dependencies = [
+ "minicbor-derive",
+]
+
+[[package]]
+name = "minicbor-derive"
+version = "0.19.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84f5ad8dfe10176465fe33f19ecfcf08783ba66630fdb40b2e4542547c1046f0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "minimal-lexical"
@@ -9461,7 +9489,7 @@ dependencies = [
  "anyhow",
  "bech32",
  "bellman",
- "bip0039",
+ "bip0039 0.14.0",
  "bip32",
  "blake2b_simd",
  "bs58",
@@ -9531,6 +9559,7 @@ dependencies = [
  "zcash_protocol",
  "zcash_script",
  "zcash_transparent",
+ "zewif",
  "zip32",
  "zip321",
 ]
@@ -9627,6 +9656,8 @@ version = "0.22.0-rc.6"
 source = "git+https://github.com/zcash/librustzcash.git?rev=6c07e5f3297febf469e5cc8d0b91321e0767cdd7#6c07e5f3297febf469e5cc8d0b91321e0767cdd7"
 dependencies = [
  "ambassador",
+ "bech32",
+ "bip0039 0.12.0",
  "bip32",
  "bitflags 2.13.1",
  "bs58",
@@ -9668,6 +9699,7 @@ dependencies = [
  "zcash_protocol",
  "zcash_script",
  "zcash_transparent",
+ "zewif",
  "zip32",
 ]
 
@@ -9688,6 +9720,7 @@ version = "0.16.1"
 source = "git+https://github.com/zcash/librustzcash.git?rev=6c07e5f3297febf469e5cc8d0b91321e0767cdd7#6c07e5f3297febf469e5cc8d0b91321e0767cdd7"
 dependencies = [
  "bech32",
+ "bip0039 0.12.0",
  "bip32",
  "blake2b_simd",
  "bls12_381",
@@ -9701,6 +9734,7 @@ dependencies = [
  "orchard",
  "proptest",
  "rand_core 0.6.4",
+ "regex",
  "sapling-crypto",
  "secrecy 0.8.0",
  "subtle",
@@ -9918,6 +9952,17 @@ checksum = "90f911cbc359ab6af17377d242225f4d75119aec87ea711a880987b18cd7b239"
 dependencies = [
  "serde",
  "zerofrom",
+]
+
+[[package]]
+name = "zewif"
+version = "1.0.0-rc.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b300001aff0db0e844ea42359640b6abe648776b055d7861fb7075782abb715"
+dependencies = [
+ "hex",
+ "minicbor",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

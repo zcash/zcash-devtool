@@ -112,6 +112,7 @@ impl Command {
                             .map_err(|_| anyhow!("Incorrect seed_fingerprint length"))?,
                     ),
                     zip32::AccountId::try_from(hd_account_index)?,
+                    None,
                 )),
             }),
             (None, None) => Ok(AccountPurpose::ViewOnly),
