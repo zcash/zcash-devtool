@@ -7,8 +7,7 @@ use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use crate::{config::WalletConfig, data::get_db_paths, remote::ConnectionArgs};
 
 use super::zewif::{
-    BirthdayEnrichments, fetch_birthday_enrichments, import_prepared, prepare_document,
-    read_zewif_file,
+    DocumentEnrichments, fetch_enrichments, import_prepared, prepare_document, read_zewif_file,
 };
 
 // Options accepted for the `import-zewif` command
@@ -43,19 +42,26 @@ impl Command {
         let document = read_zewif_file(&self.path)?;
 
         let enrichments = if self.offline {
-            BirthdayEnrichments::new()
+            DocumentEnrichments::default()
         } else {
             let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
-            fetch_birthday_enrichments(&mut client, &params, &document).await?
+            fetch_enrichments(&mut client, &params, &document).await?
         };
         let prepared = prepare_document(&document, &enrichments);
+        if prepared.transactions_dropped > 0 {
+            println!(
+                "WARNING: {} transaction(s) whose consensus branch ID cannot be determined \
+                 (no known mined height and no expiry height) were omitted from the import",
+                prepared.transactions_dropped,
+            );
+        }
 
         // The importer verifies that the document's network matches the
         // wallet's parameters, and rolls back cleanly on any failure
         // (including account collisions from re-importing a document).
         let (_, db_path) = get_db_paths(wallet_dir.as_ref());
         let mut db_data = WalletDb::for_path(db_path, params, SystemClock, OsRng)?;
-        import_prepared(&mut db_data, &prepared)?;
+        import_prepared(&mut db_data, &prepared.document)?;
 
         Ok(())
     }

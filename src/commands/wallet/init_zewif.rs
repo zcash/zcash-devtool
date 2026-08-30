@@ -9,8 +9,8 @@ use crate::{
 };
 
 use super::zewif::{
-    BirthdayEnrichments, document_network, fetch_birthday_enrichments, import_prepared,
-    min_birthday_height, prepare_document, read_zewif_file,
+    DocumentEnrichments, document_network, fetch_enrichments, import_prepared, min_birthday_height,
+    prepare_document, read_zewif_file,
 };
 
 // Options accepted for the `init-zewif` command
@@ -87,19 +87,26 @@ impl Command {
         };
 
         let enrichments = if self.offline {
-            BirthdayEnrichments::new()
+            DocumentEnrichments::default()
         } else {
             let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
-            fetch_birthday_enrichments(&mut client, &params, &document).await?
+            fetch_enrichments(&mut client, &params, &document).await?
         };
         let prepared = prepare_document(&document, &enrichments);
+        if prepared.transactions_dropped > 0 {
+            println!(
+                "WARNING: {} transaction(s) whose consensus branch ID cannot be determined \
+                 (no known mined height and no expiry height) were omitted from the import",
+                prepared.transactions_dropped,
+            );
+        }
 
         // Save the wallet config to disk (errors if a wallet already exists
         // in this directory), then initialise the databases and import.
-        let birthday = min_birthday_height(&params, &prepared);
+        let birthday = min_birthday_height(&params, &prepared.document);
         WalletConfig::init_without_mnemonic(wallet_dir.as_ref(), birthday, params)?;
         let mut db_data = data::init_dbs(params, wallet_dir.as_ref())?;
-        import_prepared(&mut db_data, &prepared)?;
+        import_prepared(&mut db_data, &prepared.document)?;
 
         Ok(())
     }

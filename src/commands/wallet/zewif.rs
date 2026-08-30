@@ -129,18 +129,42 @@ pub(crate) struct AccountEnrichment {
 /// (wallet index, account index) within the source document.
 pub(crate) type BirthdayEnrichments = HashMap<(usize, usize), AccountEnrichment>;
 
+/// Server-derived data with which to enrich a document before import.
+#[derive(Default)]
+pub(crate) struct DocumentEnrichments {
+    /// Birthday chain states for accounts that lack them.
+    pub(crate) birthdays: BirthdayEnrichments,
+    /// Mined heights resolved for transactions that record none, keyed by
+    /// txid.
+    pub(crate) tx_mined_heights: HashMap<::zewif::TxId, BlockHeight>,
+}
+
+/// A document rebuilt for import, along with what the rebuild had to leave
+/// behind.
+pub(crate) struct PreparedDocument {
+    pub(crate) document: ::zewif::Zewif,
+    /// Transactions omitted because the importer cannot interpret them: with
+    /// no mined height (after enrichment) and no expiry height, a
+    /// transaction's consensus branch ID — and thus its parse — is
+    /// undetermined.
+    pub(crate) transactions_dropped: usize,
+}
+
 /// Rebuilds `document` for a view-only import.
 ///
 /// The result carries no secret store (an encrypted store is dropped without
 /// being decrypted), and every account's purpose is set to `ViewOnly`, so the
 /// importer cannot record spending capability the wallet does not hold.
-/// Accounts with an entry in `enrichments` additionally receive the fetched
-/// birthday chain state and recover-until height. Wallets, address books,
-/// extensions, and the full transaction table are carried through unchanged.
+/// Accounts and transactions with entries in `enrichments` additionally
+/// receive the fetched birthday chain states and resolved mined heights.
+/// Transactions left with neither a mined height nor an expiry height are
+/// omitted (and counted): the importer cannot determine the consensus branch
+/// ID under which to parse them, and would abort the entire import. Wallets,
+/// address books, and extensions are carried through unchanged.
 pub(crate) fn prepare_document(
     document: &::zewif::Zewif,
-    enrichments: &BirthdayEnrichments,
-) -> ::zewif::Zewif {
+    enrichments: &DocumentEnrichments,
+) -> PreparedDocument {
     let mut out = ::zewif::Zewif::new(
         document.export_height(),
         document.export_height_block_hash(),
@@ -151,7 +175,7 @@ pub(crate) fn prepare_document(
         for (a, account) in wallet.accounts().iter().enumerate() {
             let mut account = account.clone();
             account.set_purpose(::zewif::AccountPurpose::ViewOnly);
-            if let Some(enrichment) = enrichments.get(&(w, a)) {
+            if let Some(enrichment) = enrichments.birthdays.get(&(w, a)) {
                 account.set_birthday_chain_state(enrichment.chain_state.clone());
                 account.set_recover_until_height(::zewif::BlockHeight::from(u32::from(
                     enrichment.recover_until,
@@ -166,7 +190,28 @@ pub(crate) fn prepare_document(
         out.add_wallet(out_wallet);
     }
 
-    out.set_transactions(document.transactions().clone());
+    let mut transactions_dropped = 0;
+    let transactions = document
+        .transactions()
+        .iter()
+        .filter_map(|(txid, tx)| {
+            let mut tx = tx.clone();
+            if tx.mined_height().is_none()
+                && let Some(height) = enrichments.tx_mined_heights.get(txid)
+            {
+                tx.set_mined_height(::zewif::BlockHeight::from(u32::from(*height)));
+            }
+            let has_expiry = tx.expiry_height().map(u32::from).unwrap_or(0) > 0;
+            if tx.mined_height().is_none() && !has_expiry {
+                transactions_dropped += 1;
+                None
+            } else {
+                Some((*txid, tx))
+            }
+        })
+        .collect();
+    out.set_transactions(transactions);
+
     if let Some(export_id) = document.export_id() {
         out.set_export_id(*export_id);
     }
@@ -174,7 +219,10 @@ pub(crate) fn prepare_document(
         out.set_embedded_schema(schema);
     }
     *out.extensions_mut() = document.extensions().clone();
-    out
+    PreparedDocument {
+        document: out,
+        transactions_dropped,
+    }
 }
 
 /// Estimates a conservative birthday height for accounts that record none,
@@ -277,23 +325,32 @@ fn to_zewif_chain_state(chain_state: &ChainState) -> ::zewif::ChainState {
     out
 }
 
-/// Fetches birthday chain states for every account in `document` that lacks
-/// one, from the connected lightwalletd server.
+/// Fetches, from the connected lightwalletd server, the mined heights of
+/// transactions that record none and birthday chain states for accounts that
+/// lack them.
 ///
-/// The birthday is the account's recorded birthday height where present, and
-/// otherwise a conservative estimate from the document's transactions (see
-/// [`estimate_birthday_height`]). The tree state is fetched as of the block
-/// prior to the birthday. An account whose birthday does not exceed Sapling
-/// activation is left for the importer's own fallback (the server cannot
-/// serve tree states below Sapling activation). The recover-until height is
-/// the current chain tip.
+/// zcashd records a mined height only for transactions that touched the
+/// Orchard commitment tree, so most of a document's transactions arrive
+/// without one; each such transaction is resolved by txid. A transaction the
+/// server does not know (never mined, or mined on a non-main-chain block)
+/// stays unresolved; so does one the server fails to serve, counted and
+/// reported as a warning rather than failing the import.
 ///
-/// NOTE: THIS APPROACH LEAKS THE ACCOUNT BIRTHDAYS TO THE SERVER!
-pub(crate) async fn fetch_birthday_enrichments<P: Parameters>(
+/// For accounts, the birthday is the account's recorded birthday height where
+/// present, and otherwise a conservative estimate from the document's
+/// transactions (see [`estimate_birthday_height`]). The tree state is fetched
+/// as of the block prior to the birthday. An account whose birthday does not
+/// exceed Sapling activation is left for the importer's own fallback (the
+/// server cannot serve tree states below Sapling activation). The
+/// recover-until height is the current chain tip.
+///
+/// NOTE: THIS APPROACH LEAKS THE WALLET'S TRANSACTION IDS AND ACCOUNT
+/// BIRTHDAYS TO THE SERVER!
+pub(crate) async fn fetch_enrichments<P: Parameters>(
     client: &mut CompactTxStreamerClient<Channel>,
     params: &P,
     document: &::zewif::Zewif,
-) -> Result<BirthdayEnrichments, ZewifCommandError> {
+) -> Result<DocumentEnrichments, ZewifCommandError> {
     let sapling_activation = params
         .activation_height(NetworkUpgrade::Sapling)
         .ok_or(ZewifCommandError::SaplingActivationUnknown)?;
@@ -305,6 +362,41 @@ pub(crate) async fn fetch_birthday_enrichments<P: Parameters>(
         .height
         .try_into()
         .expect("block heights must fit into u32");
+
+    let mut tx_mined_heights = HashMap::new();
+    let mut tx_lookup_failures = 0usize;
+    for (txid, tx) in document.transactions() {
+        if tx.mined_height().is_some() {
+            continue;
+        }
+        let filter = service::TxFilter {
+            hash: txid.as_bytes().to_vec(),
+            ..Default::default()
+        };
+        match client.get_transaction(filter).await {
+            Ok(response) => {
+                let raw = response.into_inner();
+                // A zero or negative height means the transaction is known
+                // but not mined in the main chain.
+                if let Ok(height) = u32::try_from(raw.height)
+                    && height > 0
+                {
+                    tx_mined_heights.insert(*txid, BlockHeight::from_u32(height));
+                }
+            }
+            Err(status) if status.code() == tonic::Code::NotFound => {}
+            // Servers are inconsistent in how they report unknown
+            // transactions; treat any other failure as unresolved rather
+            // than failing the whole import.
+            Err(_) => tx_lookup_failures += 1,
+        }
+    }
+    if tx_lookup_failures > 0 {
+        println!(
+            "WARNING: the server failed to answer {tx_lookup_failures} transaction lookup(s); \
+             the affected transactions are treated as unmined",
+        );
+    }
 
     let mut enrichments = BirthdayEnrichments::new();
     for (w, wallet) in document.wallets().iter().enumerate() {
@@ -341,7 +433,10 @@ pub(crate) async fn fetch_birthday_enrichments<P: Parameters>(
             );
         }
     }
-    Ok(enrichments)
+    Ok(DocumentEnrichments {
+        birthdays: enrichments,
+        tx_mined_heights,
+    })
 }
 
 /// Prints a human-readable summary of an import report on stdout, including a
@@ -491,7 +586,7 @@ mod tests {
         let mut doc = document(vec![ufvk_account("plain")]);
         doc.set_secrets(plain_secrets());
 
-        let prepared = prepare_document(&doc, &HashMap::new());
+        let prepared = prepare_document(&doc, &DocumentEnrichments::default()).document;
         assert!(prepared.secrets().is_none());
         // Everything else is carried through.
         assert_eq!(prepared.wallets().len(), 1);
@@ -506,7 +601,7 @@ mod tests {
             ::zewif::Data::from_vec(vec![0u8; 16]),
         )));
 
-        let prepared = prepare_document(&doc, &HashMap::new());
+        let prepared = prepare_document(&doc, &DocumentEnrichments::default()).document;
         assert!(prepared.secrets().is_none());
     }
 
@@ -516,7 +611,7 @@ mod tests {
         account.set_purpose(::zewif::AccountPurpose::Spending);
         let doc = document(vec![account]);
 
-        let prepared = prepare_document(&doc, &HashMap::new());
+        let prepared = prepare_document(&doc, &DocumentEnrichments::default()).document;
         assert_eq!(
             prepared.wallets()[0].accounts()[0].purpose(),
             Some(::zewif::AccountPurpose::ViewOnly),
@@ -531,15 +626,18 @@ mod tests {
         chain_state.set_block_hash(::zewif::BlockHash::from_bytes([0xBB; 32]));
         chain_state.set_sapling_tree(::zewif::Frontier::Empty);
         chain_state.set_orchard_tree(::zewif::Frontier::Empty);
-        let enrichments = HashMap::from([(
-            (0, 0),
-            AccountEnrichment {
-                chain_state,
-                recover_until: BlockHeight::from_u32(3_000_000),
-            },
-        )]);
+        let enrichments = DocumentEnrichments {
+            birthdays: HashMap::from([(
+                (0, 0),
+                AccountEnrichment {
+                    chain_state,
+                    recover_until: BlockHeight::from_u32(3_000_000),
+                },
+            )]),
+            tx_mined_heights: HashMap::new(),
+        };
 
-        let prepared = prepare_document(&doc, &enrichments);
+        let prepared = prepare_document(&doc, &enrichments).document;
         let account = &prepared.wallets()[0].accounts()[0];
         assert_eq!(
             account
@@ -551,6 +649,50 @@ mod tests {
             account.recover_until_height().map(u32::from),
             Some(3_000_000)
         );
+    }
+
+    #[test]
+    fn prepare_backfills_resolved_mined_heights() {
+        let mut doc = document(vec![ufvk_account("backfill")]);
+        let mut tx = ::zewif::Transaction::new(::zewif::TxId::from_bytes([7; 32]));
+        tx.set_expiry_height(::zewif::BlockHeight::from(0u32));
+        let txid = tx.txid();
+        doc.add_transaction(txid, tx);
+
+        let enrichments = DocumentEnrichments {
+            birthdays: HashMap::new(),
+            tx_mined_heights: HashMap::from([(txid, BlockHeight::from_u32(1_500_000))]),
+        };
+        let prepared = prepare_document(&doc, &enrichments);
+        assert_eq!(prepared.transactions_dropped, 0);
+        assert_eq!(
+            prepared
+                .document
+                .get_transaction(txid)
+                .and_then(|tx| tx.mined_height())
+                .map(u32::from),
+            Some(1_500_000),
+        );
+    }
+
+    #[test]
+    fn prepare_drops_unparseable_transactions() {
+        let mut doc = document(vec![ufvk_account("dropper")]);
+        // Neither a mined height nor an expiry height: the importer cannot
+        // determine the consensus branch ID for this transaction.
+        let unparseable = ::zewif::Transaction::new(::zewif::TxId::from_bytes([8; 32]));
+        let dropped_txid = unparseable.txid();
+        doc.add_transaction(dropped_txid, unparseable);
+        // An expiry height suffices.
+        let mut with_expiry = ::zewif::Transaction::new(::zewif::TxId::from_bytes([9; 32]));
+        with_expiry.set_expiry_height(::zewif::BlockHeight::from(2_400_000u32));
+        let kept_txid = with_expiry.txid();
+        doc.add_transaction(kept_txid, with_expiry);
+
+        let prepared = prepare_document(&doc, &DocumentEnrichments::default());
+        assert_eq!(prepared.transactions_dropped, 1);
+        assert!(prepared.document.get_transaction(dropped_txid).is_none());
+        assert!(prepared.document.get_transaction(kept_txid).is_some());
     }
 
     #[test]
@@ -635,7 +777,7 @@ mod tests {
         let (dir, mut db) = test_wallet_db("view-only");
         let doc = document(vec![ufvk_account("primary")]);
 
-        let prepared = prepare_document(&doc, &HashMap::new());
+        let prepared = prepare_document(&doc, &DocumentEnrichments::default()).document;
         let report = import_prepared(&mut db, &prepared).unwrap();
         assert_eq!(report.imported_accounts.len(), 1);
 
@@ -662,7 +804,7 @@ mod tests {
         let mut doc = document(vec![account]);
         doc.set_secrets(plain_secrets());
 
-        let prepared = prepare_document(&doc, &HashMap::new());
+        let prepared = prepare_document(&doc, &DocumentEnrichments::default()).document;
         let report = import_prepared(&mut db, &prepared).unwrap();
         assert_eq!(report.imported_accounts.len(), 1);
 
@@ -684,7 +826,7 @@ mod tests {
         let (dir, mut db) = test_wallet_db("no-accounts");
         let doc = document(vec![]);
 
-        let prepared = prepare_document(&doc, &HashMap::new());
+        let prepared = prepare_document(&doc, &DocumentEnrichments::default()).document;
         assert!(matches!(
             import_prepared(&mut db, &prepared),
             Err(ZewifCommandError::NoAccounts),
@@ -702,7 +844,7 @@ mod tests {
         account.set_name("taddrs-only");
         let doc = document(vec![account]);
 
-        let prepared = prepare_document(&doc, &HashMap::new());
+        let prepared = prepare_document(&doc, &DocumentEnrichments::default()).document;
         assert!(matches!(
             import_prepared(&mut db, &prepared),
             Err(ZewifCommandError::NothingImported {
@@ -722,7 +864,7 @@ mod tests {
         std::fs::write(&path, doc.to_bytes().unwrap()).unwrap();
 
         let document = read_zewif_file(&path).unwrap();
-        let prepared = prepare_document(&document, &HashMap::new());
+        let prepared = prepare_document(&document, &DocumentEnrichments::default()).document;
         let report = import_prepared(&mut db, &prepared).unwrap();
         assert_eq!(report.imported_accounts.len(), 1);
         assert_eq!(
