@@ -11,7 +11,7 @@ use std::fmt;
 use std::path::Path;
 
 use zcash_client_sqlite::zewif::ZewifImportError;
-use zcash_protocol::consensus::BlockHeight;
+use zcash_protocol::consensus::{BlockHeight, NetworkUpgrade, Parameters};
 
 /// Errors produced by the ZeWIF import commands.
 #[derive(Debug)]
@@ -151,6 +151,65 @@ pub(crate) fn prepare_document(
     out
 }
 
+/// Estimates a conservative birthday height for accounts that record none,
+/// from the heights of the document's own transactions.
+///
+/// Expiry heights are typically near the height at which a transaction was
+/// created (zcashd's default expiry delta is 40 blocks); subtracting a
+/// 1000-block margin from the minimum known height gives a lower bound that
+/// cannot skip wallet history. A zero expiry height means "does not expire"
+/// and carries no height information.
+pub(crate) fn estimate_birthday_height(
+    document: &::zewif::Zewif,
+    sapling_activation: BlockHeight,
+) -> BlockHeight {
+    document
+        .transactions()
+        .values()
+        .filter_map(|tx| {
+            tx.mined_height()
+                .map(u32::from)
+                .or_else(|| tx.expiry_height().map(u32::from).filter(|&h| h > 0))
+        })
+        .min()
+        .map(|h| BlockHeight::from_u32(h.saturating_sub(1000)))
+        .map_or(sapling_activation, |h| h.max(sapling_activation))
+}
+
+/// Computes the earliest account birthday height in the (prepared) document,
+/// for use as the wallet config's birthday.
+///
+/// A recorded chain state describes the block *prior* to the birthday, so its
+/// height plus one is the birthday. Accounts without any birthday information
+/// contribute Sapling activation (matching the importer's fallback). An
+/// account-less document falls back to its export height.
+pub(crate) fn min_birthday_height<P: Parameters>(
+    params: &P,
+    document: &::zewif::Zewif,
+) -> BlockHeight {
+    let sapling_activation = params
+        .activation_height(NetworkUpgrade::Sapling)
+        .unwrap_or_else(|| BlockHeight::from_u32(0));
+    document
+        .wallets()
+        .iter()
+        .flat_map(|wallet| wallet.accounts())
+        .map(|account| {
+            account
+                .birthday_chain_state()
+                .map(|cs| BlockHeight::from_u32(u32::from(cs.height()) + 1))
+                .or_else(|| {
+                    account
+                        .birthday_height()
+                        .map(|h| BlockHeight::from_u32(u32::from(h)))
+                })
+                .unwrap_or(sapling_activation)
+        })
+        .min()
+        .unwrap_or_else(|| BlockHeight::from_u32(u32::from(document.export_height())))
+        .max(sapling_activation)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,6 +331,59 @@ mod tests {
         assert_eq!(
             account.recover_until_height().map(u32::from),
             Some(3_000_000)
+        );
+    }
+
+    #[test]
+    fn birthday_estimate_uses_min_tx_height_with_margin() {
+        let mut doc = document(vec![ufvk_account("est")]);
+        let mut mined = ::zewif::Transaction::new(::zewif::TxId::from_bytes([1; 32]));
+        mined.set_mined_height(::zewif::BlockHeight::from(2_500_000u32));
+        doc.add_transaction(mined.txid(), mined);
+        let mut unmined = ::zewif::Transaction::new(::zewif::TxId::from_bytes([2; 32]));
+        unmined.set_expiry_height(::zewif::BlockHeight::from(2_450_000u32));
+        doc.add_transaction(unmined.txid(), unmined);
+
+        let sapling = BlockHeight::from_u32(280_000);
+        assert_eq!(
+            estimate_birthday_height(&doc, sapling),
+            BlockHeight::from_u32(2_449_000), // min(2_500_000, 2_450_000) - 1000
+        );
+    }
+
+    #[test]
+    fn birthday_estimate_ignores_zero_expiry_and_clamps_to_sapling() {
+        let mut doc = document(vec![ufvk_account("est2")]);
+        let mut zero_expiry = ::zewif::Transaction::new(::zewif::TxId::from_bytes([3; 32]));
+        zero_expiry.set_expiry_height(::zewif::BlockHeight::from(0u32));
+        doc.add_transaction(zero_expiry.txid(), zero_expiry);
+
+        let sapling = BlockHeight::from_u32(280_000);
+        // A zero expiry height carries no information; with no usable
+        // transaction heights the estimate falls back to Sapling activation.
+        assert_eq!(estimate_birthday_height(&doc, sapling), sapling);
+
+        let mut early = ::zewif::Transaction::new(::zewif::TxId::from_bytes([4; 32]));
+        early.set_mined_height(::zewif::BlockHeight::from(280_500u32));
+        let mut doc = document(vec![ufvk_account("est3")]);
+        doc.add_transaction(early.txid(), early);
+        // 280_500 - 1000 clamps up to Sapling activation.
+        assert_eq!(estimate_birthday_height(&doc, sapling), sapling);
+    }
+
+    #[test]
+    fn min_birthday_height_prefers_chain_state_then_height() {
+        let mut with_cs = ufvk_account("cs");
+        let mut chain_state = ::zewif::ChainState::new(::zewif::BlockHeight::from(2_499_999u32));
+        chain_state.set_block_hash(::zewif::BlockHash::from_bytes([0xCC; 32]));
+        with_cs.set_birthday_chain_state(chain_state);
+        // ufvk_account sets birthday_height 2_600_000 on both accounts; the
+        // chain state (birthday 2_500_000) takes precedence on the first.
+        let doc = document(vec![with_cs, ufvk_account("height")]);
+
+        assert_eq!(
+            min_birthday_height(&Network::Test, &doc),
+            BlockHeight::from_u32(2_500_000),
         );
     }
 
