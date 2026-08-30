@@ -10,6 +10,12 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 
+use tonic::transport::Channel;
+
+use zcash_client_backend::{
+    data_api::chain::ChainState,
+    proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
+};
 use zcash_client_sqlite::zewif::ZewifImportError;
 use zcash_protocol::consensus::{BlockHeight, NetworkUpgrade, Parameters};
 
@@ -210,6 +216,114 @@ pub(crate) fn min_birthday_height<P: Parameters>(
         .max(sapling_activation)
 }
 
+/// Converts an `incrementalmerkletree` frontier into its ZeWIF representation.
+fn to_zewif_frontier<H, const DEPTH: u8>(
+    frontier: &incrementalmerkletree::frontier::Frontier<H, DEPTH>,
+    node_bytes: impl Fn(&H) -> [u8; 32],
+) -> ::zewif::Frontier {
+    match frontier.value() {
+        None => ::zewif::Frontier::Empty,
+        Some(frontier) => ::zewif::Frontier::NonEmpty(::zewif::FrontierData::from_parts(
+            u64::from(frontier.position()),
+            ::zewif::MerkleNode::new(node_bytes(frontier.leaf())),
+            frontier
+                .ommers()
+                .iter()
+                .map(|ommer| ::zewif::MerkleNode::new(node_bytes(ommer)))
+                .collect(),
+        )),
+    }
+}
+
+/// Converts a `ChainState` into its ZeWIF representation, preserving the note
+/// commitment tree frontiers of every shielded pool.
+fn to_zewif_chain_state(chain_state: &ChainState) -> ::zewif::ChainState {
+    let mut out = ::zewif::ChainState::new(::zewif::BlockHeight::from(u32::from(
+        chain_state.block_height(),
+    )));
+    out.set_block_hash(::zewif::BlockHash::from_bytes(chain_state.block_hash().0));
+    out.set_sapling_tree(to_zewif_frontier(
+        chain_state.final_sapling_tree(),
+        |node| node.to_bytes(),
+    ));
+    out.set_orchard_tree(to_zewif_frontier(
+        chain_state.final_orchard_tree(),
+        |node| node.to_bytes(),
+    ));
+    out.set_ironwood_tree(to_zewif_frontier(
+        chain_state.final_ironwood_tree(),
+        |node| node.to_bytes(),
+    ));
+    out
+}
+
+/// Fetches birthday chain states for every account in `document` that lacks
+/// one, from the connected lightwalletd server.
+///
+/// The birthday is the account's recorded birthday height where present, and
+/// otherwise a conservative estimate from the document's transactions (see
+/// [`estimate_birthday_height`]). The tree state is fetched as of the block
+/// prior to the birthday. An account whose birthday does not exceed Sapling
+/// activation is left for the importer's own fallback (the server cannot
+/// serve tree states below Sapling activation). The recover-until height is
+/// the current chain tip.
+///
+/// NOTE: THIS APPROACH LEAKS THE ACCOUNT BIRTHDAYS TO THE SERVER!
+pub(crate) async fn fetch_birthday_enrichments<P: Parameters>(
+    client: &mut CompactTxStreamerClient<Channel>,
+    params: &P,
+    document: &::zewif::Zewif,
+) -> Result<BirthdayEnrichments, ZewifCommandError> {
+    let sapling_activation = params
+        .activation_height(NetworkUpgrade::Sapling)
+        .ok_or(ZewifCommandError::SaplingActivationUnknown)?;
+    let chain_tip: u32 = client
+        .get_latest_block(service::ChainSpec::default())
+        .await
+        .map_err(ZewifCommandError::Rpc)?
+        .into_inner()
+        .height
+        .try_into()
+        .expect("block heights must fit into u32");
+
+    let mut enrichments = BirthdayEnrichments::new();
+    for (w, wallet) in document.wallets().iter().enumerate() {
+        for (a, account) in wallet.accounts().iter().enumerate() {
+            if account.birthday_chain_state().is_some() {
+                continue;
+            }
+            let birthday_height = account
+                .birthday_height()
+                .map(|h| BlockHeight::from_u32(u32::from(h)))
+                .unwrap_or_else(|| estimate_birthday_height(document, sapling_activation))
+                .max(sapling_activation);
+            if birthday_height <= sapling_activation {
+                continue;
+            }
+            let request = service::BlockId {
+                height: u64::from(u32::from(birthday_height) - 1),
+                ..Default::default()
+            };
+            let treestate = client
+                .get_tree_state(request)
+                .await
+                .map_err(ZewifCommandError::Rpc)?
+                .into_inner();
+            let chain_state = treestate
+                .to_chain_state()
+                .map_err(ZewifCommandError::InvalidTreeState)?;
+            enrichments.insert(
+                (w, a),
+                AccountEnrichment {
+                    chain_state: to_zewif_chain_state(&chain_state),
+                    recover_until: BlockHeight::from_u32(chain_tip),
+                },
+            );
+        }
+    }
+    Ok(enrichments)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,6 +499,30 @@ mod tests {
             min_birthday_height(&Network::Test, &doc),
             BlockHeight::from_u32(2_500_000),
         );
+    }
+
+    #[test]
+    fn frontier_conversion() {
+        use incrementalmerkletree::Hashable as _;
+        use incrementalmerkletree::frontier::Frontier;
+
+        let empty: Frontier<::sapling::Node, 32> = Frontier::empty();
+        assert!(matches!(
+            to_zewif_frontier(&empty, |n| n.to_bytes()),
+            ::zewif::Frontier::Empty,
+        ));
+
+        let leaf = ::sapling::Node::empty_root(incrementalmerkletree::Level::from(0));
+        let frontier =
+            Frontier::<::sapling::Node, 32>::from_parts(0u64.into(), leaf, vec![]).unwrap();
+        match to_zewif_frontier(&frontier, |n| n.to_bytes()) {
+            ::zewif::Frontier::NonEmpty(data) => {
+                assert_eq!(data.position(), 0);
+                assert_eq!(data.leaf().as_bytes(), &leaf.to_bytes());
+                assert!(data.ommers().is_empty());
+            }
+            ::zewif::Frontier::Empty => panic!("expected a non-empty frontier"),
+        }
     }
 
     #[test]
