@@ -26,6 +26,7 @@ pub(crate) mod shield;
 pub(crate) mod sync;
 pub(crate) mod tree;
 pub(crate) mod upgrade;
+pub(crate) mod zewif;
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
