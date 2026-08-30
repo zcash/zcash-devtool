@@ -13,6 +13,7 @@ pub(crate) mod get_info;
 pub(crate) mod import_ufvk;
 pub(crate) mod init;
 pub(crate) mod init_fvk;
+pub(crate) mod init_zewif;
 pub(crate) mod list_accounts;
 pub(crate) mod list_addresses;
 pub(crate) mod list_tx;
@@ -35,6 +36,9 @@ pub(crate) enum Command {
 
     /// Initialise a new view-only light wallet
     InitFvk(init_fvk::Command),
+
+    /// Initialise a new view-only light wallet from a ZeWIF interchange file
+    InitZewif(init_zewif::Command),
 
     /// Restore a wallet from an existing mnemonic phrase
     RestoreMnemonic(restore_mnemonic::Command),

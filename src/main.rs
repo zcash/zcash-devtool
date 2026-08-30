@@ -140,6 +140,7 @@ fn main() -> Result<(), anyhow::Error> {
             }) => match command {
                 commands::wallet::Command::Init(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::InitFvk(command) => command.run(wallet_dir).await,
+                commands::wallet::Command::InitZewif(command) => command.run(wallet_dir).await,
                 commands::wallet::Command::RestoreMnemonic(command) => {
                     command.run(wallet_dir).await
                 }

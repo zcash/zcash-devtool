@@ -101,6 +101,21 @@ pub(crate) fn read_zewif_file(path: &Path) -> Result<::zewif::Zewif, ZewifComman
     ::zewif::Zewif::from_bytes(&bytes).map_err(ZewifCommandError::Parse)
 }
 
+/// Returns the network the document's wallets were recorded for.
+///
+/// The container carries the network per wallet; the first wallet's network
+/// identifies the document (the importer separately verifies that *every*
+/// wallet matches the wallet database's parameters).
+pub(crate) fn document_network(
+    document: &::zewif::Zewif,
+) -> Result<&::zewif::Network, ZewifCommandError> {
+    document
+        .wallets()
+        .first()
+        .map(|wallet| wallet.network())
+        .ok_or(ZewifCommandError::NoWallets)
+}
+
 /// The chain state to attach to an account whose document birthday lacked
 /// one, keyed in [`BirthdayEnrichments`] by (wallet index, account index).
 pub(crate) struct AccountEnrichment {
