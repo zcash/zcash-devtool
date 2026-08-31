@@ -13,12 +13,14 @@ use std::path::Path;
 use rand::rngs::OsRng;
 use tonic::transport::Channel;
 
+use transparent::address::TransparentAddress;
 use zcash_client_backend::{
-    data_api::chain::ChainState,
+    data_api::{WalletRead as _, WalletWrite as _, chain::ChainState},
     proto::service::{self, compact_tx_streamer_client::CompactTxStreamerClient},
 };
 use zcash_client_sqlite::{
-    WalletDb,
+    AccountUuid, WalletDb,
+    error::SqliteClientError,
     util::SystemClock,
     zewif::{DiscardSecrets, ZewifImportError, ZewifImportReport},
 };
@@ -45,6 +47,8 @@ pub(crate) enum ZewifCommandError {
     InvalidTreeState(std::io::Error),
     /// The importer rejected the document.
     Import(ZewifImportError<std::convert::Infallible>),
+    /// A wallet-database operation after the import failed.
+    Database(SqliteClientError),
     /// The importer imported none of the document's accounts.
     NothingImported { document_account_count: usize },
 }
@@ -68,6 +72,9 @@ impl fmt::Display for ZewifCommandError {
                 write!(f, "Invalid tree state received from server: {e}")
             }
             ZewifCommandError::Import(e) => write!(f, "ZeWIF import failed: {e}"),
+            ZewifCommandError::Database(e) => {
+                write!(f, "Wallet database operation failed after import: {e}")
+            }
             ZewifCommandError::NothingImported {
                 document_account_count,
             } => write!(
@@ -87,6 +94,7 @@ impl std::error::Error for ZewifCommandError {
             ZewifCommandError::Rpc(e) => Some(e),
             ZewifCommandError::InvalidTreeState(e) => Some(e),
             ZewifCommandError::Import(e) => Some(e),
+            ZewifCommandError::Database(e) => Some(e),
             ZewifCommandError::NoWallets
             | ZewifCommandError::NoAccounts
             | ZewifCommandError::SaplingActivationUnknown
@@ -492,6 +500,92 @@ fn print_report(report: &ZewifImportReport) {
     }
 }
 
+/// Registers, for watching, the transparent public keys recorded on imported
+/// accounts' addresses, marking their addresses as exposed as of
+/// `exposure_height`. Returns the number of addresses registered.
+///
+/// Chain queries are made by address, but an address only enters the query
+/// set through a wallet address row, and rows for addresses outside an
+/// account's own derivation are created by public key; the document records
+/// each such address's public key for this purpose. Addresses the document
+/// records as HD-derived — and any address the account's viewing keys
+/// already derive — are skipped: the gap-limit machinery watches those, and
+/// force-exposing one beyond the gap could hide funded addresses from seed
+/// recovery. Uncompressed public keys are skipped with a warning: the wallet
+/// derives addresses only from the compressed form, so registering one would
+/// watch an address zcashd never used.
+fn register_watch_pubkeys<P: Parameters>(
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
+    document: &::zewif::Zewif,
+    report: &ZewifImportReport,
+    exposure_height: BlockHeight,
+) -> Result<usize, ZewifCommandError> {
+    let accounts_by_name: HashMap<&str, AccountUuid> = report
+        .imported_accounts
+        .iter()
+        .map(|account| (account.name.as_str(), account.account_uuid))
+        .collect();
+
+    let mut registered = 0usize;
+    let mut skipped_uncompressed = 0usize;
+    for wallet in document.wallets() {
+        for account in wallet.accounts() {
+            let Some(account_uuid) = accounts_by_name.get(account.name()).copied() else {
+                continue;
+            };
+            let derived: std::collections::HashSet<TransparentAddress> = db_data
+                .get_transparent_receivers(account_uuid, true, false)
+                .map_err(ZewifCommandError::Database)?
+                .into_keys()
+                .collect();
+
+            let mut pubkeys = Vec::new();
+            let mut to_expose = Vec::new();
+            for address in account.addresses() {
+                let ::zewif::ProtocolAddress::Transparent(taddr) = address.address() else {
+                    continue;
+                };
+                if matches!(
+                    taddr.spend_authority(),
+                    Some(::zewif::transparent::TransparentSpendAuthority::Derived(_))
+                ) {
+                    continue;
+                }
+                let Some(pubkey) = taddr.pubkey() else {
+                    continue;
+                };
+                match secp256k1::PublicKey::from_slice(pubkey.as_slice()) {
+                    Ok(pk) if pubkey.as_slice().len() == 33 => {
+                        let address = TransparentAddress::from_pubkey(&pk);
+                        if derived.contains(&address) {
+                            continue;
+                        }
+                        pubkeys.push(pk);
+                        to_expose.push((address, exposure_height));
+                    }
+                    _ => skipped_uncompressed += 1,
+                }
+            }
+            if !pubkeys.is_empty() {
+                db_data
+                    .import_standalone_transparent_pubkeys(account_uuid, &pubkeys)
+                    .map_err(ZewifCommandError::Database)?;
+                db_data
+                    .mark_transparent_addresses_exposed(&to_expose)
+                    .map_err(ZewifCommandError::Database)?;
+                registered += pubkeys.len();
+            }
+        }
+    }
+    if skipped_uncompressed > 0 {
+        println!(
+            "WARNING: skipped {skipped_uncompressed} transparent public key(s) not in \
+             compressed form; the wallet derives addresses only from compressed keys",
+        );
+    }
+    Ok(registered)
+}
+
 /// Imports a prepared (view-only) ZeWIF document into the wallet database,
 /// printing the import report.
 ///
@@ -512,9 +606,14 @@ pub(crate) fn import_prepared<P: Parameters>(
         return Err(ZewifCommandError::NoAccounts);
     }
 
+    let exposure_height = min_birthday_height(db_data.params(), document);
     let report = zcash_client_sqlite::zewif::import_wallet(db_data, document, &mut DiscardSecrets)
         .map_err(ZewifCommandError::Import)?;
+    let watch_registered = register_watch_pubkeys(db_data, document, &report, exposure_height)?;
     print_report(&report);
+    if watch_registered > 0 {
+        println!("Registered {watch_registered} transparent address(es) for watching");
+    }
 
     if report.imported_accounts.is_empty() {
         return Err(ZewifCommandError::NothingImported {
@@ -749,9 +848,7 @@ mod tests {
     }
 
     use rand::rngs::OsRng;
-    use zcash_client_backend::data_api::{
-        Account as _, AccountPurpose, AccountSource, WalletRead as _,
-    };
+    use zcash_client_backend::data_api::{Account as _, AccountPurpose, AccountSource};
     use zcash_client_sqlite::{WalletDb, util::SystemClock, wallet::init::init_wallet_db};
 
     /// An initialized wallet database over a fresh temporary directory. The
@@ -851,6 +948,78 @@ mod tests {
                 document_account_count: 1,
             }),
         ));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A transparent address paired with the public key that derives it.
+    fn standalone_taddr() -> (TransparentAddress, ::zewif::transparent::Address) {
+        use zcash_keys::encoding::AddressCodec as _;
+        let secp = secp256k1::Secp256k1::new();
+        let sk = secp256k1::SecretKey::from_slice(&[0x11; 32]).unwrap();
+        let pk = sk.public_key(&secp);
+        let taddr = TransparentAddress::from_pubkey(&pk);
+        let mut zaddr = ::zewif::transparent::Address::new(taddr.encode(&Network::Test));
+        zaddr.set_pubkey(
+            ::zewif::transparent::TransparentPubKey::from_bytes(pk.serialize().to_vec()).unwrap(),
+        );
+        (taddr, zaddr)
+    }
+
+    #[test]
+    fn standalone_transparent_pubkeys_are_registered_for_watching() {
+        let (dir, mut db) = test_wallet_db("watch-pubkeys");
+        let (taddr, zaddr) = standalone_taddr();
+        let mut account = ufvk_account("watcher");
+        account.add_address(::zewif::Address::new(
+            ::zewif::ProtocolAddress::Transparent(zaddr),
+        ));
+        let doc = document(vec![account]);
+
+        let prepared = prepare_document(&doc, &DocumentEnrichments::default()).document;
+        let report = import_prepared(&mut db, &prepared).unwrap();
+        let account_uuid = report.imported_accounts[0].account_uuid;
+
+        // The address is watched as a standalone receiver, not one of the
+        // account's own derived receivers.
+        let receivers = db
+            .get_transparent_receivers(account_uuid, true, true)
+            .unwrap();
+        assert!(receivers.contains_key(&taddr));
+        let derived = db
+            .get_transparent_receivers(account_uuid, true, false)
+            .unwrap();
+        assert!(!derived.contains_key(&taddr));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn derived_transparent_addresses_are_not_reregistered() {
+        let (dir, mut db) = test_wallet_db("watch-derived");
+        let (taddr, mut zaddr) = standalone_taddr();
+        // The document marks the address as HD-derived; the account's viewing
+        // keys cover it, so it must not be registered as standalone.
+        zaddr.set_spend_authority(::zewif::transparent::TransparentSpendAuthority::Derived(
+            ::zewif::DerivationInfo::new(
+                ::zewif::NonHardenedChildIndex::from(0u32),
+                ::zewif::NonHardenedChildIndex::from(5u32),
+            ),
+        ));
+        let mut account = ufvk_account("derived");
+        account.add_address(::zewif::Address::new(
+            ::zewif::ProtocolAddress::Transparent(zaddr),
+        ));
+        let doc = document(vec![account]);
+
+        let prepared = prepare_document(&doc, &DocumentEnrichments::default()).document;
+        let report = import_prepared(&mut db, &prepared).unwrap();
+        let account_uuid = report.imported_accounts[0].account_uuid;
+
+        let receivers = db
+            .get_transparent_receivers(account_uuid, true, true)
+            .unwrap();
+        assert!(!receivers.contains_key(&taddr));
 
         std::fs::remove_dir_all(&dir).unwrap();
     }
