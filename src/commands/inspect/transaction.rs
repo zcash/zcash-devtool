@@ -11,7 +11,7 @@ use ::transparent::{
     bundle as transparent,
     sighash::{SighashType, TransparentAuthorizingContext},
 };
-use orchard::note_encryption::OrchardDomain;
+use orchard::note_encryption::{IronwoodDomain, OrchardDomain};
 use zcash_address::{
     ToAddress, ZcashAddress,
     unified::{self, Encoding},
@@ -21,13 +21,13 @@ use zcash_note_encryption::try_output_recovery_with_ovk;
 use zcash_primitives::transaction::{
     Authorization, Transaction, TransactionData, TxId, TxVersion,
     components::sapling as sapling_serialization,
-    sighash::{SignableInput, signature_hash},
+    sighash::{SignableInput, SignatureHash, signature_hash},
     txid::TxIdDigester,
 };
 use zcash_protocol::{
     consensus::BlockHeight,
     memo::{Memo, MemoBytes},
-    value::Zatoshis,
+    value::{ZatBalance, Zatoshis},
 };
 use zcash_script::{script, solver};
 
@@ -190,7 +190,8 @@ pub(crate) fn inspect(
     if let Some(sighash) = &common_sighash
         && (tx.sprout_bundle().is_some()
             || tx.sapling_bundle().is_some()
-            || tx.orchard_bundle().is_some())
+            || tx.orchard_bundle().is_some()
+            || tx.ironwood_bundle().is_some())
     {
         eprintln!(
             " - Sighash for shielded signatures: {}",
@@ -463,88 +464,144 @@ pub(crate) fn inspect(
     }
 
     if let Some(bundle) = tx.orchard_bundle() {
-        eprintln!(" - {} Orchard Action(s)", bundle.actions().len());
+        inspect_orchard_protocol_bundle(
+            OrchardProtocolPool::Orchard,
+            bundle,
+            is_coinbase,
+            context.as_ref(),
+            common_sighash.as_ref(),
+        );
+    }
 
-        // Orchard nullifiers must not be duplicated within a transaction.
-        let mut nullifiers = HashMap::<[u8; 32], Vec<usize>>::default();
+    // NU6.3 (ZIP 229): the Ironwood bundle uses the same Action encoding as
+    // Orchard, with V3 note plaintexts and its own proof circuit version.
+    if let Some(bundle) = tx.ironwood_bundle() {
+        inspect_orchard_protocol_bundle(
+            OrchardProtocolPool::Ironwood,
+            bundle,
+            is_coinbase,
+            context.as_ref(),
+            common_sighash.as_ref(),
+        );
+    }
+}
+
+/// The two shielded pools that use Orchard Actions.
+#[derive(Clone, Copy)]
+enum OrchardProtocolPool {
+    Orchard,
+    Ironwood,
+}
+
+impl OrchardProtocolPool {
+    fn name(self) -> &'static str {
+        match self {
+            OrchardProtocolPool::Orchard => "Orchard",
+            OrchardProtocolPool::Ironwood => "Ironwood",
+        }
+    }
+}
+
+fn inspect_orchard_protocol_bundle(
+    pool: OrchardProtocolPool,
+    bundle: &orchard::Bundle<orchard::bundle::Authorized, ZatBalance>,
+    is_coinbase: bool,
+    context: Option<&Context>,
+    sighash_opt: Option<&SignatureHash>,
+) {
+    eprintln!(" - {} {} Action(s)", bundle.actions().len(), pool.name());
+
+    // Nullifiers must not be duplicated within a bundle.
+    let mut nullifiers = HashMap::<[u8; 32], Vec<usize>>::default();
+    for (i, action) in bundle.actions().iter().enumerate() {
+        nullifiers
+            .entry(action.nullifier().to_bytes())
+            .or_insert_with(Vec::new)
+            .push(i);
+    }
+    for (_, indices) in nullifiers {
+        if indices.len() > 1 {
+            eprintln!("⚠️  Nullifier is duplicated between actions {indices:?}");
+        }
+    }
+
+    if is_coinbase {
+        // All coinbase outputs must be decryptable with the all-zeroes OVK.
         for (i, action) in bundle.actions().iter().enumerate() {
-            nullifiers
-                .entry(action.nullifier().to_bytes())
-                .or_insert_with(Vec::new)
-                .push(i);
-        }
-        for (_, indices) in nullifiers {
-            if indices.len() > 1 {
-                eprintln!("⚠️  Nullifier is duplicated between actions {indices:?}");
-            }
-        }
-
-        if is_coinbase {
-            // All coinbase outputs must be decryptable with the all-zeroes OVK.
-            for (i, action) in bundle.actions().iter().enumerate() {
-                let ovk = orchard::keys::OutgoingViewingKey::from([0u8; 32]);
-                if let Some((note, addr, memo)) = try_output_recovery_with_ovk(
+            let ovk = orchard::keys::OutgoingViewingKey::from([0u8; 32]);
+            let out_ciphertext = &action.encrypted_note().out_ciphertext;
+            let recovered = match pool {
+                OrchardProtocolPool::Orchard => try_output_recovery_with_ovk(
                     &OrchardDomain::for_action(action),
                     &ovk,
                     action,
                     action.cv_net(),
-                    &action.encrypted_note().out_ciphertext,
-                ) {
-                    if note.value().inner() == 0 {
-                        eprintln!("   - Output {i} (dummy output):");
-                    } else {
-                        eprintln!("   - Output {i}:");
-
-                        if let Some(net) = context.as_ref().and_then(|ctx| ctx.addr_network()) {
-                            assert_eq!(note.recipient(), addr);
-                            // Construct a single-receiver UA.
-                            let zaddr = ZcashAddress::from_unified(
-                                net,
-                                unified::Address::try_from_items(
-                                    unified::Revision::R0,
-                                    vec![unified::Uitem::Data(unified::Receiver::Orchard(
-                                        addr.to_raw_address_bytes(),
-                                    ))],
-                                )
-                                .unwrap(),
-                            );
-                            eprintln!("     - {zaddr}");
-                        } else {
-                            eprintln!(
-                                "    🔎 To show recipient address, add \"network\" to context (either \"main\" or \"test\")"
-                            );
-                        }
-
-                        eprintln!("     - {}", render_value(note.value().inner()));
-                    }
-                    eprintln!(
-                        "     - {}",
-                        render_memo(MemoBytes::from_bytes(&memo).unwrap())
-                    );
+                    out_ciphertext,
+                ),
+                OrchardProtocolPool::Ironwood => try_output_recovery_with_ovk(
+                    &IronwoodDomain::for_action(action),
+                    &ovk,
+                    action,
+                    action.cv_net(),
+                    out_ciphertext,
+                ),
+            };
+            if let Some((note, addr, memo)) = recovered {
+                if note.value().inner() == 0 {
+                    eprintln!("   - Output {i} (dummy output):");
                 } else {
-                    eprintln!("  ⚠️  Output {i} is not recoverable with the all-zeros OVK");
+                    eprintln!("   - Output {i}:");
+
+                    if let Some(net) = context.and_then(|ctx| ctx.addr_network()) {
+                        assert_eq!(note.recipient(), addr);
+                        // Construct a single-receiver UA.
+                        let zaddr = ZcashAddress::from_unified(
+                            net,
+                            unified::Address::try_from_items(
+                                unified::Revision::R0,
+                                vec![unified::Uitem::Data(unified::Receiver::Orchard(
+                                    addr.to_raw_address_bytes(),
+                                ))],
+                            )
+                            .unwrap(),
+                        );
+                        eprintln!("     - {zaddr}");
+                    } else {
+                        eprintln!(
+                            "    🔎 To show recipient address, add \"network\" to context (either \"main\" or \"test\")"
+                        );
+                    }
+
+                    eprintln!("     - {}", render_value(note.value().inner()));
                 }
+                eprintln!(
+                    "     - {}",
+                    render_memo(MemoBytes::from_bytes(&memo).unwrap())
+                );
+            } else {
+                eprintln!("  ⚠️  Output {i} is not recoverable with the all-zeros OVK");
             }
         }
+    }
 
-        if let Some(sighash) = &common_sighash {
-            for (i, action) in bundle.actions().iter().enumerate() {
-                if let Err(e) = action.rk().verify(sighash.as_ref(), action.authorization()) {
-                    eprintln!("  ⚠️  Action {i} spendAuthSig is invalid: {e}");
-                }
+    if let Some(sighash) = sighash_opt {
+        for (i, action) in bundle.actions().iter().enumerate() {
+            if let Err(e) = action.rk().verify(sighash.as_ref(), action.authorization()) {
+                eprintln!("  ⚠️  Action {i} spendAuthSig is invalid: {e}");
             }
-        } else {
-            eprintln!(
-                "🔎 To check Orchard Action signatures, add \"transparentcoins\" array to context"
-            );
         }
+    } else {
+        eprintln!(
+            "🔎 To check {} Action signatures, add \"transparentcoins\" array to context",
+            pool.name()
+        );
+    }
 
-        // The circuit version (and thus the verifying key) is fixed by the
-        // bundle's own version, which the parser derives from the tx era.
-        let orchard_vk =
-            orchard::circuit::VerifyingKey::build(bundle.bundle_version().circuit_version());
-        if let Err(e) = bundle.verify_proof(&orchard_vk) {
-            eprintln!("⚠️  Orchard proof is invalid: {e:?}");
-        }
+    // The circuit version (and thus the verifying key) is fixed by the
+    // bundle's own version, which the parser derives from the tx era.
+    let orchard_vk =
+        orchard::circuit::VerifyingKey::build(bundle.bundle_version().circuit_version());
+    if let Err(e) = bundle.verify_proof(&orchard_vk) {
+        eprintln!("⚠️  {} proof is invalid: {e:?}", pool.name());
     }
 }
