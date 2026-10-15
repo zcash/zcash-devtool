@@ -970,15 +970,19 @@ async fn scan_for_ur(
         match &detected_result {
             Ok((_, Some(content))) if content.starts_with(expected_ur_type) => {
                 progress.record(content);
-                // A frame of the right UR type can still be rejected by the decoder -- a stale
-                // QR from a previous run, the device looping back to an earlier message, or a
-                // corrupted read that kept the type prefix intact. That's a property of the one
-                // frame, not the scan: record it and keep scanning (same as grid-decode errors
-                // below) rather than aborting a possibly hundreds-of-parts session.
-                if let Err(e) = decoder.receive(content) {
-                    progress.last_status = format!("Rejected QR part: {e:?}");
-                    if no_preview {
-                        eprintln!("Rejected QR part: {e:?}");
+                match decoder.receive(content) {
+                    Ok(()) => progress.update_fragments(&decoder),
+                    // A frame of the right UR type can still be rejected by the decoder -- a
+                    // stale QR from a previous run, the device looping back to an earlier
+                    // message, or a corrupted read that kept the type prefix intact. That's a
+                    // property of the one frame, not the scan: record it and keep scanning (same
+                    // as grid-decode errors below) rather than aborting a possibly
+                    // hundreds-of-parts session.
+                    Err(e) => {
+                        progress.last_status = format!("Rejected QR part: {e:?}");
+                        if no_preview {
+                            eprintln!("Rejected QR part: {e:?}");
+                        }
                     }
                 }
             }
@@ -1026,15 +1030,17 @@ fn detect_qr(
     }
 }
 
-/// Tracks how a QR scan is progressing across ticks, for live terminal feedback: how many
-/// distinct fountain-code parts have been seen versus the total the sender announced (parsed
-/// straight out of each frame's own `ur:<type>/<seq>-<total>/...` text, since neither `ur::Decoder`
-/// nor `ur::fountain::Decoder` expose a public progress/received-count accessor), plus the most
-/// recent scan-loop status line.
+/// Tracks how a QR scan is progressing across ticks, for live terminal feedback: how many of
+/// the message's source fragments the fountain decoder has recovered, how many matching frames
+/// were read, and the most recent scan-loop status line.
+///
+/// Progress counts recovered fragments, not distinct part sequence numbers. Parts past the
+/// first pass are XOR mixes of several fragments, so their sequence numbers do not map to
+/// fragments and a count of them can exceed the fragment total.
 #[derive(Default)]
 struct ScanProgress {
-    seen_parts: std::collections::BTreeSet<usize>,
-    total_parts: Option<usize>,
+    /// `(recovered, total)` source fragments, once the first multi-part frame is accepted.
+    fragments: Option<(usize, usize)>,
     frames_seen: usize,
     last_status: String,
 }
@@ -1043,20 +1049,40 @@ impl ScanProgress {
     /// Records a successfully-decoded QR frame's raw UR text.
     fn record(&mut self, content: &str) {
         self.frames_seen += 1;
-        match parse_ur_sequence(content) {
-            Some((seq, total)) => {
-                self.total_parts = Some(total);
-                self.seen_parts.insert(seq);
-                self.last_status = format!("received part {seq}/{total}");
+        self.last_status = match parse_ur_sequence(content) {
+            Some((seq, _)) => format!("received part #{seq}"),
+            None => "received part (no sequence info)".to_string(),
+        };
+    }
+
+    /// Copies the decoder's fragment-recovery state, after the decoder accepts a part.
+    fn update_fragments(&mut self, decoder: &ur::Decoder) {
+        self.fragments = decoder
+            .resolved_fragment_count()
+            .map(|recovered| (recovered, decoder.fragment_count()));
+    }
+
+    /// Describes fragment recovery as a count, a bar, and a percentage.
+    fn fragments_summary(&self) -> String {
+        const BAR_WIDTH: usize = 20;
+        match self.fragments {
+            Some((recovered, total)) if total > 0 => {
+                let filled = recovered * BAR_WIDTH / total;
+                format!(
+                    "fragments recovered: {recovered}/{total} [{}{}] {}%",
+                    "#".repeat(filled),
+                    "-".repeat(BAR_WIDTH - filled),
+                    recovered * 100 / total,
+                )
             }
-            None => self.last_status = "received part (no sequence info)".to_string(),
+            _ => "fragments recovered: waiting for first part".to_string(),
         }
     }
 }
 
 /// Extracts `(seq, total)` from a multi-part UR's `ur:<type>/<seq>-<total>/<payload>` text.
-/// Fountain-code parts beyond the first full pass reuse this same field to announce a
-/// (possibly combined) part index, so `seq` can exceed `total` -- that's normal, not an error.
+/// `total` is the fragment count. Parts with `seq > total` are fountain-coded mixes of several
+/// fragments. This is normal, not an error.
 fn parse_ur_sequence(content: &str) -> Option<(usize, usize)> {
     let mut segments = content.splitn(3, '/');
     segments.next()?; // "ur:<type>"
@@ -1067,7 +1093,7 @@ fn parse_ur_sequence(content: &str) -> Option<(usize, usize)> {
 /// Renders a live terminal preview of the camera feed while scanning: the current frame as
 /// ANSI truecolor half-block characters (two vertical pixels per character row, so the aspect
 /// ratio roughly matches a normal terminal font), followed by a status line covering QR
-/// detection, unique-part progress, and the last scan event. Redraws in place (clear + home)
+/// detection, fragment-recovery progress, and the last scan event. Redraws in place (clear + home)
 /// each call so it reads as a live video rather than scrolling text.
 fn render_preview(
     img: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
@@ -1101,18 +1127,15 @@ fn render_preview(
         out.push_str("\x1b[0m\n");
     }
 
-    let total = progress
-        .total_parts
-        .map_or_else(|| "?".to_string(), |t| t.to_string());
     let _ = writeln!(
         out,
-        "QR detected: {}   |   unique parts seen: {}/{total}   |   matching frames read: {}   |   {}",
+        "QR detected: {}   |   {}   |   matching frames read: {}   |   {}",
         if qr_detected {
             "yes"
         } else {
             "no -- reposition the camera"
         },
-        progress.seen_parts.len(),
+        progress.fragments_summary(),
         progress.frames_seen,
         progress.last_status,
     );
@@ -1143,16 +1166,11 @@ fn convert_buffer_to_image(
         .enumerate()
         .take(height as usize)
     {
-        for (x, pixel) in chunk.chunks_exact(4).enumerate() {
+        for (x, pixel) in chunk.as_chunks::<4>().0.iter().enumerate() {
             // `FrameFormat::YUYV` is packed 4:2:2 in Y0 U Y1 V byte order (the fourcc's own
             // name), not U Y0 V Y1 (UYVY) -- confirmed against a real capture, where reading
             // this as UYVY pinned red and blue to 0 in every frame.
-            let [y1, u, y2, v] = [
-                pixel[0] as f32,
-                pixel[1] as f32,
-                pixel[2] as f32,
-                pixel[3] as f32,
-            ];
+            let [y1, u, y2, v] = pixel.map(f32::from);
             let x = (x * 2) as u32;
             image_buffer.put_pixel(x, y as u32, yuv_to_rgb(y1, u, v));
             image_buffer.put_pixel(x + 1, y as u32, yuv_to_rgb(y2, u, v));
@@ -1207,16 +1225,14 @@ mod tests {
     }
 
     #[test]
-    fn scan_progress_tracks_unique_parts_and_total() {
+    fn scan_progress_counts_frames_and_reports_last_part() {
         let mut progress = ScanProgress::default();
         progress.record("ur:zcash-pczt/1-3/aaa");
         progress.record("ur:zcash-pczt/2-3/bbb");
         progress.record("ur:zcash-pczt/1-3/aaa"); // duplicate frame, e.g. re-scanned
 
-        assert_eq!(progress.total_parts, Some(3));
-        assert_eq!(progress.seen_parts.len(), 2);
         assert_eq!(progress.frames_seen, 3); // every recorded frame counts, dup or not
-        assert_eq!(progress.last_status, "received part 1/3");
+        assert_eq!(progress.last_status, "received part #1");
     }
 
     #[test]
@@ -1224,9 +1240,37 @@ mod tests {
         let mut progress = ScanProgress::default();
         progress.record("ur:zcash-pczt");
 
-        assert_eq!(progress.total_parts, None);
-        assert!(progress.seen_parts.is_empty());
+        assert_eq!(progress.fragments, None);
         assert_eq!(progress.last_status, "received part (no sequence info)");
+    }
+
+    #[test]
+    fn scan_progress_fragments_never_exceed_total() {
+        let message = vec![0x5a; 400];
+        let mut encoder = ur::Encoder::bytes(&message, 20).unwrap();
+        let mut decoder = ur::Decoder::default();
+        let mut progress = ScanProgress::default();
+        let mut previous = 0;
+
+        // Skip the simple first pass so that the decoder sees only mixed parts, where a count
+        // of distinct sequence numbers overshoots the fragment total.
+        for _ in 0..encoder.fragment_count() {
+            encoder.next_part().unwrap();
+        }
+        while !decoder.complete() {
+            let part = encoder.next_part().unwrap();
+            decoder.receive(&part).unwrap();
+            progress.update_fragments(&decoder);
+
+            let (recovered, total) = progress.fragments.unwrap();
+            assert_eq!(total, encoder.fragment_count());
+            assert!(recovered <= total);
+            assert!(recovered >= previous);
+            previous = recovered;
+        }
+        assert_eq!(progress.fragments, Some((20, 20)));
+        assert!(progress.fragments_summary().contains("20/20"));
+        assert!(progress.fragments_summary().ends_with("100%"));
     }
 
     /// A scratch directory under the platform temp dir, removed on drop. Unique per test via
