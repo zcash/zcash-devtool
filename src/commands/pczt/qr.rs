@@ -1166,16 +1166,11 @@ fn convert_buffer_to_image(
         .enumerate()
         .take(height as usize)
     {
-        for (x, pixel) in chunk.chunks_exact(4).enumerate() {
+        for (x, pixel) in chunk.as_chunks::<4>().0.iter().enumerate() {
             // `FrameFormat::YUYV` is packed 4:2:2 in Y0 U Y1 V byte order (the fourcc's own
             // name), not U Y0 V Y1 (UYVY) -- confirmed against a real capture, where reading
             // this as UYVY pinned red and blue to 0 in every frame.
-            let [y1, u, y2, v] = [
-                pixel[0] as f32,
-                pixel[1] as f32,
-                pixel[2] as f32,
-                pixel[3] as f32,
-            ];
+            let [y1, u, y2, v] = pixel.map(f32::from);
             let x = (x * 2) as u32;
             image_buffer.put_pixel(x, y as u32, yuv_to_rgb(y1, u, v));
             image_buffer.put_pixel(x + 1, y as u32, yuv_to_rgb(y2, u, v));
