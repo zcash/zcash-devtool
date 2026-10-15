@@ -8517,9 +8517,9 @@ dependencies = [
 
 [[package]]
 name = "uint"
-version = "0.10.0"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "909988d098b2f738727b161a106cfc7cab00c539c2687a8836f8e565976fb53e"
+checksum = "2833f28e3adbd1b867292ee4053252ea89ab85e44e5e4701ffead8cada0539fa"
 dependencies = [
  "byteorder",
  "crunchy",
@@ -9526,7 +9526,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tui-logger",
- "uint 0.10.0",
+ "uint 0.10.2",
  "ur",
  "uuid",
  "zcash_address",
