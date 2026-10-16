@@ -1092,9 +1092,11 @@ fn parse_ur_sequence(content: &str) -> Option<(usize, usize)> {
 
 /// Renders a live terminal preview of the camera feed while scanning: the current frame as
 /// ANSI truecolor half-block characters (two vertical pixels per character row, so the aspect
-/// ratio roughly matches a normal terminal font), followed by a status line covering QR
-/// detection, fragment-recovery progress, and the last scan event. Redraws in place (clear + home)
-/// each call so it reads as a live video rather than scrolling text.
+/// ratio roughly matches a normal terminal font), followed by a progress line (fragment recovery
+/// and matching frames read) and a status line (QR detection and the last scan event). The
+/// progress line comes first so it holds its position while the status text changes length.
+/// Redraws in place (clear + home) each call so it reads as a live video rather than scrolling
+/// text.
 fn render_preview(
     img: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
     qr_detected: bool,
@@ -1129,14 +1131,18 @@ fn render_preview(
 
     let _ = writeln!(
         out,
-        "QR detected: {}   |   {}   |   matching frames read: {}   |   {}",
+        "{}   |   matching frames read: {}",
+        progress.fragments_summary(),
+        progress.frames_seen,
+    );
+    let _ = writeln!(
+        out,
+        "QR detected: {}   |   {}",
         if qr_detected {
             "yes"
         } else {
             "no -- reposition the camera"
         },
-        progress.fragments_summary(),
-        progress.frames_seen,
         progress.last_status,
     );
 
