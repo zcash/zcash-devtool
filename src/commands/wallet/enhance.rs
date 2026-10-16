@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use anyhow::anyhow;
 use clap::Args;
 use futures_util::StreamExt;
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use tonic::{Code, transport::Channel};
 use tracing::info;
 use zcash_client_backend::{
@@ -78,7 +78,7 @@ impl Command {
         let params = get_wallet_network(wallet_dir.as_ref())?;
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
 
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, UnwrapErr(SysRng))?;
         let chain_tip = db_data.chain_height()?.ok_or_else(|| {
             anyhow!("Chain height must be available to perform transaction enhancement.")
         })?;

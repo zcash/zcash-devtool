@@ -52,7 +52,7 @@ impl Command {
         let (network_type, ufvk) = Ufvk::decode(&opts.fvk)
             .map_err(anyhow::Error::new)
             .and_then(
-                |(network, ufvk)| -> Result<(NetworkType, UnifiedFullViewingKey), anyhow::Error> {
+                |(network, _revision, ufvk)| -> Result<(NetworkType, UnifiedFullViewingKey), anyhow::Error> {
                     let ufvk = UnifiedFullViewingKey::parse(&ufvk)?;
                     Ok((network, ufvk))
                 },

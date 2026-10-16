@@ -1,4 +1,4 @@
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use std::path::{Path, PathBuf};
 use zcash_client_sqlite::chain::init::init_blockmeta_db;
 use zcash_client_sqlite::util::SystemClock;
@@ -88,7 +88,6 @@ const DEFAULT_REGTEST: ActivationHeights = ActivationHeights {
     nu6_1: Some(HeightSetting::At(2)),
     nu6_2: Some(HeightSetting::At(2)),
     nu6_3: Some(HeightSetting::At(2)),
-    #[cfg(zcash_unstable = "nu7")]
     nu7: Some(HeightSetting::At(2)),
 };
 
@@ -154,7 +153,6 @@ pub(crate) struct ActivationHeights {
     pub(crate) nu6_1: Option<HeightSetting>,
     pub(crate) nu6_2: Option<HeightSetting>,
     pub(crate) nu6_3: Option<HeightSetting>,
-    #[cfg(zcash_unstable = "nu7")]
     pub(crate) nu7: Option<HeightSetting>,
 }
 
@@ -180,7 +178,6 @@ impl ActivationHeights {
             nu6_1: h(self.nu6_1),
             nu6_2: h(self.nu6_2),
             nu6_3: h(self.nu6_3),
-            #[cfg(zcash_unstable = "nu7")]
             nu7: h(self.nu7),
         }
     }
@@ -200,7 +197,6 @@ impl ActivationHeights {
             ("nu6_1", self.nu6_1),
             ("nu6_2", self.nu6_2),
             ("nu6_3", self.nu6_3),
-            #[cfg(zcash_unstable = "nu7")]
             ("nu7", self.nu7),
         ]
         .iter()
@@ -300,11 +296,11 @@ pub(crate) async fn erase_wallet_state<P: AsRef<Path>>(wallet_dir: Option<P>) {
 pub(crate) fn init_dbs<P: Parameters + 'static>(
     params: P,
     wallet_dir: Option<&String>,
-) -> Result<WalletDb<rusqlite::Connection, P, SystemClock, OsRng>, anyhow::Error> {
+) -> Result<WalletDb<rusqlite::Connection, P, SystemClock, UnwrapErr<SysRng>>, anyhow::Error> {
     // Initialise the block and wallet DBs.
     let (db_cache, db_data) = get_db_paths(wallet_dir);
     let mut db_cache = FsBlockDb::for_path(db_cache).map_err(error::Error::from)?;
-    let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+    let mut db_data = WalletDb::for_path(db_data, params, SystemClock, UnwrapErr(SysRng))?;
     init_blockmeta_db(&mut db_cache)?;
     init_wallet_db(&mut db_data, None)?;
 

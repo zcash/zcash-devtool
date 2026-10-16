@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use clap::Args;
 use iso_currency::Currency;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use rust_decimal::{Decimal, prelude::FromPrimitive};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -158,7 +159,9 @@ impl ValuePrinter {
     async fn with_exchange_rate(tor: &tor::Client, currency: Currency) -> anyhow::Result<Self> {
         info!("Fetching {:?}/ZEC exchange rate", currency);
         let exchanges = tor::http::cryptex::Exchanges::unauthenticated_known_with_gemini_trusted();
-        let usd_zec = tor.get_latest_zec_to_usd_rate(&exchanges).await?;
+        let usd_zec = tor
+            .get_latest_zec_to_usd_rate(&mut UnwrapErr(SysRng), &exchanges)
+            .await?;
 
         if currency == Currency::USD {
             let rate = usd_zec;

@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use clap::{Args, Subcommand};
 use minicbor::data::{Int, Tag};
 use qrcode::{QrCode, render::unicode};
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use tokio::io::{AsyncWriteExt, stdout};
 use uuid::Uuid;
 use zcash_client_backend::data_api::Account;
@@ -45,7 +45,7 @@ impl Enroll {
         let params = config.network();
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+        let db_data = WalletDb::for_path(db_data, params, SystemClock, UnwrapErr(SysRng))?;
         let account = select_account(&db_data, self.account_id)?;
 
         let key_derivation = account
@@ -61,7 +61,7 @@ impl Enroll {
                     ufvk: account
                         .ufvk()
                         .ok_or(anyhow!("Cannot enroll account without UFVK"))?
-                        .encode(&params),
+                        .encode(&params)?,
                     index: key_derivation.account_index().into(),
                     name: account.name().map(String::from),
                 }],

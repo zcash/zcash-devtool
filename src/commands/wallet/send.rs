@@ -4,7 +4,7 @@ use std::{num::NonZeroUsize, str::FromStr};
 use age::Identity;
 use anyhow::anyhow;
 use clap::Args;
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use secrecy::ExposeSecret;
 use uuid::Uuid;
 
@@ -187,7 +187,7 @@ pub(crate) async fn pay<C: PaymentContext>(
     let params = config.network();
 
     let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-    let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+    let mut db_data = WalletDb::for_path(db_data, params, SystemClock, UnwrapErr(SysRng))?;
     let account = select_account(&db_data, context.spending_account())?;
     let derivation = account
         .source()
@@ -254,6 +254,8 @@ pub(crate) async fn pay<C: PaymentContext>(
         let txids = create_proposed_transactions(
             &mut db_data,
             &params,
+            &SystemClock,
+            &mut UnwrapErr(SysRng),
             &prover,
             &prover,
             &SpendingKeys::from_unified_spending_key(usk),

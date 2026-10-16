@@ -3,10 +3,8 @@ use std::{
     convert::{TryFrom, TryInto},
 };
 
-use bellman::groth16;
 use group::GroupEncoding;
 use sapling::{SaplingVerificationContext, note_encryption::SaplingDomain};
-use secp256k1::{Secp256k1, VerifyOnly};
 
 use ::transparent::{
     address::{Script, TransparentAddress},
@@ -210,8 +208,6 @@ pub(crate) fn inspect(
                 }
 
                 let (tx, txid_parts) = sighash_params.as_ref().unwrap();
-                let ctx = Secp256k1::<VerifyOnly>::gen_new();
-
                 for (i, (txin, coin)) in bundle.vin.iter().zip(coins).enumerate() {
                     eprintln!(
                         "   - prevout: txid {}, index {}",
@@ -283,11 +279,9 @@ pub(crate) fn inspect(
                                         ),
                                         txid_parts,
                                     );
-                                    let msg =
-                                        secp256k1::Message::from_digest_slice(sighash.as_ref())
-                                            .expect("signature_hash() returns correct length");
+                                    let msg = secp256k1::Message::from_digest(*sighash.as_ref());
 
-                                    if let Err(e) = ctx.verify_ecdsa(&msg, &sig, &pubkey) {
+                                    if let Err(e) = secp256k1::ecdsa::verify(&sig, msg, &pubkey) {
                                         eprintln!("    ⚠️  Spend {i} is invalid: {e}");
                                         eprintln!(
                                             "     - sighash is {}",
@@ -506,9 +500,12 @@ pub(crate) fn inspect(
                             // Construct a single-receiver UA.
                             let zaddr = ZcashAddress::from_unified(
                                 net,
-                                unified::Address::try_from_items(vec![unified::Receiver::Orchard(
-                                    addr.to_raw_address_bytes(),
-                                )])
+                                unified::Address::try_from_items(
+                                    unified::Revision::R0,
+                                    vec![unified::Uitem::Data(unified::Receiver::Orchard(
+                                        addr.to_raw_address_bytes(),
+                                    ))],
+                                )
                                 .unwrap(),
                             );
                             eprintln!("     - {zaddr}");

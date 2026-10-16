@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use clap::Args;
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use uuid::Uuid;
 
 use zcash_client_backend::data_api::{Account as _, WalletRead};
@@ -35,7 +35,8 @@ impl Command {
         // schedule's own maximum, say) would make transactions look ready regardless of the real
         // chain. Matches `migration advance`.
         let (account_id, scanned, tip) = {
-            let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
+            let wallet_db =
+                WalletDb::from_connection(&mut conn, params, SystemClock, UnwrapErr(SysRng));
             let account = select_account(&wallet_db, self.account_id)?;
             let scanned = wallet_db
                 .block_fully_scanned()

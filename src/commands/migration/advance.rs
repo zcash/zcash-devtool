@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use clap::Args;
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use uuid::Uuid;
 
 use zcash_client_backend::data_api::{Account as _, WalletRead};
@@ -42,7 +42,8 @@ impl Command {
         // dueness is judged against, read through a `WalletDb` view that is dropped before the
         // migration store borrows the same connection.
         let (account_id, fvk, scanned, tip) = {
-            let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
+            let wallet_db =
+                WalletDb::from_connection(&mut conn, params, SystemClock, UnwrapErr(SysRng));
             let account = select_account(&wallet_db, self.account_id)?;
             let fvk = account
                 .ufvk()
@@ -68,7 +69,7 @@ impl Command {
         // transaction could be mined in.
         let targets = DuenessTargets::new(scanned + 1, tip + 1);
 
-        let mut rng = OsRng;
+        let mut rng = UnwrapErr(SysRng);
         let config = AdvanceConfig::new(REORG_SETTLE_DEPTH);
 
         // `advance_migration` plans the next step, verifies it against the store's satisfiability
@@ -94,10 +95,18 @@ impl Command {
                 for target in transactions {
                     let id = target.id();
                     let outcome = {
-                        let mut wallet_db =
-                            WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
-                        let mut prover =
-                            WalletMigrationProver::new(&mut wallet_db, account_id, fvk.clone());
+                        let mut wallet_db = WalletDb::from_connection(
+                            &mut conn,
+                            params,
+                            SystemClock,
+                            UnwrapErr(SysRng),
+                        );
+                        let mut prover = WalletMigrationProver::new(
+                            &mut wallet_db,
+                            UnwrapErr(SysRng),
+                            account_id,
+                            fvk.clone(),
+                        );
                         match target.kind() {
                             MigrationTxKind::Transfer { .. } => prove_transfer(
                                 &params,

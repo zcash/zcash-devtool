@@ -3,15 +3,16 @@ use std::{collections::BTreeMap, convert::Infallible, path::PathBuf};
 use anyhow::anyhow;
 use clap::Args;
 use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer, updater::Updater};
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use tokio::{
     fs::File,
     io::{AsyncWriteExt, stdout},
 };
 
-use transparent::{builder::TransparentInputInfo, bundle::TxOut};
+use transparent::{address::TransparentAddress, builder::TransparentInputInfo, bundle::TxOut};
 use zcash_client_backend::{
     data_api::anchor_retention::{AnchorRetentionInterval, PoolMigrationParams},
+    data_api::{ChangeReceivers, TransparentChangeKind},
     fees::{
         ChangeError, ChangeStrategy as _, DustOutputPolicy, orchard::EmptyBundleView,
         zip317::SingleOutputChangeStrategy,
@@ -85,7 +86,7 @@ impl Command {
             let config = WalletConfig::read(wallet_dir.as_ref())?;
             config.network()
         };
-        let rng = OsRng;
+        let rng = UnwrapErr(SysRng);
 
         let coins = parse_coins(&self.coins)?;
 
@@ -249,7 +250,7 @@ impl Command {
                 // No Ironwood bundle; change stays in the Orchard pool.
                 &EmptyBundleView,
                 None,
-                &(),
+                &change_receivers(&change_address),
             )
             .map_err(|e: ChangeError<_, Infallible>| {
                 anyhow!("Error in computing balance: {}", e)
@@ -308,7 +309,7 @@ impl Command {
             .ok_or_else(|| anyhow!("Transaction version is incompatible with PCZTs"))?;
 
         let io_finalized = IoFinalizer::new(created)
-            .finalize_io()
+            .finalize_io(UnwrapErr(SysRng))
             .map_err(|e| anyhow!("{e:?}"))?;
 
         let set_verification_address =
@@ -393,4 +394,35 @@ impl Command {
 
         Ok(())
     }
+}
+
+/// The outputs the named change address can take.
+///
+/// `ChangeReceivers::from_uivk` is the wallet's answer, read off an account's viewing
+/// key. This command has no wallet and no key: change goes to an address the user named,
+/// so what it can receive is what that address can receive.
+fn change_receivers(change_address: &Address) -> ChangeReceivers {
+    let (sapling, orchard, transparent) = match change_address {
+        Address::Sapling(_) => (true, false, None),
+        Address::Transparent(TransparentAddress::PublicKeyHash(_)) => {
+            (false, false, Some(TransparentChangeKind::P2pkh))
+        }
+        Address::Transparent(TransparentAddress::ScriptHash(_)) => {
+            (false, false, Some(TransparentChangeKind::P2sh))
+        }
+        // A TEX address is a P2PKH address that may only be paid from a transparent
+        // source, which does not change what it can receive.
+        Address::Tex(_) => (false, false, Some(TransparentChangeKind::P2pkh)),
+        Address::Unified(ua) => (
+            ua.sapling().is_some(),
+            ua.orchard().is_some(),
+            ua.transparent().map(|addr| match addr {
+                TransparentAddress::PublicKeyHash(_) => TransparentChangeKind::P2pkh,
+                TransparentAddress::ScriptHash(_) => TransparentChangeKind::P2sh,
+            }),
+        ),
+    };
+    // `zcash_client_backend`'s `pczt` feature enables its `transparent-inputs` feature, so
+    // the transparent receiver is always an argument here.
+    ChangeReceivers::new(sapling, orchard, transparent)
 }

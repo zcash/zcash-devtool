@@ -2,7 +2,7 @@ use std::{path::PathBuf, str::FromStr};
 
 use anyhow::anyhow;
 use clap::Args;
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use tokio::{
     fs::File,
     io::{AsyncWriteExt, stdout},
@@ -63,7 +63,7 @@ impl Command {
         let params = config.network();
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, UnwrapErr(SysRng))?;
         let account = select_account(&db_data, self.account_id)?;
 
         let recipient =
@@ -102,6 +102,8 @@ impl Command {
         let pczt = create_pczt_from_proposal(
             &mut db_data,
             &params,
+            &SystemClock,
+            &mut UnwrapErr(SysRng),
             account.id(),
             OvkPolicy::Sender,
             &proposal,

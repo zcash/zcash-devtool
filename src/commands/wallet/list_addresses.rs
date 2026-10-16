@@ -106,8 +106,11 @@ impl Command {
                         .ok_or_else(|| anyhow!("Account address has no orchard receiver"))?;
                     // Orchard receivers have no bare encoding; emit a unified
                     // address carrying only the Orchard receiver.
-                    let orchard_only = UnifiedAddress::from_receivers(Some(*addr), None, None)
-                        .ok_or_else(|| anyhow!("Failed to encode orchard-only unified address"))?;
+                    let orchard_only =
+                        UnifiedAddress::from_receivers(Some(*addr), None, None, None, None)
+                            .ok_or_else(|| {
+                                anyhow!("Failed to encode orchard-only unified address")
+                            })?;
                     println!("Receiver(orchard): {}", orchard_only.encode(&params));
                 }
             }

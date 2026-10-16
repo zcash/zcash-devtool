@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::anyhow;
 use clap::Args;
 use pczt::Pczt;
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use tokio::{
     fs::File,
     io::{AsyncReadExt, stdin},
@@ -33,7 +33,7 @@ impl Command {
         let params = config.network();
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, UnwrapErr(SysRng))?;
 
         let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
@@ -51,6 +51,8 @@ impl Command {
 
         let txid = extract_and_store_transaction_from_pczt::<_, ()>(
             &mut db_data,
+            &SystemClock,
+            &mut UnwrapErr(SysRng),
             pczt,
             Some((&spend_vk, &output_vk)),
             // Passing `None` makes the extractor build an Orchard verifying

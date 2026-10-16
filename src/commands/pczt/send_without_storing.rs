@@ -6,6 +6,7 @@ use pczt::{
     Pczt,
     roles::{spend_finalizer::SpendFinalizer, tx_extractor::TransactionExtractor},
 };
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use tokio::{
     fs::File,
     io::{AsyncReadExt, stdin},
@@ -50,7 +51,7 @@ impl Command {
 
         let tx = TransactionExtractor::new(finalized)
             .with_sapling(&spend_vk, &output_vk)
-            .extract()
+            .extract(UnwrapErr(SysRng))
             .map_err(|e| anyhow!("Failed to extract transaction from PCZT: {e:?}"))?;
         let txid = tx.txid();
 

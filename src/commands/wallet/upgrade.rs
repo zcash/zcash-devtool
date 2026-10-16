@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use clap::Args;
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use zcash_client_sqlite::{
     FsBlockDb, WalletDb,
     chain::init::init_blockmeta_db,
@@ -28,7 +28,7 @@ impl Command {
 
         let (fsblockdb_root, db_data) = get_db_paths(wallet_dir.as_ref());
         let mut db_cache = FsBlockDb::for_path(fsblockdb_root).map_err(error::Error::from)?;
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, UnwrapErr(SysRng))?;
 
         init_blockmeta_db(&mut db_cache)?;
 

@@ -186,15 +186,35 @@ impl Command {
                                         // Only encode as an address if the network
                                         // matches the wallet.
                                         #[allow(deprecated)]
-                                        network_match.then(|| {
-                                            sapling::zip32::ExtendedSpendingKey::master(
-                                                seed.expose_secret(),
-                                            )
-                                            .derive_child(zip32::ChildIndex::hardened(32))
-                                            .derive_child(zip32::ChildIndex::hardened(*coin_type))
-                                            .derive_child(zip32::ChildIndex::hardened(*account))
-                                            .to_extended_full_viewing_key()
-                                        })
+                                        network_match
+                                            .then(|| {
+                                                let extsk =
+                                                    sapling::zip32::ExtendedSpendingKey::master(
+                                                        seed.expose_secret(),
+                                                    )
+                                                    .and_then(|k| {
+                                                        k.derive_child(zip32::ChildIndex::hardened(
+                                                            32,
+                                                        ))
+                                                    })
+                                                    .and_then(|k| {
+                                                        k.derive_child(zip32::ChildIndex::hardened(
+                                                            *coin_type,
+                                                        ))
+                                                    })
+                                                    .and_then(|k| {
+                                                        k.derive_child(zip32::ChildIndex::hardened(
+                                                            *account,
+                                                        ))
+                                                    });
+                                                if extsk.is_none() {
+                                                    println!(
+                                                        "  ⚠️  No valid Sapling key at this path"
+                                                    );
+                                                }
+                                                extsk.map(|k| k.to_extended_full_viewing_key())
+                                            })
+                                            .flatten()
                                     }
                                     _ => None,
                                 }
@@ -211,7 +231,7 @@ impl Command {
                     let ufvk =
                         UnifiedFullViewingKey::from_sapling_extended_full_viewing_key(extfvk)
                             .expect("always valid");
-                    println!(" - UFVK: {}", ufvk.encode(&params));
+                    println!(" - UFVK: {}", ufvk.encode(&params)?);
                     println!(
                         " - Default address: {}",
                         ZcashAddress::from_sapling(params.network_type(), addr.to_bytes())
@@ -285,7 +305,7 @@ impl Command {
                     let (ua, _) = ufvk
                         .default_address(UnifiedAddressRequest::AllAvailableKeys)
                         .expect("always valid");
-                    println!(" - UFVK: {}", ufvk.encode(&params));
+                    println!(" - UFVK: {}", ufvk.encode(&params)?);
                     println!(" - Default address: {}", ua.encode(&params));
                 }
             }

@@ -5,7 +5,7 @@ use clap::Args;
 use futures_util::TryStreamExt;
 use orchard::tree::MerkleHashOrchard;
 use prost::Message;
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use tokio::{fs::File, io::AsyncWriteExt, task::JoinHandle};
 
 use tonic::transport::Channel;
@@ -85,7 +85,7 @@ impl Command {
         let (fsblockdb_root, db_data) = get_db_paths(wallet_dir.as_ref());
         let fsblockdb_root = fsblockdb_root.as_path();
         let mut db_cache = FsBlockDb::for_path(fsblockdb_root).map_err(error::Error::from)?;
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, UnwrapErr(SysRng))?;
         let mut client = self.connection.connect(params, wallet_dir.as_ref()).await?;
 
         #[cfg(feature = "tui")]
@@ -118,7 +118,7 @@ impl Command {
             params: &P,
             fsblockdb_root: &Path,
             db_cache: &mut FsBlockDb,
-            db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
+            db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, UnwrapErr<SysRng>>,
             #[cfg(feature = "tui")] tui_handle: Option<&defrag::AppHandle>,
         ) -> Result<bool, anyhow::Error> {
             // 3) Download chain tip metadata from lightwalletd
@@ -377,7 +377,7 @@ impl Command {
 
 async fn update_subtree_roots<P: Parameters>(
     client: &mut CompactTxStreamerClient<Channel>,
-    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, UnwrapErr<SysRng>>,
 ) -> Result<(), anyhow::Error> {
     let mut request = service::GetSubtreeRootsArg::default();
     request.set_shielded_protocol(service::ShieldedProtocol::Sapling);
@@ -443,7 +443,7 @@ async fn update_subtree_roots<P: Parameters>(
 
 async fn update_chain_tip<P: Parameters>(
     client: &mut CompactTxStreamerClient<Channel>,
-    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, UnwrapErr<SysRng>>,
 ) -> Result<(BlockHeight, BlockHash), anyhow::Error> {
     let latest = client
         .get_latest_block(service::ChainSpec::default())
@@ -479,7 +479,7 @@ async fn update_chain_tip<P: Parameters>(
 /// that has no checkpoint the reorg is deeper than our rewindable history and we
 /// return an actionable "reset the wallet" error rather than silently wedging.
 fn rewind<P: Parameters>(
-    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, UnwrapErr<SysRng>>,
     db_cache: &mut FsBlockDb,
     fsblockdb_root: &Path,
     at_height: BlockHeight,
@@ -673,7 +673,7 @@ fn scan_blocks<P: Parameters + Send + 'static>(
     params: &P,
     fsblockdb_root: &Path,
     db_cache: &mut FsBlockDb,
-    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, UnwrapErr<SysRng>>,
     initial_chain_state: &ChainState,
     scan_range: &ScanRange,
     #[cfg(feature = "tui")] tui_handle: Option<&defrag::AppHandle>,
@@ -789,7 +789,7 @@ fn scan_blocks<P: Parameters + Send + 'static>(
 async fn refresh_utxos<P: Parameters>(
     params: &P,
     client: &mut CompactTxStreamerClient<Channel>,
-    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, OsRng>,
+    db_data: &mut WalletDb<rusqlite::Connection, P, SystemClock, UnwrapErr<SysRng>>,
     account_id: AccountUuid,
     start_height: BlockHeight,
 ) -> Result<(), anyhow::Error> {

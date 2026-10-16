@@ -6,6 +6,7 @@ use pczt::{
     Pczt,
     roles::{prover::Prover, updater::Updater},
 };
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use sapling::ProofGenerationKey;
 use secrecy::{ExposeSecret, SecretVec};
 use tokio::{
@@ -95,7 +96,7 @@ impl Command {
                                         account_index,
                                     )?;
 
-                                    Ok(usk.sapling().expsk.proof_generation_key())
+                                    Ok(usk.sapling().expsk().proof_generation_key())
                                 } else {
                                     Err(anyhow!(
                                         "Invalid ZIP 32 derivation path for PCZT Sapling spend"
@@ -114,17 +115,18 @@ impl Command {
             let pkg_source = match (self.sapling_proof_generation_key, self.identity) {
                 (Some(proof_generation_key), _) => {
                     if proof_generation_key.len() == 64 {
-                        Ok(PgkSource::Provided(sapling::keys::ProofGenerationKey {
-                            ak: sapling::keys::SpendValidatingKey::temporary_zcash_from_bytes(
-                                &proof_generation_key[..32],
-                            )
-                            .ok_or_else(|| anyhow!("Invalid Sapling proof generation key"))?,
-                            nsk: jubjub::Scalar::from_bytes(
-                                &proof_generation_key[32..].try_into().unwrap(),
-                            )
-                            .into_option()
-                            .ok_or_else(|| anyhow!("Invalid Sapling proof generation key"))?,
-                        }))
+                        let ak = sapling::keys::SpendValidatingKey::temporary_zcash_from_bytes(
+                            &proof_generation_key[..32],
+                        )
+                        .ok_or_else(|| anyhow!("Invalid Sapling proof generation key"))?;
+                        let nsk = jubjub::Scalar::from_bytes(
+                            &proof_generation_key[32..].try_into().unwrap(),
+                        )
+                        .into_option()
+                        .ok_or_else(|| anyhow!("Invalid Sapling proof generation key"))?;
+                        sapling::keys::ProofGenerationKey::from_parts(ak, nsk)
+                            .map(PgkSource::Provided)
+                            .ok_or_else(|| anyhow!("Invalid Sapling proof generation key"))
                     } else {
                         Err(anyhow!("Invalid Sapling proof generation key"))
                     }
@@ -214,18 +216,18 @@ impl Command {
             );
             if needs_orchard {
                 prover_role = prover_role
-                    .create_orchard_proof(&pk)
+                    .create_orchard_proof(UnwrapErr(SysRng), &pk)
                     .map_err(|e| anyhow!("Failed to create Orchard proof: {:?}", e))?;
             }
             if needs_ironwood {
                 prover_role = prover_role
-                    .create_ironwood_proof(&pk)
+                    .create_ironwood_proof(UnwrapErr(SysRng), &pk)
                     .map_err(|e| anyhow!("Failed to create Ironwood proof: {:?}", e))?;
             }
         }
 
         let pczt = prover_role
-            .create_sapling_proofs(&prover, &prover)
+            .create_sapling_proofs(UnwrapErr(SysRng), &prover, &prover)
             .map_err(|e| anyhow!("Failed to create Sapling proofs: {:?}", e))?
             .finish();
 

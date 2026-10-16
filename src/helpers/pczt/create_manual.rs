@@ -77,7 +77,7 @@ pub(crate) fn handle_recipient<C, T>(
     on_orchard: impl FnOnce(orchard::Address, C) -> anyhow::Result<T>,
 ) -> anyhow::Result<T> {
     match recipient {
-        Address::Sapling(payment_address) => on_sapling(payment_address, ctx),
+        Address::Sapling(payment_address) => on_sapling(*payment_address, ctx),
         Address::Transparent(transparent_address) => on_transparent(transparent_address, ctx),
         Address::Unified(unified_address) => match unified_address
             .as_understood_receivers()
