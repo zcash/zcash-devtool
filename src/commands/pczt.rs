@@ -9,6 +9,7 @@ pub(crate) mod inspect;
 pub(crate) mod pay_manual;
 pub(crate) mod plan_batches;
 pub(crate) mod prove;
+pub(crate) mod qr_density;
 pub(crate) mod redact;
 pub(crate) mod send;
 pub(crate) mod send_without_storing;

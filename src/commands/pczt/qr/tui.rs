@@ -1,6 +1,5 @@
 use crossterm::event::KeyCode;
 use futures_util::FutureExt;
-use qrcode::{QrCode, render::unicode};
 use ratatui::{
     prelude::*,
     widgets::{Block, Paragraph},
@@ -9,6 +8,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerSmartWidget};
 
+use super::render_qr;
 use crate::tui;
 
 pub(super) struct AppHandle {
@@ -106,40 +106,50 @@ impl App {
         ])
         .areas(frame.area());
 
-        let defrag_area = {
-            let block = Block::bordered().title("Wallet Defragmentor");
-            let inner_area = block.inner(upper_area);
-            frame.render_widget(block, upper_area);
-            inner_area
-        };
+        let qr_block = Block::bordered().title("PCZT QR code (press q to quit)");
+        let qr_area = qr_block.inner(upper_area);
 
         if let Some(ur) = &self.ur {
-            let code = QrCode::new(ur.to_ascii_uppercase()).unwrap();
-            let string = code
-                .render::<unicode::Dense1x2>()
-                .dark_color(unicode::Dense1x2::Light)
-                .light_color(unicode::Dense1x2::Dark)
-                .quiet_zone(true)
-                .build();
-
-            let lines = string.lines();
-
-            for (i, line) in lines.into_iter().enumerate() {
-                frame.render_widget(
-                    Paragraph::new(line),
-                    Rect::new(
-                        defrag_area.x,
-                        defrag_area.y + i as u16,
-                        line.len() as u16,
-                        1,
-                    ),
-                );
+            match render_qr(ur) {
+                Ok(qr) => {
+                    let width = qr
+                        .lines()
+                        .map(|line| line.chars().count())
+                        .max()
+                        .unwrap_or(0);
+                    let height = qr.lines().count();
+                    let fits = width <= usize::from(qr_area.width)
+                        && height <= usize::from(qr_area.height);
+                    let qr_block = if fits {
+                        qr_block
+                    } else {
+                        qr_block.title(
+                            Line::from(format!(
+                                " QR code needs {width}x{height}, has {}x{}: enlarge the terminal or lower --qr-density ",
+                                qr_area.width, qr_area.height
+                            ))
+                            .yellow(),
+                        )
+                    };
+                    frame.render_widget(qr_block, upper_area);
+                    frame.render_widget(Paragraph::new(qr), centered(qr_area, width, height));
+                }
+                Err(e) => {
+                    frame.render_widget(qr_block, upper_area);
+                    frame.render_widget(
+                        Paragraph::new(format!("Failed to draw QR code: {e}")).red(),
+                        qr_area,
+                    );
+                }
             }
 
             frame.render_widget(
-                Paragraph::new(Line::from_iter(Some(ur))).block(Block::bordered().title("UR")),
+                Paragraph::new(Line::from_iter(Some(ur.as_str())))
+                    .block(Block::bordered().title("UR")),
                 mid_area,
             );
+        } else {
+            frame.render_widget(qr_block, upper_area);
         }
 
         frame.render_widget(logger_widget(&self.logger_state), log_area);
@@ -204,4 +214,69 @@ pub(super) fn logger_widget(state: &tui_logger::TuiWidgetState) -> TuiLoggerSmar
         .output_file(true)
         .output_line(true)
         .state(state)
+}
+
+/// Returns a `width` by `height` rectangle centered in `area`, clipped to `area`.
+fn centered(area: Rect, width: usize, height: usize) -> Rect {
+    let width = u16::try_from(width).unwrap_or(u16::MAX).min(area.width);
+    let height = u16::try_from(height).unwrap_or(u16::MAX).min(area.height);
+    Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    use super::*;
+
+    const UR: &str = "ur:zcash-pczt/1-3/lpadaxcfaxhlcyynhgfwtnhdbbadrdrdrdrdrdrdrdrd";
+
+    /// Draws the app with `UR` into a `width` by `height` terminal, and returns the screen rows.
+    fn draw(width: u16, height: u16) -> Vec<String> {
+        let (notify_shutdown, _) = oneshot::channel();
+        let mut app = App::new(notify_shutdown);
+        app.ur = Some(UR.to_string());
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| app.ui(frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..height)
+            .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn qr_code_is_drawn_whole_and_centered_when_it_fits() {
+        let qr = render_qr(UR).unwrap();
+        let qr_lines: Vec<&str> = qr.lines().collect();
+        let screen = draw(120, 70);
+
+        assert!(screen[0].contains("PCZT QR code"));
+        assert!(!screen[0].contains("enlarge the terminal"));
+        let top = screen
+            .iter()
+            .position(|row| row.contains(qr_lines[0]))
+            .expect("QR code is on screen");
+        for (offset, line) in qr_lines.iter().enumerate() {
+            assert!(
+                screen[top + offset].contains(line),
+                "QR row {offset} missing"
+            );
+        }
+        let row = &screen[top];
+        let left = row[..row.find(qr_lines[0]).unwrap()].chars().count();
+        let right = row.chars().count() - left - qr_lines[0].chars().count();
+        assert!(left.abs_diff(right) <= 1, "left {left}, right {right}");
+    }
+
+    #[test]
+    fn title_warns_when_qr_code_does_not_fit() {
+        // Two of the 30 rows are left for the QR code, after the borders, UR, and log panes.
+        let screen = draw(120, 30);
+        assert!(screen[0].contains("enlarge the terminal or lower --qr-density"));
+    }
 }

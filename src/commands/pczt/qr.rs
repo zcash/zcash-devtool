@@ -21,6 +21,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, Stdout, stdin, stdout},
 };
 
+use super::qr_density::QrDensity;
 use crate::ShutdownListener;
 
 #[cfg(feature = "tui")]
@@ -54,6 +55,13 @@ pub(crate) struct Send {
     #[arg(default_value_t = 500)]
     interval: u64,
 
+    /// How much of the PCZT each QR code carries. A denser code needs fewer frames, but it is
+    /// larger and harder for a camera to read.
+    #[arg(long, value_enum, default_value_t = QrDensity::Low)]
+    qr_density: QrDensity,
+
+    /// Show the QR code, its UR text, and the log in a full-screen terminal UI. Press `q` to
+    /// quit.
     #[cfg(feature = "tui")]
     #[arg(long)]
     pub(crate) tui: bool,
@@ -98,8 +106,9 @@ impl Send {
             None
         };
 
-        let mut encoder = ur::Encoder::new(&pczt_packet, 100, ZCASH_PCZT)
-            .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
+        let mut encoder =
+            ur::Encoder::new(&pczt_packet, self.qr_density.bytes_per_qr(), ZCASH_PCZT)
+                .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
 
         let mut stdout = stdout();
         let mut interval = tokio::time::interval(Duration::from_millis(self.interval));
@@ -151,12 +160,11 @@ pub(crate) struct SendBatch {
     #[arg(default_value_t = 500)]
     interval: u64,
 
-    /// Max bytes per UR fragment (default 100, matching `pczt to-qr`). No physical camera scans
-    /// this batch path, so a larger value trades QR error-tolerance for fewer frames -- useful
-    /// for a large batch, whose default-100-byte fragment count can run into the thousands.
-    #[arg(long)]
-    #[arg(default_value_t = 100)]
-    max_fragment_len: usize,
+    /// How much of the batch each QR code carries. A denser code needs fewer frames, but it is
+    /// larger and harder for a camera to read. With --out-file no camera reads the codes, so
+    /// `max` is safe there, and a large batch can otherwise need thousands of codes.
+    #[arg(long, value_enum, default_value_t = QrDensity::Low)]
+    qr_density: QrDensity,
 
     /// Instead of rendering an animated QR loop, write every sequential UR fragment to this
     /// file, one per line, then exit -- the format the Keystone simulator's file-based QR input
@@ -270,14 +278,20 @@ fn build_batch_request_packet(pczts: Vec<Pczt>) -> anyhow::Result<(Vec<u8>, [u8;
 /// Renders one animated-QR-loop frame: the QR image (as unicode block art) followed by the raw
 /// UR text, ready to print. Shared by `to-qr`, `to-qr-batch`, and `batch-sign`'s outgoing side.
 fn render_qr_frame(ur: &str) -> anyhow::Result<String> {
-    let code = QrCode::new(ur.to_ascii_uppercase())?;
-    let string = code
+    Ok(format!("{}\n{ur}\n\n\n\n", render_qr(ur)?))
+}
+
+/// Draws `ur` as a QR code in half-block characters, light on dark, with a quiet zone. Each
+/// module is one column wide and half a row tall.
+fn render_qr(ur: &str) -> anyhow::Result<String> {
+    let code = QrCode::new(ur.to_ascii_uppercase())
+        .map_err(|e| anyhow!("Too much data for one QR code ({e}); lower --qr-density"))?;
+    Ok(code
         .render::<unicode::Dense1x2>()
         .dark_color(unicode::Dense1x2::Light)
         .light_color(unicode::Dense1x2::Dark)
         .quiet_zone(true)
-        .build();
-    Ok(format!("{string}\n{ur}\n\n\n\n"))
+        .build())
 }
 
 impl SendBatch {
@@ -288,8 +302,12 @@ impl SendBatch {
         // `to-qr-batch` never scans for a response itself, so it has no use for the request id
         // beyond what's already embedded in the outgoing packet.
         let (batch_packet, _request_id) = build_batch_request_packet(pczts)?;
-        let mut encoder = ur::Encoder::new(&batch_packet, self.max_fragment_len, ZCASH_SIGN_BATCH)
-            .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
+        let mut encoder = ur::Encoder::new(
+            &batch_packet,
+            self.qr_density.bytes_per_qr(),
+            ZCASH_SIGN_BATCH,
+        )
+        .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
 
         if let Some(out_file) = &self.out_file {
             let fragment_count = encoder.fragment_count();
@@ -503,10 +521,10 @@ pub(crate) struct BatchSign {
     #[arg(default_value_t = 500)]
     interval: u64,
 
-    /// Max bytes per outgoing UR fragment (default 100, matching `to-qr-batch`)
-    #[arg(long)]
-    #[arg(default_value_t = 100)]
-    max_fragment_len: usize,
+    /// How much of the outgoing batch each QR code carries. A denser code needs fewer frames,
+    /// but it is larger and harder for a camera to read.
+    #[arg(long, value_enum, default_value_t = QrDensity::Low)]
+    qr_density: QrDensity,
 
     /// Redact the outgoing batch before sending. See `to-qr-batch --redact`.
     #[arg(long)]
@@ -552,9 +570,12 @@ impl BatchSign {
         println!("Sending batch of {} PCZT(s)", outgoing_pczts.len());
 
         let (batch_packet, request_id) = build_batch_request_packet(outgoing_pczts)?;
-        let mut send_encoder =
-            ur::Encoder::new(&batch_packet, self.max_fragment_len, ZCASH_SIGN_BATCH)
-                .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
+        let mut send_encoder = ur::Encoder::new(
+            &batch_packet,
+            self.qr_density.bytes_per_qr(),
+            ZCASH_SIGN_BATCH,
+        )
+        .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
 
         eprintln!(
             "Showing the outgoing batch QR -- scan it on the device, then review and sign as \
@@ -1309,6 +1330,13 @@ fn yuv_to_rgb(y: f32, u: f32, v: f32) -> image::Rgb<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn render_qr_rejects_a_fragment_too_large_for_a_qr_code() {
+        let ur = format!("ur:zcash-pczt/1-2/{}", "ae".repeat(4000));
+        let err = render_qr(&ur).unwrap_err().to_string();
+        assert!(err.contains("lower --qr-density"), "{err}");
+    }
 
     #[test]
     fn parse_ur_sequence_parses_valid_multi_part_ur() {
