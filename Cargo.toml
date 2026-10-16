@@ -70,7 +70,7 @@ iso_currency = { version = "0.5", features = ["with-serde"] }
 rust_decimal = "1"
 
 # Inspect
-bech32 = "0.11"
+bech32 = "0.12"
 blake2b_simd = "1"
 bs58 = "0.5"
 ed25519-zebra = "4"
