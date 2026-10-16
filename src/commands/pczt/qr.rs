@@ -369,42 +369,16 @@ impl Receive {
         let mut camera = open_scan_camera(self.camera.as_deref()).await?;
 
         eprintln!("Starting detection loop");
-
-        #[cfg(feature = "tui")]
-        let (display, tui_task) = if self.tui {
-            let mut app = scan_tui::App::new(shutdown.tui_quit_signal());
-            let handle = app.handle();
-            let task = tokio::spawn(async move {
-                if let Err(e) = app.run(tui).await {
-                    tracing::error!("Error while running TUI: {e}");
-                }
-            });
-            (ScanDisplay::Tui(handle), Some(task))
-        } else {
-            (ScanDisplay::from_no_preview(self.no_preview), None)
-        };
-        #[cfg(not(feature = "tui"))]
-        let display = ScanDisplay::from_no_preview(self.no_preview);
-
-        let outcome = scan_for_ur(
+        let outcome = scan_with_display(
             &mut camera,
             UR_ZCASH_PCZT,
             self.interval,
-            &display,
+            self.no_preview,
+            #[cfg(feature = "tui")]
+            self.tui.then_some(tui),
             &mut shutdown,
         )
-        .await;
-
-        // Restore the terminal before any error or output reaches it.
-        #[cfg(feature = "tui")]
-        if let Some(task) = tui_task {
-            if let ScanDisplay::Tui(handle) = &display {
-                handle.finish();
-            }
-            task.await?;
-        }
-
-        let outcome = outcome?;
+        .await?;
         camera.stop_stream()?;
 
         let pczt_packet = match outcome {
@@ -462,6 +436,12 @@ pub(crate) struct ReceiveBatch {
     #[arg(long)]
     no_preview: bool,
 
+    /// Show the camera feed, scan progress, and log in a full-screen terminal UI with fixed
+    /// panes. Press `q` to quit.
+    #[cfg(feature = "tui")]
+    #[arg(long, conflicts_with = "no_preview")]
+    pub(crate) tui: bool,
+
     /// Select the camera whose name contains this text (case-insensitive), e.g. "iphone" to
     /// always use a Continuity Camera phone instead of the built-in webcam. Skips the
     /// interactive picker and errors out if no camera name matches.
@@ -470,16 +450,22 @@ pub(crate) struct ReceiveBatch {
 }
 
 impl ReceiveBatch {
-    pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(
+        self,
+        mut shutdown: ShutdownListener,
+        #[cfg(feature = "tui")] tui: Tui,
+    ) -> Result<(), anyhow::Error> {
         let pczts = read_pczts(&self.pczts)?;
         let mut camera = open_scan_camera(self.camera.as_deref()).await?;
 
         eprintln!("Starting detection loop");
-        let outcome = scan_for_ur(
+        let outcome = scan_with_display(
             &mut camera,
             UR_ZCASH_BATCH_SIG_RESULT,
             self.interval,
-            &ScanDisplay::from_no_preview(self.no_preview),
+            self.no_preview,
+            #[cfg(feature = "tui")]
+            self.tui.then_some(tui),
             &mut shutdown,
         )
         .await?;
@@ -530,6 +516,13 @@ pub(crate) struct BatchSign {
     #[arg(long)]
     no_preview: bool,
 
+    /// Show the camera feed, scan progress, and log in a full-screen terminal UI with fixed
+    /// panes once scanning starts. The outgoing QR still shows as plain output before that.
+    /// Press `q` to quit the scan.
+    #[cfg(feature = "tui")]
+    #[arg(long, conflicts_with = "no_preview")]
+    pub(crate) tui: bool,
+
     /// Select the camera whose name contains this text (case-insensitive), e.g. "iphone".
     /// Skips the interactive picker and errors out if no camera name matches.
     #[arg(long)]
@@ -549,7 +542,11 @@ impl BatchSign {
     /// not the other way round), so opening ours from the start doesn't reflect reality and
     /// needlessly holds the camera the whole time you're still just showing the outgoing loop.
     /// Enter is the deliberate handoff instead of a guess.
-    pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(
+        self,
+        mut shutdown: ShutdownListener,
+        #[cfg(feature = "tui")] tui: Tui,
+    ) -> Result<(), anyhow::Error> {
         let original_pczts = read_pczts(&self.pczts)?;
         let outgoing_pczts = maybe_redact_batch(original_pczts.clone(), self.redact);
         println!("Sending batch of {} PCZT(s)", outgoing_pczts.len());
@@ -594,11 +591,13 @@ impl BatchSign {
         let mut camera = open_scan_camera(self.camera.as_deref()).await?;
 
         eprintln!("Starting detection loop");
-        let outcome = scan_for_ur(
+        let outcome = scan_with_display(
             &mut camera,
             UR_ZCASH_BATCH_SIG_RESULT,
             self.interval,
-            &ScanDisplay::from_no_preview(self.no_preview),
+            self.no_preview,
+            #[cfg(feature = "tui")]
+            self.tui.then_some(tui),
             &mut shutdown,
         )
         .await?;
@@ -997,6 +996,44 @@ impl ScanDisplay {
             ScanDisplay::Preview
         }
     }
+}
+
+/// Runs [`scan_for_ur`] with the full-screen scan TUI when `tui` is given, or else with the
+/// preview that `no_preview` selects. Restores the terminal before it returns, so the caller
+/// can write any error or output.
+async fn scan_with_display(
+    camera: &mut Camera,
+    expected_ur_type: &str,
+    interval_ms: u64,
+    no_preview: bool,
+    #[cfg(feature = "tui")] tui: Option<Tui>,
+    shutdown: &mut ShutdownListener,
+) -> anyhow::Result<ScanOutcome> {
+    #[cfg(feature = "tui")]
+    if let Some(tui) = tui {
+        let mut app = scan_tui::App::new(shutdown.tui_quit_signal());
+        let display = ScanDisplay::Tui(app.handle());
+        let finish_handle = app.handle();
+        let task = tokio::spawn(async move {
+            if let Err(e) = app.run(tui).await {
+                tracing::error!("Error while running TUI: {e}");
+            }
+        });
+
+        let outcome = scan_for_ur(camera, expected_ur_type, interval_ms, &display, shutdown).await;
+        finish_handle.finish();
+        task.await?;
+        return outcome;
+    }
+
+    scan_for_ur(
+        camera,
+        expected_ur_type,
+        interval_ms,
+        &ScanDisplay::from_no_preview(no_preview),
+        shutdown,
+    )
+    .await
 }
 
 /// Reads camera frames on a fixed interval, looking for a multi-part UR whose text starts with

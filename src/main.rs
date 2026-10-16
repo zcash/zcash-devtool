@@ -85,7 +85,11 @@ fn main() -> Result<(), anyhow::Error> {
         Some(Command::Pczt(commands::Pczt {
             command:
                 commands::pczt::Command::ToQr(commands::pczt::qr::Send { tui: true, .. })
-                | commands::pczt::Command::FromQr(commands::pczt::qr::Receive { tui: true, .. }),
+                | commands::pczt::Command::FromQr(commands::pczt::qr::Receive { tui: true, .. })
+                | commands::pczt::Command::FromQrBatch(commands::pczt::qr::ReceiveBatch {
+                    tui: true, ..
+                })
+                | commands::pczt::Command::BatchSign(commands::pczt::qr::BatchSign { tui: true, .. }),
             ..
         })) => {
             tui_logger::init_logger(level_filter.parse().unwrap())?;
@@ -242,9 +246,25 @@ fn main() -> Result<(), anyhow::Error> {
                         .await
                 }
                 #[cfg(feature = "pczt-qr")]
-                commands::pczt::Command::FromQrBatch(command) => command.run(shutdown).await,
+                commands::pczt::Command::FromQrBatch(command) => {
+                    command
+                        .run(
+                            shutdown,
+                            #[cfg(feature = "tui")]
+                            tui,
+                        )
+                        .await
+                }
                 #[cfg(feature = "pczt-qr")]
-                commands::pczt::Command::BatchSign(command) => command.run(shutdown).await,
+                commands::pczt::Command::BatchSign(command) => {
+                    command
+                        .run(
+                            shutdown,
+                            #[cfg(feature = "tui")]
+                            tui,
+                        )
+                        .await
+                }
             },
             Command::Migration(commands::Migration {
                 wallet_dir,
