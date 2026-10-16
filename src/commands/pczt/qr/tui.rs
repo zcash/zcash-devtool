@@ -142,24 +142,7 @@ impl App {
             );
         }
 
-        frame.render_widget(
-            TuiLoggerSmartWidget::default()
-                .title_log("Log Entries")
-                .title_target("Log Target Selector")
-                .style_error(Style::default().fg(Color::Red))
-                .style_debug(Style::default().fg(Color::Green))
-                .style_warn(Style::default().fg(Color::Yellow))
-                .style_trace(Style::default().fg(Color::Magenta))
-                .style_info(Style::default().fg(Color::Cyan))
-                .output_separator(':')
-                .output_timestamp(Some("%H:%M:%S".to_string()))
-                .output_level(Some(TuiLoggerLevelOutput::Abbreviated))
-                .output_target(true)
-                .output_file(true)
-                .output_line(true)
-                .state(&self.logger_state),
-            log_area,
-        );
+        frame.render_widget(logger_widget(&self.logger_state), log_area);
     }
 }
 
@@ -180,35 +163,47 @@ impl Action {
             tui::Event::Render => Some(Action::Render),
             tui::Event::Key(key) => match key.code {
                 KeyCode::Char('q') => Some(Action::Quit),
-                KeyCode::Char(' ') => {
-                    Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::SpaceKey))
-                }
-                KeyCode::Up => Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::UpKey)),
-                KeyCode::Down => Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::DownKey)),
-                KeyCode::Left => Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::LeftKey)),
-                KeyCode::Right => Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::RightKey)),
-                KeyCode::Char('+') => {
-                    Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::PlusKey))
-                }
-                KeyCode::Char('-') => {
-                    Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::MinusKey))
-                }
-                KeyCode::Char('h') => {
-                    Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::HideKey))
-                }
-                KeyCode::Char('f') => {
-                    Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::FocusKey))
-                }
-                KeyCode::PageUp => {
-                    Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::PrevPageKey))
-                }
-                KeyCode::PageDown => {
-                    Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::NextPageKey))
-                }
-                KeyCode::Esc => Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::EscapeKey)),
-                _ => None,
+                code => logger_event_for_key(code).map(Action::LoggerEvent),
             },
             _ => None,
         }
     }
+}
+
+/// Maps a key to the log pane event it triggers, if any.
+pub(super) fn logger_event_for_key(code: KeyCode) -> Option<tui_logger::TuiWidgetEvent> {
+    match code {
+        KeyCode::Char(' ') => Some(tui_logger::TuiWidgetEvent::SpaceKey),
+        KeyCode::Up => Some(tui_logger::TuiWidgetEvent::UpKey),
+        KeyCode::Down => Some(tui_logger::TuiWidgetEvent::DownKey),
+        KeyCode::Left => Some(tui_logger::TuiWidgetEvent::LeftKey),
+        KeyCode::Right => Some(tui_logger::TuiWidgetEvent::RightKey),
+        KeyCode::Char('+') => Some(tui_logger::TuiWidgetEvent::PlusKey),
+        KeyCode::Char('-') => Some(tui_logger::TuiWidgetEvent::MinusKey),
+        KeyCode::Char('h') => Some(tui_logger::TuiWidgetEvent::HideKey),
+        KeyCode::Char('f') => Some(tui_logger::TuiWidgetEvent::FocusKey),
+        KeyCode::PageUp => Some(tui_logger::TuiWidgetEvent::PrevPageKey),
+        KeyCode::PageDown => Some(tui_logger::TuiWidgetEvent::NextPageKey),
+        KeyCode::Esc => Some(tui_logger::TuiWidgetEvent::EscapeKey),
+        _ => None,
+    }
+}
+
+/// Builds the log pane, with entries colored by level.
+pub(super) fn logger_widget(state: &tui_logger::TuiWidgetState) -> TuiLoggerSmartWidget<'_> {
+    TuiLoggerSmartWidget::default()
+        .title_log("Log Entries")
+        .title_target("Log Target Selector")
+        .style_error(Style::default().fg(Color::Red))
+        .style_debug(Style::default().fg(Color::Green))
+        .style_warn(Style::default().fg(Color::Yellow))
+        .style_trace(Style::default().fg(Color::Magenta))
+        .style_info(Style::default().fg(Color::Cyan))
+        .output_separator(':')
+        .output_timestamp(Some("%H:%M:%S".to_string()))
+        .output_level(Some(TuiLoggerLevelOutput::Abbreviated))
+        .output_target(true)
+        .output_file(true)
+        .output_line(true)
+        .state(state)
 }

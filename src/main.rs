@@ -83,7 +83,9 @@ fn main() -> Result<(), anyhow::Error> {
         }
         #[cfg(feature = "pczt-qr")]
         Some(Command::Pczt(commands::Pczt {
-            command: commands::pczt::Command::ToQr(commands::pczt::qr::Send { tui: true, .. }),
+            command:
+                commands::pczt::Command::ToQr(commands::pczt::qr::Send { tui: true, .. })
+                | commands::pczt::Command::FromQr(commands::pczt::qr::Receive { tui: true, .. }),
             ..
         })) => {
             tui_logger::init_logger(level_filter.parse().unwrap())?;
@@ -230,7 +232,15 @@ fn main() -> Result<(), anyhow::Error> {
                 #[cfg(feature = "pczt-qr")]
                 commands::pczt::Command::ToQrBatch(command) => command.run(shutdown).await,
                 #[cfg(feature = "pczt-qr")]
-                commands::pczt::Command::FromQr(command) => command.run(shutdown).await,
+                commands::pczt::Command::FromQr(command) => {
+                    command
+                        .run(
+                            shutdown,
+                            #[cfg(feature = "tui")]
+                            tui,
+                        )
+                        .await
+                }
                 #[cfg(feature = "pczt-qr")]
                 commands::pczt::Command::FromQrBatch(command) => command.run(shutdown).await,
                 #[cfg(feature = "pczt-qr")]

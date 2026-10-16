@@ -27,6 +27,8 @@ use crate::ShutdownListener;
 use crate::tui::Tui;
 
 #[cfg(feature = "tui")]
+mod scan_tui;
+#[cfg(feature = "tui")]
 mod tui;
 
 const ZCASH_PCZT: &str = "zcash-pczt";
@@ -341,6 +343,12 @@ pub(crate) struct Receive {
     #[arg(long)]
     no_preview: bool,
 
+    /// Show the camera feed, scan progress, and log in a full-screen terminal UI with fixed
+    /// panes. Press `q` to quit.
+    #[cfg(feature = "tui")]
+    #[arg(long, conflicts_with = "no_preview")]
+    pub(crate) tui: bool,
+
     /// Select the camera whose name contains this text (case-insensitive), e.g. "iphone" to
     /// always use a Continuity Camera phone instead of the built-in webcam. Skips the
     /// interactive picker and errors out if no camera name matches.
@@ -353,18 +361,50 @@ pub(crate) struct Receive {
 }
 
 impl Receive {
-    pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(
+        self,
+        mut shutdown: ShutdownListener,
+        #[cfg(feature = "tui")] tui: Tui,
+    ) -> Result<(), anyhow::Error> {
         let mut camera = open_scan_camera(self.camera.as_deref()).await?;
 
         eprintln!("Starting detection loop");
+
+        #[cfg(feature = "tui")]
+        let (display, tui_task) = if self.tui {
+            let mut app = scan_tui::App::new(shutdown.tui_quit_signal());
+            let handle = app.handle();
+            let task = tokio::spawn(async move {
+                if let Err(e) = app.run(tui).await {
+                    tracing::error!("Error while running TUI: {e}");
+                }
+            });
+            (ScanDisplay::Tui(handle), Some(task))
+        } else {
+            (ScanDisplay::from_no_preview(self.no_preview), None)
+        };
+        #[cfg(not(feature = "tui"))]
+        let display = ScanDisplay::from_no_preview(self.no_preview);
+
         let outcome = scan_for_ur(
             &mut camera,
             UR_ZCASH_PCZT,
             self.interval,
-            self.no_preview,
+            &display,
             &mut shutdown,
         )
-        .await?;
+        .await;
+
+        // Restore the terminal before any error or output reaches it.
+        #[cfg(feature = "tui")]
+        if let Some(task) = tui_task {
+            if let ScanDisplay::Tui(handle) = &display {
+                handle.finish();
+            }
+            task.await?;
+        }
+
+        let outcome = outcome?;
         camera.stop_stream()?;
 
         let pczt_packet = match outcome {
@@ -439,7 +479,7 @@ impl ReceiveBatch {
             &mut camera,
             UR_ZCASH_BATCH_SIG_RESULT,
             self.interval,
-            self.no_preview,
+            &ScanDisplay::from_no_preview(self.no_preview),
             &mut shutdown,
         )
         .await?;
@@ -558,7 +598,7 @@ impl BatchSign {
             &mut camera,
             UR_ZCASH_BATCH_SIG_RESULT,
             self.interval,
-            self.no_preview,
+            &ScanDisplay::from_no_preview(self.no_preview),
             &mut shutdown,
         )
         .await?;
@@ -938,16 +978,37 @@ enum ScanOutcome {
     ShutdownRequested,
 }
 
+/// How [`scan_for_ur`] shows scan progress each tick.
+enum ScanDisplay {
+    /// Redraws the camera feed and status lines in place on stderr.
+    Preview,
+    /// Prints only error lines.
+    Plain,
+    /// Sends each frame and the progress state to a full-screen terminal UI.
+    #[cfg(feature = "tui")]
+    Tui(scan_tui::AppHandle),
+}
+
+impl ScanDisplay {
+    fn from_no_preview(no_preview: bool) -> Self {
+        if no_preview {
+            ScanDisplay::Plain
+        } else {
+            ScanDisplay::Preview
+        }
+    }
+}
+
 /// Reads camera frames on a fixed interval, looking for a multi-part UR whose text starts with
-/// `expected_ur_type`, until the full message is reconstructed. Renders the live terminal
-/// preview (or, with `no_preview`, nothing but error lines) each tick. Shared by `from-qr`,
-/// `from-qr-batch`, and `batch-sign`'s scan phase -- the only thing that differs between them is
-/// which UR type they're waiting for and what they do with the bytes once complete.
+/// `expected_ur_type`, until the full message is reconstructed. Shows progress through
+/// `display` each tick. Shared by `from-qr`, `from-qr-batch`, and `batch-sign`'s scan phase --
+/// the only thing that differs between them is which UR type they're waiting for and what they
+/// do with the bytes once complete.
 async fn scan_for_ur(
     camera: &mut Camera,
     expected_ur_type: &str,
     interval_ms: u64,
-    no_preview: bool,
+    display: &ScanDisplay,
     shutdown: &mut ShutdownListener,
 ) -> anyhow::Result<ScanOutcome> {
     let mut decoder = ur::Decoder::default();
@@ -980,7 +1041,7 @@ async fn scan_for_ur(
                     // hundreds-of-parts session.
                     Err(e) => {
                         progress.last_status = format!("Rejected QR part: {e:?}");
-                        if no_preview {
+                        if matches!(display, ScanDisplay::Plain) {
                             eprintln!("Rejected QR part: {e:?}");
                         }
                     }
@@ -995,12 +1056,15 @@ async fn scan_for_ur(
             }
         }
 
-        if no_preview {
-            if let Err(e) = &detected_result {
-                eprintln!("{e}");
+        match display {
+            ScanDisplay::Preview => render_preview(&decoded, detected, &progress),
+            ScanDisplay::Plain => {
+                if let Err(e) = &detected_result {
+                    eprintln!("{e}");
+                }
             }
-        } else {
-            render_preview(&decoded, detected, &progress);
+            #[cfg(feature = "tui")]
+            ScanDisplay::Tui(handle) => handle.update(decoded, detected, progress.clone()),
         }
     }
 
@@ -1037,7 +1101,7 @@ fn detect_qr(
 /// Progress counts recovered fragments, not distinct part sequence numbers. Parts past the
 /// first pass are XOR mixes of several fragments, so their sequence numbers do not map to
 /// fragments and a count of them can exceed the fragment total.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct ScanProgress {
     /// `(recovered, total)` source fragments, once the first multi-part frame is accepted.
     fragments: Option<(usize, usize)>,
@@ -1115,11 +1179,7 @@ fn render_preview(
     out.push_str("\x1B[2J\x1B[H");
     for row in 0..rows {
         for col in 0..COLS {
-            let x = (col * w / COLS).min(w - 1);
-            let y_top = ((row * 2) * h / (rows * 2)).min(h - 1);
-            let y_bot = ((row * 2 + 1) * h / (rows * 2)).min(h - 1);
-            let top = img.get_pixel(x, y_top);
-            let bot = img.get_pixel(x, y_bot);
+            let (top, bot) = half_block_pixels(img, (col, row), (COLS, rows));
             let _ = write!(
                 out,
                 "\x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m▀",
@@ -1147,6 +1207,20 @@ fn render_preview(
     );
 
     eprint!("{out}");
+}
+
+/// Returns the top and bottom pixels of `img` for the half-block character at `(col, row)`
+/// in a `(cols, rows)` character grid that covers the whole image. `img` must not be empty.
+fn half_block_pixels(
+    img: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
+    (col, row): (u32, u32),
+    (cols, rows): (u32, u32),
+) -> (image::Rgb<u8>, image::Rgb<u8>) {
+    let (w, h) = img.dimensions();
+    let x = (col * w / cols).min(w - 1);
+    let y_top = ((row * 2) * h / (rows * 2)).min(h - 1);
+    let y_bot = ((row * 2 + 1) * h / (rows * 2)).min(h - 1);
+    (*img.get_pixel(x, y_top), *img.get_pixel(x, y_bot))
 }
 
 fn convert_buffer_to_image(
