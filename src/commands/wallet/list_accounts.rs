@@ -27,12 +27,14 @@ impl Command {
             if let Some(name) = account.name() {
                 println!("     Name: {name}");
             }
-            println!("     UIVK: {}", account.uivk().encode(&params));
+            println!("     UIVK: {}", account.uivk().encode(&params)?);
             println!(
                 "     UFVK: {}",
                 account
                     .ufvk()
-                    .map_or("None".to_owned(), |k| k.encode(&params))
+                    .map(|k| k.encode(&params))
+                    .transpose()?
+                    .unwrap_or_else(|| "None".to_owned())
             );
             print_source(account.source());
         }

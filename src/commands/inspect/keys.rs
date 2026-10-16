@@ -49,50 +49,70 @@ pub(crate) fn inspect_mnemonic(mnemonic: bip0039::Mnemonic, context: Option<Cont
             };
 
             eprintln!("   - Sapling:");
-            let sapling_master = sapling::zip32::ExtendedSpendingKey::master(&seed);
-            let sapling_extsk = sapling::zip32::ExtendedSpendingKey::from_path(
-                &sapling_master,
-                &[
-                    zip32::ChildIndex::hardened(32),
-                    zip32::ChildIndex::hardened(network.coin_type()),
-                    account.into(),
-                ],
-            );
-            #[allow(deprecated)]
-            let sapling_extfvk = sapling_extsk.to_extended_full_viewing_key();
-            let sapling_default_addr = sapling_extfvk.default_address();
+            let sapling_extsk =
+                sapling::zip32::ExtendedSpendingKey::master(&seed).and_then(|sapling_master| {
+                    sapling::zip32::ExtendedSpendingKey::from_path(
+                        &sapling_master,
+                        &[
+                            zip32::ChildIndex::hardened(32),
+                            zip32::ChildIndex::hardened(network.coin_type()),
+                            account.into(),
+                        ],
+                    )
+                });
+            let sapling_fvk_bytes: Option<[u8; 128]> = match sapling_extsk {
+                Some(sapling_extsk) => {
+                    #[allow(deprecated)]
+                    let sapling_extfvk = sapling_extsk.to_extended_full_viewing_key();
+                    let sapling_default_addr = sapling_extfvk.default_address();
 
-            let mut sapling_extsk_bytes = vec![];
-            sapling_extsk.write(&mut sapling_extsk_bytes).unwrap();
-            eprintln!(
-                "     - ExtSK:  {}",
-                bech32::encode::<Bech32>(
-                    Hrp::parse_unchecked(network.hrp_sapling_extended_spending_key()),
-                    &sapling_extsk_bytes,
-                )
-                .unwrap(),
-            );
+                    let mut sapling_extsk_bytes = vec![];
+                    sapling_extsk.write(&mut sapling_extsk_bytes).unwrap();
+                    eprintln!(
+                        "     - ExtSK:  {}",
+                        bech32::encode::<Bech32>(
+                            Hrp::parse_unchecked(
+                                zcash_keys::constants::hrp_sapling_extended_spending_key(addr_net)
+                            ),
+                            &sapling_extsk_bytes,
+                        )
+                        .unwrap(),
+                    );
 
-            let mut sapling_extfvk_bytes = vec![];
-            sapling_extfvk.write(&mut sapling_extfvk_bytes).unwrap();
-            eprintln!(
-                "     - ExtFVK: {}",
-                bech32::encode::<Bech32>(
-                    Hrp::parse_unchecked(network.hrp_sapling_extended_full_viewing_key()),
-                    &sapling_extfvk_bytes
-                )
-                .unwrap(),
-            );
+                    let mut sapling_extfvk_bytes = vec![];
+                    sapling_extfvk.write(&mut sapling_extfvk_bytes).unwrap();
+                    eprintln!(
+                        "     - ExtFVK: {}",
+                        bech32::encode::<Bech32>(
+                            Hrp::parse_unchecked(
+                                zcash_keys::constants::hrp_sapling_extended_full_viewing_key(
+                                    addr_net
+                                )
+                            ),
+                            &sapling_extfvk_bytes
+                        )
+                        .unwrap(),
+                    );
 
-            let sapling_addr_bytes = sapling_default_addr.1.to_bytes();
-            eprintln!(
-                "     - Default address: {}",
-                bech32::encode::<Bech32>(
-                    Hrp::parse_unchecked(network.hrp_sapling_payment_address()),
-                    &sapling_addr_bytes,
-                )
-                .unwrap(),
-            );
+                    let sapling_addr_bytes = sapling_default_addr.1.to_bytes();
+                    eprintln!(
+                        "     - Default address: {}",
+                        bech32::encode::<Bech32>(
+                            Hrp::parse_unchecked(
+                                zcash_address::constants::hrp_sapling_payment_address(addr_net)
+                            ),
+                            &sapling_addr_bytes,
+                        )
+                        .unwrap(),
+                    );
+
+                    Some(sapling_extfvk_bytes[41..].try_into().unwrap())
+                }
+                None => {
+                    eprintln!("     ⚠️  No valid Sapling key for this account under this seed");
+                    None
+                }
+            };
 
             let transparent_fvk = match AccountPrivKey::from_seed(&network, &seed, account)
                 .map(|sk| sk.to_account_pubkey())
@@ -130,9 +150,7 @@ pub(crate) fn inspect_mnemonic(mnemonic: bip0039::Mnemonic, context: Option<Cont
                         .map(|fvk| fvk.to_bytes())
                         .map(unified::Fvk::Orchard),
                 )
-                .chain(Some(unified::Fvk::Sapling(
-                    sapling_extfvk_bytes[41..].try_into().unwrap(),
-                )))
+                .chain(sapling_fvk_bytes.map(unified::Fvk::Sapling))
                 .chain(
                     transparent_fvk
                         .map(|fvk| fvk.serialize()[..].try_into().unwrap())
@@ -145,12 +163,17 @@ pub(crate) fn inspect_mnemonic(mnemonic: bip0039::Mnemonic, context: Option<Cont
                     unified::Fvk::Orchard(_) => "Orchard",
                     unified::Fvk::Sapling(_) => "Sapling",
                     unified::Fvk::P2pkh(_) => "Transparent",
+                    unified::Fvk::P2sh(_) => "Transparent multisig",
                     unified::Fvk::Unknown { .. } => unreachable!(),
                 })
                 .collect();
 
             eprintln!("   - Unified ({}):", item_names.join(", "));
-            let ufvk = unified::Ufvk::try_from_items(items).unwrap();
+            let ufvk = unified::Ufvk::try_from_items(
+                unified::Revision::R0,
+                items.into_iter().map(unified::Uitem::Data).collect(),
+            )
+            .unwrap();
             eprintln!("     - UFVK: {}", ufvk.encode(&addr_net));
         }
         seed.zeroize();
@@ -178,7 +201,9 @@ pub(crate) fn inspect_sapling_extsk(data: Vec<u8>, network: NetworkType) {
             eprintln!(
                 "- Default address: {}",
                 bech32::encode::<Bech32>(
-                    Hrp::parse_unchecked(network.hrp_sapling_payment_address()),
+                    Hrp::parse_unchecked(zcash_address::constants::hrp_sapling_payment_address(
+                        network
+                    )),
                     &default_addr_bytes,
                 )
                 .unwrap(),
@@ -202,11 +227,13 @@ pub(crate) fn inspect_sapling_extsk(data: Vec<u8>, network: NetworkType) {
                         nu6_1: None,
                         nu6_2: None,
                         nu6_3: None,
-                        #[cfg(zcash_unstable = "nu7")]
                         nu7: None,
                     }),
                 };
-                eprintln!("- UFVK: {encoded_ufvk}");
+                match encoded_ufvk {
+                    Ok(encoded_ufvk) => eprintln!("- UFVK: {encoded_ufvk}"),
+                    Err(e) => eprintln!("- UFVK: cannot be encoded ({e})"),
+                }
 
                 let (default_ua, _) = ufvk
                     .default_address(UnifiedAddressRequest::AllAvailableKeys)
@@ -225,7 +252,6 @@ pub(crate) fn inspect_sapling_extsk(data: Vec<u8>, network: NetworkType) {
                         nu6_1: None,
                         nu6_2: None,
                         nu6_3: None,
-                        #[cfg(zcash_unstable = "nu7")]
                         nu7: None,
                     }),
                 };
@@ -244,14 +270,17 @@ pub(crate) fn inspect_transparent_sk(data: &[u8], network: NetworkType) {
         _ => (data, false),
     };
 
-    match secp256k1::SecretKey::from_slice(data) {
-        Err(_) => {
+    let secret_key = <[u8; 32]>::try_from(data)
+        .ok()
+        .and_then(|bytes| secp256k1::SecretKey::from_secret_bytes(bytes).ok());
+    match secret_key {
+        None => {
             eprintln!("Invalid encoding that claims to be a transparent secret key");
         }
-        Ok(sk) => {
+        Some(sk) => {
             eprintln!("Transparent secret key");
 
-            let pubkey = sk.public_key(&secp256k1::Secp256k1::signing_only());
+            let pubkey = sk.public_key();
             eprintln!(
                 "- Public key: {}",
                 if compressed {

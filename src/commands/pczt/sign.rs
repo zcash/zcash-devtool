@@ -6,6 +6,7 @@ use pczt::{
     Pczt,
     roles::{signer::Signer, verifier::Verifier},
 };
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use secrecy::ExposeSecret;
 use tokio::{
     fs::File,
@@ -166,6 +167,7 @@ impl Command {
                     KeyRef::Orchard { index } => {
                         signer
                             .sign_orchard(
+                                UnwrapErr(SysRng),
                                 index,
                                 &orchard::keys::SpendAuthorizingKey::from(usk.orchard()),
                             )
@@ -175,7 +177,7 @@ impl Command {
                     }
                     KeyRef::Sapling { index } => {
                         signer
-                            .sign_sapling(index, &usk.sapling().expsk.ask)
+                            .sign_sapling(UnwrapErr(SysRng), index, usk.sapling().expsk().ask())
                             .map_err(|e| {
                                 anyhow!("Failed to sign Sapling spend {index}: {:?}", e)
                             })?;

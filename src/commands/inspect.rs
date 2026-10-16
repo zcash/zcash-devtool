@@ -12,11 +12,11 @@ use zcash_address::{
     ZcashAddress,
     unified::{self, Encoding},
 };
+use zcash_keys::constants;
 use zcash_primitives::{block::BlockHeader, transaction::Transaction};
 use zcash_proofs::{ZcashParameters, default_params_folder, load_parameters};
 use zcash_protocol::{
     consensus::{BranchId, NetworkType},
-    constants,
     memo::{Memo, MemoBytes},
 };
 use zip321::TransactionRequest;
@@ -73,9 +73,9 @@ impl Command {
             address::inspect(addr);
         } else if let Some(addr) = foreign_address::detect(&opts.data) {
             foreign_address::inspect(addr);
-        } else if let Ok((network, uivk)) = unified::Uivk::decode(&opts.data) {
+        } else if let Ok((network, _revision, uivk)) = unified::Uivk::decode(&opts.data) {
             keys::view::inspect_uivk(uivk, network);
-        } else if let Ok((network, ufvk)) = unified::Ufvk::decode(&opts.data) {
+        } else if let Ok((network, _revision, ufvk)) = unified::Ufvk::decode(&opts.data) {
             keys::view::inspect_ufvk(ufvk, network);
         } else if let Ok(parsed) = CheckedHrpstring::new::<Bech32>(&opts.data) {
             let data = parsed.byte_iter().collect::<Vec<_>>();

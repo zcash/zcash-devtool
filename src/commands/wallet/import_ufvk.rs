@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use clap::Args;
 
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use zcash_address::unified::{self, Encoding};
 use zcash_client_backend::{
     data_api::{AccountBirthday, AccountPurpose, WalletWrite, Zip32Derivation},
@@ -46,7 +46,7 @@ pub(crate) struct Command {
 
 impl Command {
     pub(crate) async fn run(self, wallet_dir: Option<String>) -> Result<(), anyhow::Error> {
-        let (network, ufvk) = unified::Ufvk::decode(&self.ufvk)?;
+        let (network, _revision, ufvk) = unified::Ufvk::decode(&self.ufvk)?;
         let ufvk = UnifiedFullViewingKey::parse(&ufvk).map_err(|e| anyhow!("{e}"))?;
 
         let params = match network {
@@ -63,7 +63,7 @@ impl Command {
         };
 
         let (_, db_data) = get_db_paths(wallet_dir.as_ref());
-        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, OsRng)?;
+        let mut db_data = WalletDb::for_path(db_data, params, SystemClock, UnwrapErr(SysRng))?;
 
         // Construct an `AccountBirthday` for the account's birthday.
         let birthday = {

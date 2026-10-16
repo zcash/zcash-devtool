@@ -2,7 +2,7 @@ use std::fs;
 
 use anyhow::anyhow;
 use clap::Args;
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use secrecy::ExposeSecret;
 use uuid::Uuid;
 
@@ -61,7 +61,8 @@ impl Command {
         // view that is dropped before the migration store borrows the same connection.
         // `PoolMigrations` is account-scoped, so the account must be resolved before loading.
         let (account_id, ufvk, account_index) = {
-            let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
+            let wallet_db =
+                WalletDb::from_connection(&mut conn, params, SystemClock, UnwrapErr(SysRng));
             let account = select_account(&wallet_db, self.account_id)?;
             // Only the in-process signing path needs a derivation path; an account whose spend
             // authority lives on a device may legitimately have none.
@@ -124,9 +125,10 @@ impl Command {
             None
         };
 
-        let mut rng = OsRng;
+        let mut rng = UnwrapErr(SysRng);
         let (state, unsigned) = {
-            let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
+            let wallet_db =
+                WalletDb::from_connection(&mut conn, params, SystemClock, UnwrapErr(SysRng));
 
             let target_height = wallet_db
                 .chain_height()

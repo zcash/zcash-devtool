@@ -121,9 +121,12 @@ pub(crate) fn inspect(addr: ZcashAddress) {
                             unified::Receiver::Orchard(data) => {
                                 eprintln!(
                                     "   - Orchard ({})",
-                                    unified::Address::try_from_items(vec![
-                                        unified::Receiver::Orchard(data)
-                                    ])
+                                    unified::Address::try_from_items(
+                                        unified::Revision::R0,
+                                        vec![unified::Uitem::Data(unified::Receiver::Orchard(
+                                            data
+                                        ))],
+                                    )
                                     .unwrap()
                                     .encode(&addr.net)
                                 );

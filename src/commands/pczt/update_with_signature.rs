@@ -108,7 +108,6 @@ fn add_transparent(
                             .unwrap()
                     },
                     sig,
-                    &secp256k1::Secp256k1::verification_only(),
                 )?;
             }
             Ok::<_, TempError>(())

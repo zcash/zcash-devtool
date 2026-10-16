@@ -14,8 +14,8 @@ use pczt::Pczt;
 use pczt::roles::signer::Signer;
 use pczt::roles::signer::batch::{BatchSignRequest, BatchSignResponse};
 use qrcode::{QrCode, render::unicode};
-use rand::RngCore;
-use rand::rngs::OsRng;
+use rand::rand_core::Rng as _;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncWriteExt, Stdout, stdin, stdout},
@@ -251,7 +251,7 @@ fn build_batch_request_packet(pczts: Vec<Pczt>) -> anyhow::Result<(Vec<u8>, [u8;
         .map_err(|e| anyhow!("Failed to serialize batch: {:?}", e))?;
 
     let mut request_id = [0u8; 16];
-    OsRng.fill_bytes(&mut request_id);
+    UnwrapErr(SysRng).fill_bytes(&mut request_id);
 
     let mut batch_packet = vec![];
     minicbor::encode(

@@ -2,7 +2,7 @@ use bech32::{Bech32, Hrp};
 use zcash_address::unified::{self, Container, Encoding};
 use zcash_keys::keys::{UnifiedAddressRequest, UnifiedFullViewingKey};
 use zcash_protocol::{
-    consensus::{Network, NetworkConstants, NetworkType},
+    consensus::{Network, NetworkType},
     local_consensus::LocalNetwork,
 };
 
@@ -22,16 +22,21 @@ pub(crate) fn inspect_ufvk(ufvk: unified::Ufvk, network: NetworkType) {
             unified::Fvk::Orchard(data) => {
                 eprintln!(
                     "   - Orchard ({})",
-                    unified::Ufvk::try_from_items(vec![unified::Fvk::Orchard(data)])
-                        .unwrap()
-                        .encode(&network)
+                    unified::Ufvk::try_from_items(
+                        unified::Revision::R0,
+                        vec![unified::Uitem::Data(unified::Fvk::Orchard(data))],
+                    )
+                    .unwrap()
+                    .encode(&network)
                 );
             }
             unified::Fvk::Sapling(data) => {
                 eprintln!(
                     "   - Sapling ({})",
                     bech32::encode::<Bech32>(
-                        Hrp::parse_unchecked(network.hrp_sapling_extended_full_viewing_key()),
+                        Hrp::parse_unchecked(
+                            zcash_keys::constants::hrp_sapling_extended_full_viewing_key(network)
+                        ),
                         &data
                     )
                     .unwrap(),
@@ -39,6 +44,10 @@ pub(crate) fn inspect_ufvk(ufvk: unified::Ufvk, network: NetworkType) {
             }
             unified::Fvk::P2pkh(data) => {
                 eprintln!("   - Transparent P2PKH");
+                eprintln!("     - Payload: {}", hex::encode(data));
+            }
+            unified::Fvk::P2sh(data) => {
+                eprintln!("   - Transparent P2SH multisig");
                 eprintln!("     - Payload: {}", hex::encode(data));
             }
             unified::Fvk::Unknown { typecode, data } => {
@@ -66,9 +75,12 @@ pub(crate) fn inspect_uivk(uivk: unified::Uivk, network: NetworkType) {
             unified::Ivk::Orchard(data) => {
                 eprintln!(
                     "   - Orchard ({})",
-                    unified::Uivk::try_from_items(vec![unified::Ivk::Orchard(data)])
-                        .unwrap()
-                        .encode(&network)
+                    unified::Uivk::try_from_items(
+                        unified::Revision::R0,
+                        vec![unified::Uitem::Data(unified::Ivk::Orchard(data))],
+                    )
+                    .unwrap()
+                    .encode(&network)
                 );
             }
             unified::Ivk::Sapling(data) => {
@@ -77,6 +89,10 @@ pub(crate) fn inspect_uivk(uivk: unified::Uivk, network: NetworkType) {
             }
             unified::Ivk::P2pkh(data) => {
                 eprintln!("   - Transparent P2PKH");
+                eprintln!("     - Payload: {}", hex::encode(data));
+            }
+            unified::Ivk::P2sh(data) => {
+                eprintln!("   - Transparent P2SH multisig");
                 eprintln!("     - Payload: {}", hex::encode(data));
             }
             unified::Ivk::Unknown { typecode, data } => {
@@ -100,7 +116,9 @@ pub(crate) fn inspect_sapling_extfvk(data: Vec<u8>, network: NetworkType) {
             eprintln!(
                 "- Default address: {}",
                 bech32::encode::<Bech32>(
-                    Hrp::parse_unchecked(network.hrp_sapling_payment_address()),
+                    Hrp::parse_unchecked(zcash_address::constants::hrp_sapling_payment_address(
+                        network
+                    )),
                     &default_addr_bytes,
                 )
                 .unwrap(),
@@ -122,11 +140,13 @@ pub(crate) fn inspect_sapling_extfvk(data: Vec<u8>, network: NetworkType) {
                         nu6_1: None,
                         nu6_2: None,
                         nu6_3: None,
-                        #[cfg(zcash_unstable = "nu7")]
                         nu7: None,
                     }),
                 };
-                eprintln!("- Equivalent UFVK: {encoded_ufvk}");
+                match encoded_ufvk {
+                    Ok(encoded_ufvk) => eprintln!("- Equivalent UFVK: {encoded_ufvk}"),
+                    Err(e) => eprintln!("- Equivalent UFVK: cannot be encoded ({e})"),
+                }
 
                 let (default_ua, _) = ufvk
                     .default_address(UnifiedAddressRequest::AllAvailableKeys)
@@ -145,7 +165,6 @@ pub(crate) fn inspect_sapling_extfvk(data: Vec<u8>, network: NetworkType) {
                         nu6_1: None,
                         nu6_2: None,
                         nu6_3: None,
-                        #[cfg(zcash_unstable = "nu7")]
                         nu7: None,
                     }),
                 };

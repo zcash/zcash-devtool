@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use clap::Args;
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use uuid::Uuid;
 
 use zcash_client_backend::data_api::{
@@ -86,14 +86,15 @@ impl Command {
         let params = get_wallet_network(wallet_dir.as_ref())?;
         let (_, db_path) = get_db_paths(wallet_dir.as_ref());
         let mut conn = open_connection(&db_path)?;
-        let wallet_db = WalletDb::from_connection(&mut conn, params, SystemClock, OsRng);
+        let wallet_db =
+            WalletDb::from_connection(&mut conn, params, SystemClock, UnwrapErr(SysRng));
         let account = select_account(&wallet_db, self.account_id)?;
         let backend = PlanBackend {
             wallet: &wallet_db,
             account: account.id(),
         };
 
-        let mut rng = OsRng;
+        let mut rng = UnwrapErr(SysRng);
         let plan = plan_migration(&params, &backend, &mut rng).map_err(|e| anyhow!("{e}"))?;
 
         println!("Note split:");

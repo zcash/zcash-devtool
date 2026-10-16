@@ -4,7 +4,7 @@ use std::{path::PathBuf, str::FromStr};
 use anyhow::anyhow;
 use clap::Args;
 use pczt::roles::{creator::Creator, io_finalizer::IoFinalizer, updater::Updater};
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
 use tokio::{
     fs::File,
     io::{AsyncWriteExt, stdout},
@@ -84,7 +84,7 @@ impl Command {
             let config = WalletConfig::read(wallet_dir.as_ref())?;
             config.network()
         };
-        let rng = OsRng;
+        let rng = UnwrapErr(SysRng);
 
         let coins = parse_coins(&self.coins)?;
         let recipient = ZcashAddress::from_str(&self.address)
@@ -208,7 +208,7 @@ impl Command {
             .ok_or_else(|| anyhow!("Transaction version is incompatible with PCZTs"))?;
 
         let io_finalized = IoFinalizer::new(created)
-            .finalize_io()
+            .finalize_io(UnwrapErr(SysRng))
             .map_err(|e| anyhow!("{e:?}"))?;
 
         // Add the recipient address metadata to the generated output to permit
