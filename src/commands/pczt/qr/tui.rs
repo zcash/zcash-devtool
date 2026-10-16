@@ -161,10 +161,8 @@ impl Action {
             tui::Event::Error => None,
             tui::Event::Tick => Some(Action::Tick),
             tui::Event::Render => Some(Action::Render),
-            tui::Event::Key(key) => match key.code {
-                KeyCode::Char('q') => Some(Action::Quit),
-                code => logger_event_for_key(code).map(Action::LoggerEvent),
-            },
+            tui::Event::Key(key) if tui::is_quit_key(&key) => Some(Action::Quit),
+            tui::Event::Key(key) => logger_event_for_key(key.code).map(Action::LoggerEvent),
             _ => None,
         }
     }

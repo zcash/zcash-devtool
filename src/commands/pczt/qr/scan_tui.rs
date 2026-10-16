@@ -1,4 +1,3 @@
-use crossterm::event::KeyCode;
 use futures_util::FutureExt;
 use ratatui::{
     prelude::*,
@@ -222,10 +221,8 @@ impl Action {
     fn for_event(event: tui::Event) -> Option<Self> {
         match event {
             tui::Event::Render => Some(Action::Render),
-            tui::Event::Key(key) => match key.code {
-                KeyCode::Char('q') => Some(Action::Quit),
-                code => logger_event_for_key(code).map(Action::LoggerEvent),
-            },
+            tui::Event::Key(key) if tui::is_quit_key(&key) => Some(Action::Quit),
+            tui::Event::Key(key) => logger_event_for_key(key.code).map(Action::LoggerEvent),
             _ => None,
         }
     }

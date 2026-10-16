@@ -463,8 +463,8 @@ impl Action {
             tui::Event::Error => None,
             tui::Event::Tick => Some(Action::Tick),
             tui::Event::Render => Some(Action::Render),
+            tui::Event::Key(key) if tui::is_quit_key(&key) => Some(Action::Quit),
             tui::Event::Key(key) => match key.code {
-                KeyCode::Char('q') => Some(Action::Quit),
                 KeyCode::Char('w') => Some(Action::Move(Direction::Up)),
                 KeyCode::Char('a') => Some(Action::Move(Direction::Left)),
                 KeyCode::Char('d') => Some(Action::Move(Direction::Right)),
