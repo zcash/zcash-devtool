@@ -14,7 +14,7 @@ use zcash_client_backend::{
     data_api::anchor_retention::{AnchorRetentionInterval, PoolMigrationParams},
     data_api::{ChangeReceivers, TransparentChangeKind},
     fees::{
-        ChangeError, ChangeStrategy as _, DustOutputPolicy, orchard::EmptyBundleView,
+        ChangeError, ChangeStrategy as _, DustOutputPolicy, TransparentChangePolicy,
         zip317::SingleOutputChangeStrategy,
     },
     proto::service::{ChainSpec, TxFilter},
@@ -34,7 +34,10 @@ use zip321::TransactionRequest;
 use crate::{
     config::WalletConfig,
     data::Network,
-    helpers::pczt::create_manual::{add_inputs, add_recipient, handle_recipient, parse_coins},
+    helpers::pczt::create_manual::{
+        add_change_output, add_inputs, add_recipient, handle_recipient, ironwood_active,
+        parse_coins,
+    },
     remote::ConnectionArgs,
 };
 
@@ -98,6 +101,13 @@ impl Command {
         let tree_state = client.get_tree_state(latest_block).await?.into_inner();
         let sapling_anchor = Some(tree_state.sapling_tree()?.root().into());
         let orchard_anchor = Some(tree_state.orchard_tree()?.root().into());
+        // From NU6.3, payments to Orchard receivers are Ironwood outputs.
+        let ironwood = ironwood_active(&params, target_height);
+        let ironwood_anchor = if ironwood {
+            Some(tree_state.ironwood_tree()?.root().into())
+        } else {
+            None
+        };
 
         let payment_request = TransactionRequest::from_uri(&self.payment_request)?;
         let change_address = Address::decode(&params, &self.change_address)
@@ -152,12 +162,29 @@ impl Command {
             transparent_inputs.push(input);
         }
 
-        let change_strategy = SingleOutputChangeStrategy::<_, Infallible>::new(
+        // The change strategy decides which pool the change goes to, and prices the fee
+        // accordingly; the change output is then added to the change address's receiver in
+        // that pool (see `add_change_output`). When only transparent flows are involved it
+        // falls back to the change address's own pool, and a transparent-only change
+        // address may receive transparent change.
+        let fallback_change_pool = match &change_address {
+            Address::Sapling(_) => ShieldedPool::Sapling,
+            Address::Unified(ua) if ua.orchard().is_none() && ua.sapling().is_some() => {
+                ShieldedPool::Sapling
+            }
+            _ if ironwood => ShieldedPool::Ironwood,
+            _ => ShieldedPool::Orchard,
+        };
+        let mut change_strategy = SingleOutputChangeStrategy::<_, Infallible>::new(
             zip317::FeeRule::standard(),
             None,
-            ShieldedPool::Orchard,
+            fallback_change_pool,
             DustOutputPolicy::default(),
         );
+        if matches!(change_address, Address::Transparent(_) | Address::Tex(_)) {
+            change_strategy = change_strategy
+                .with_transparent_change_policy(TransparentChangePolicy::TransparentChangeAllowed);
+        }
 
         let outputs = payment_request
             .payments()
@@ -192,7 +219,7 @@ impl Command {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let orchard_output_values = outputs
+        let orchard_shaped_output_values = outputs
             .iter()
             .filter_map(|(value, addr, _)| {
                 handle_recipient(
@@ -205,6 +232,11 @@ impl Command {
                 .transpose()
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let (orchard_output_values, ironwood_output_values) = if ironwood {
+            (vec![], orchard_shaped_output_values)
+        } else {
+            (orchard_shaped_output_values, vec![])
+        };
 
         let sapling_output_values = outputs
             .iter()
@@ -247,8 +279,11 @@ impl Command {
                     &[][..] as &[Infallible],
                     &orchard_output_values[..],
                 ),
-                // No Ironwood bundle; change stays in the Orchard pool.
-                &EmptyBundleView,
+                &(
+                    orchard::bundle::BundleVersion::ironwood_v3(),
+                    &[][..] as &[Infallible],
+                    &ironwood_output_values[..],
+                ),
                 None,
                 &change_receivers(&change_address),
             )
@@ -262,48 +297,43 @@ impl Command {
             zcash_primitives::transaction::builder::BuildConfig::Standard {
                 sapling_anchor,
                 orchard_anchor,
-                ironwood_anchor: None,
+                ironwood_anchor,
                 orchard_padding: zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
                 ironwood_padding: zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
             },
         );
         add_inputs(&mut builder, transparent_inputs)?;
 
+        // For each output, the pool it went to, its index among that pool's outputs, and
+        // the address to show signers for it.
         let mut output_counts: BTreeMap<PoolType, usize> = BTreeMap::new();
-        let mut output_mapping = BTreeMap::new();
-        for (i, (value, addr, memo)) in outputs.iter().enumerate() {
-            let recipient_pool = add_recipient(&mut builder, addr.clone(), *value, memo.cloned())?;
-            let pool_output_index = *output_counts
-                .entry(recipient_pool)
-                .and_modify(|n| {
-                    *n += 1;
-                })
-                .or_default();
-            output_mapping.insert(i, pool_output_index);
+        let mut next_index = |pool: PoolType| {
+            let n = output_counts.entry(pool).or_default();
+            *n += 1;
+            *n - 1
+        };
+        let mut added_outputs = vec![];
+        for (value, addr, memo) in &outputs {
+            let pool = add_recipient(&mut builder, addr.clone(), *value, memo.cloned(), ironwood)?;
+            added_outputs.push((pool, next_index(pool), addr.encode(&params)));
         }
-
-        let mut change_mapping = BTreeMap::new();
-        for (j, change_output) in balance.proposed_change().iter().enumerate() {
-            let recipient_pool = add_recipient(
+        for change_output in balance.proposed_change() {
+            let pool = change_output.output_pool();
+            add_change_output(
                 &mut builder,
-                change_address.clone(),
+                &change_address,
+                pool,
                 change_output.value(),
                 change_output.memo().cloned(),
             )?;
-            let pool_output_index = *output_counts
-                .entry(recipient_pool)
-                .and_modify(|n| {
-                    *n += 1;
-                })
-                .or_default();
-            change_mapping.insert(j, pool_output_index);
+            added_outputs.push((pool, next_index(pool), change_address.encode(&params)));
         }
 
         let PcztResult {
             pczt_parts,
             sapling_meta,
             orchard_meta,
-            ironwood_meta: _,
+            ironwood_meta,
         } = builder.build_for_pczt(rng, &zip317::FeeRule::standard())?;
         let created = Creator::build_from_parts(pczt_parts)
             .ok_or_else(|| anyhow!("Transaction version is incompatible with PCZTs"))?;
@@ -312,70 +342,59 @@ impl Command {
             .finalize_io(UnwrapErr(SysRng))
             .map_err(|e| anyhow!("{e:?}"))?;
 
-        let set_verification_address =
-            |updater: Updater,
-             recipient_addr: &Address,
-             i: usize,
-             mappings: &BTreeMap<usize, usize>| {
-                handle_recipient(
-                    recipient_addr.clone(),
-                    (updater, recipient_addr.encode(&params)),
-                    |_, (updater, user_address)| {
-                        let t_index = mappings.get(&i).unwrap_or_else(|| {
-                            panic!("Transparent output index was tracked for output {i}")
-                        });
-                        updater
-                            .update_transparent_with(|mut u| {
-                                u.update_output_with(*t_index, |mut ou| {
-                                    ou.set_user_address(user_address);
-                                    Ok(())
-                                })
-                            })
-                            .map_err(|e| anyhow!("{e:?}"))
-                    },
-                    |_, (updater, user_address)| {
-                        let s_index = mappings
-                            .get(&i)
-                            .and_then(|i0| sapling_meta.output_index(*i0))
-                            .unwrap_or_else(|| {
-                                panic!("Sapling output index was tracked for output {i}")
-                            });
-                        updater
-                            .update_sapling_with(|mut u| {
-                                u.update_output_with(s_index, |mut ou| {
-                                    ou.set_user_address(user_address);
-                                    Ok(())
-                                })
-                            })
-                            .map_err(|e| anyhow!("{e:?}"))
-                    },
-                    |_, (updater, user_address)| {
-                        let o_index = mappings
-                            .get(&i)
-                            .and_then(|i0| orchard_meta.output_action_index(*i0))
-                            .unwrap_or_else(|| {
-                                panic!("Orchard output index was tracked for output {i}")
-                            });
-                        updater
-                            .update_orchard_with(|mut u| {
-                                u.update_action_with(o_index, |mut au| {
-                                    au.set_output_user_address(user_address);
-                                    Ok(())
-                                })
-                            })
-                            .map_err(|e| anyhow!("{e:?}"))
-                    },
-                )
-            };
-
-        // Add the recipient address metadata to the generated output to permit
+        // Add the recipient address metadata to the generated outputs to permit
         // verification by signers.
         let mut updater = Updater::new(io_finalized);
-        for (i, (_, recipient_addr, _)) in outputs.iter().enumerate() {
-            updater = set_verification_address(updater, recipient_addr, i, &output_mapping)?;
-        }
-        for j in 0..balance.proposed_change().len() {
-            updater = set_verification_address(updater, &change_address, j, &change_mapping)?;
+        for (pool, index, user_address) in added_outputs {
+            updater = match pool {
+                PoolType::Transparent => updater
+                    .update_transparent_with(|mut u| {
+                        u.update_output_with(index, |mut ou| {
+                            ou.set_user_address(user_address);
+                            Ok(())
+                        })
+                    })
+                    .map_err(|e| anyhow!("{e:?}"))?,
+                PoolType::Shielded(ShieldedPool::Sapling) => {
+                    let s_index = sapling_meta
+                        .output_index(index)
+                        .expect("Sapling output index was tracked");
+                    updater
+                        .update_sapling_with(|mut u| {
+                            u.update_output_with(s_index, |mut ou| {
+                                ou.set_user_address(user_address);
+                                Ok(())
+                            })
+                        })
+                        .map_err(|e| anyhow!("{e:?}"))?
+                }
+                PoolType::Shielded(ShieldedPool::Orchard) => {
+                    let o_index = orchard_meta
+                        .output_action_index(index)
+                        .expect("Orchard output index was tracked");
+                    updater
+                        .update_orchard_with(|mut u| {
+                            u.update_action_with(o_index, |mut au| {
+                                au.set_output_user_address(user_address);
+                                Ok(())
+                            })
+                        })
+                        .map_err(|e| anyhow!("{e:?}"))?
+                }
+                PoolType::Shielded(ShieldedPool::Ironwood) => {
+                    let i_index = ironwood_meta
+                        .output_action_index(index)
+                        .expect("Ironwood output index was tracked");
+                    updater
+                        .update_ironwood_with(|mut u| {
+                            u.update_action_with(i_index, |mut au| {
+                                au.set_output_user_address(user_address);
+                                Ok(())
+                            })
+                        })
+                        .map_err(|e| anyhow!("{e:?}"))?
+                }
+            };
         }
 
         let pczt = updater.finish();
