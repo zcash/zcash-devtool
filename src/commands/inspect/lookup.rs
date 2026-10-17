@@ -1,4 +1,5 @@
 use tonic::transport::{Channel, ClientTlsConfig};
+use transparent::bundle::TxOut;
 use zcash_client_backend::proto::{
     compact_formats::CompactBlock,
     service::{BlockId, TxFilter, compact_tx_streamer_client::CompactTxStreamerClient},
@@ -69,6 +70,27 @@ impl Lightwalletd {
             .await
             .ok()
             .map(|b| b.into_inner())
+    }
+
+    /// Looks up the coins spent by `tx`'s transparent inputs, in input order. Returns `None`
+    /// if any of them cannot be found on this network.
+    pub(crate) async fn lookup_prevouts(&mut self, tx: &Transaction) -> Option<Vec<TxOut>> {
+        let mut coins = vec![];
+        for txin in tx.transparent_bundle().map(|b| &b.vin[..]).unwrap_or(&[]) {
+            let prevout = txin.prevout();
+            let (prev_tx, _) = self.lookup_txid(*prevout.hash()).await?;
+            let coin = prev_tx
+                .transparent_bundle()?
+                .vout
+                .get(usize::try_from(prevout.n()).ok()?)?
+                .clone();
+            coins.push(coin);
+        }
+        Some(coins)
+    }
+
+    pub(crate) fn network(&self) -> Network {
+        self.parameters
     }
 
     pub(crate) async fn lookup_txid(
