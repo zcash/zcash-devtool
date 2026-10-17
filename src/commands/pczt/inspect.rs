@@ -18,7 +18,10 @@ use zcash_primitives::transaction::{
     sighash_v5::v5_signature_hash,
     txid::{TxIdDigester, to_txid},
 };
-use zcash_protocol::consensus::{NetworkConstants, Parameters};
+use zcash_protocol::{
+    consensus::{NetworkConstants, Parameters},
+    value::BalanceError,
+};
 use zcash_script::solver;
 use zip32::fingerprint::SeedFingerprint;
 
@@ -376,6 +379,35 @@ impl Command {
                 );
                 println!("TxID: {txid}");
                 println!("Version: {:?}", tx_data.version());
+
+                // The PCZT carries the value of every transparent input, listed in the
+                // bundle's `vin` order, so the fee can be computed from the effects.
+                let fee = tx_data.fee_paid(|outpoint| {
+                    Ok::<_, BalanceError>(tx_data.transparent_bundle().and_then(|bundle| {
+                        bundle
+                            .vin
+                            .iter()
+                            .position(|txin| txin.prevout() == outpoint)
+                            .and_then(|i| transparent_inputs.get(i))
+                            .map(|(_, _, _, value, _, _)| *value)
+                    }))
+                });
+                match fee {
+                    Ok(Some(fee)) => println!(
+                        "Fee: {} zatoshis ({} ZEC)",
+                        u64::from(fee),
+                        (u64::from(fee) as f64) / 1_0000_0000f64
+                    ),
+                    Ok(None) => println!("Fee: unknown (a transparent input's value is missing)"),
+                    Err(e) => println!("Fee: invalid value balance ({e:?})"),
+                }
+
+                let expiry_height = u32::from(tx_data.expiry_height());
+                if expiry_height == 0 {
+                    println!("Expiry height: none (the transaction never expires)");
+                } else {
+                    println!("Expiry height: {expiry_height}");
+                }
 
                 if matches!(tx_data.version(), TxVersion::V5) {
                     if tx_data.sapling_bundle().is_some() || tx_data.orchard_bundle().is_some() {
