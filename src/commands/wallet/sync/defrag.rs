@@ -17,7 +17,7 @@ use zcash_client_backend::data_api::{
 use zcash_client_sqlite::AccountUuid;
 use zcash_protocol::consensus::BlockHeight;
 
-use crate::tui;
+use crate::{helpers::progress::percent, tui};
 
 pub(super) struct AppHandle {
     action_tx: mpsc::UnboundedSender<Action>,
@@ -327,18 +327,10 @@ impl App {
                 .iter()
                 .flat_map(|wallet_summary| {
                     let scan_progress = wallet_summary.progress().scan();
-                    let synced = Span::raw(format!(
-                        "Synced: {:0.3}%",
-                        (*scan_progress.numerator() as f64) * 100f64
-                            / (*scan_progress.denominator() as f64)
-                    ));
+                    let synced = Span::raw(format!("Synced: {:0.3}%", percent(&scan_progress)));
 
                     let recovered = wallet_summary.progress().recovery().map(|progress| {
-                        Span::raw(format!(
-                            "Recovered: {:0.3}%",
-                            (*progress.numerator() as f64) * 100f64
-                                / (*progress.denominator() as f64)
-                        ))
+                        Span::raw(format!("Recovered: {:0.3}%", percent(&progress)))
                     });
 
                     let separator = (recovered.is_some()).then(|| Span::raw(" | "));
