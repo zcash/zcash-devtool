@@ -21,11 +21,14 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, Stdout, stdin, stdout},
 };
 
+use super::qr_density::QrDensity;
 use crate::ShutdownListener;
 
 #[cfg(feature = "tui")]
 use crate::tui::Tui;
 
+#[cfg(feature = "tui")]
+mod scan_tui;
 #[cfg(feature = "tui")]
 mod tui;
 
@@ -52,6 +55,13 @@ pub(crate) struct Send {
     #[arg(default_value_t = 500)]
     interval: u64,
 
+    /// How much of the PCZT each QR code carries. A denser code needs fewer frames, but it is
+    /// larger and harder for a camera to read.
+    #[arg(long, value_enum, default_value_t = QrDensity::Low)]
+    qr_density: QrDensity,
+
+    /// Show the QR code, its UR text, and the log in a full-screen terminal UI. Press `q` to
+    /// quit.
     #[cfg(feature = "tui")]
     #[arg(long)]
     pub(crate) tui: bool,
@@ -96,8 +106,9 @@ impl Send {
             None
         };
 
-        let mut encoder = ur::Encoder::new(&pczt_packet, 100, ZCASH_PCZT)
-            .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
+        let mut encoder =
+            ur::Encoder::new(&pczt_packet, self.qr_density.bytes_per_qr(), ZCASH_PCZT)
+                .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
 
         let mut stdout = stdout();
         let mut interval = tokio::time::interval(Duration::from_millis(self.interval));
@@ -149,12 +160,11 @@ pub(crate) struct SendBatch {
     #[arg(default_value_t = 500)]
     interval: u64,
 
-    /// Max bytes per UR fragment (default 100, matching `pczt to-qr`). No physical camera scans
-    /// this batch path, so a larger value trades QR error-tolerance for fewer frames -- useful
-    /// for a large batch, whose default-100-byte fragment count can run into the thousands.
-    #[arg(long)]
-    #[arg(default_value_t = 100)]
-    max_fragment_len: usize,
+    /// How much of the batch each QR code carries. A denser code needs fewer frames, but it is
+    /// larger and harder for a camera to read. With --out-file no camera reads the codes, so
+    /// `max` is safe there, and a large batch can otherwise need thousands of codes.
+    #[arg(long, value_enum, default_value_t = QrDensity::Low)]
+    qr_density: QrDensity,
 
     /// Instead of rendering an animated QR loop, write every sequential UR fragment to this
     /// file, one per line, then exit -- the format the Keystone simulator's file-based QR input
@@ -268,14 +278,20 @@ fn build_batch_request_packet(pczts: Vec<Pczt>) -> anyhow::Result<(Vec<u8>, [u8;
 /// Renders one animated-QR-loop frame: the QR image (as unicode block art) followed by the raw
 /// UR text, ready to print. Shared by `to-qr`, `to-qr-batch`, and `batch-sign`'s outgoing side.
 fn render_qr_frame(ur: &str) -> anyhow::Result<String> {
-    let code = QrCode::new(ur.to_ascii_uppercase())?;
-    let string = code
+    Ok(format!("{}\n{ur}\n\n\n\n", render_qr(ur)?))
+}
+
+/// Draws `ur` as a QR code in half-block characters, light on dark, with a quiet zone. Each
+/// module is one column wide and half a row tall.
+fn render_qr(ur: &str) -> anyhow::Result<String> {
+    let code = QrCode::new(ur.to_ascii_uppercase())
+        .map_err(|e| anyhow!("Too much data for one QR code ({e}); lower --qr-density"))?;
+    Ok(code
         .render::<unicode::Dense1x2>()
         .dark_color(unicode::Dense1x2::Light)
         .light_color(unicode::Dense1x2::Dark)
         .quiet_zone(true)
-        .build();
-    Ok(format!("{string}\n{ur}\n\n\n\n"))
+        .build())
 }
 
 impl SendBatch {
@@ -286,8 +302,12 @@ impl SendBatch {
         // `to-qr-batch` never scans for a response itself, so it has no use for the request id
         // beyond what's already embedded in the outgoing packet.
         let (batch_packet, _request_id) = build_batch_request_packet(pczts)?;
-        let mut encoder = ur::Encoder::new(&batch_packet, self.max_fragment_len, ZCASH_SIGN_BATCH)
-            .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
+        let mut encoder = ur::Encoder::new(
+            &batch_packet,
+            self.qr_density.bytes_per_qr(),
+            ZCASH_SIGN_BATCH,
+        )
+        .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
 
         if let Some(out_file) = &self.out_file {
             let fragment_count = encoder.fragment_count();
@@ -341,6 +361,12 @@ pub(crate) struct Receive {
     #[arg(long)]
     no_preview: bool,
 
+    /// Show the camera feed, scan progress, and log in a full-screen terminal UI with fixed
+    /// panes. Press `q` to quit.
+    #[cfg(feature = "tui")]
+    #[arg(long, conflicts_with = "no_preview")]
+    pub(crate) tui: bool,
+
     /// Select the camera whose name contains this text (case-insensitive), e.g. "iphone" to
     /// always use a Continuity Camera phone instead of the built-in webcam. Skips the
     /// interactive picker and errors out if no camera name matches.
@@ -353,15 +379,21 @@ pub(crate) struct Receive {
 }
 
 impl Receive {
-    pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(
+        self,
+        mut shutdown: ShutdownListener,
+        #[cfg(feature = "tui")] tui: Tui,
+    ) -> Result<(), anyhow::Error> {
         let mut camera = open_scan_camera(self.camera.as_deref()).await?;
 
         eprintln!("Starting detection loop");
-        let outcome = scan_for_ur(
+        let outcome = scan_with_display(
             &mut camera,
             UR_ZCASH_PCZT,
             self.interval,
             self.no_preview,
+            #[cfg(feature = "tui")]
+            self.tui.then_some(tui),
             &mut shutdown,
         )
         .await?;
@@ -422,6 +454,12 @@ pub(crate) struct ReceiveBatch {
     #[arg(long)]
     no_preview: bool,
 
+    /// Show the camera feed, scan progress, and log in a full-screen terminal UI with fixed
+    /// panes. Press `q` to quit.
+    #[cfg(feature = "tui")]
+    #[arg(long, conflicts_with = "no_preview")]
+    pub(crate) tui: bool,
+
     /// Select the camera whose name contains this text (case-insensitive), e.g. "iphone" to
     /// always use a Continuity Camera phone instead of the built-in webcam. Skips the
     /// interactive picker and errors out if no camera name matches.
@@ -430,16 +468,22 @@ pub(crate) struct ReceiveBatch {
 }
 
 impl ReceiveBatch {
-    pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(
+        self,
+        mut shutdown: ShutdownListener,
+        #[cfg(feature = "tui")] tui: Tui,
+    ) -> Result<(), anyhow::Error> {
         let pczts = read_pczts(&self.pczts)?;
         let mut camera = open_scan_camera(self.camera.as_deref()).await?;
 
         eprintln!("Starting detection loop");
-        let outcome = scan_for_ur(
+        let outcome = scan_with_display(
             &mut camera,
             UR_ZCASH_BATCH_SIG_RESULT,
             self.interval,
             self.no_preview,
+            #[cfg(feature = "tui")]
+            self.tui.then_some(tui),
             &mut shutdown,
         )
         .await?;
@@ -477,10 +521,10 @@ pub(crate) struct BatchSign {
     #[arg(default_value_t = 500)]
     interval: u64,
 
-    /// Max bytes per outgoing UR fragment (default 100, matching `to-qr-batch`)
-    #[arg(long)]
-    #[arg(default_value_t = 100)]
-    max_fragment_len: usize,
+    /// How much of the outgoing batch each QR code carries. A denser code needs fewer frames,
+    /// but it is larger and harder for a camera to read.
+    #[arg(long, value_enum, default_value_t = QrDensity::Low)]
+    qr_density: QrDensity,
 
     /// Redact the outgoing batch before sending. See `to-qr-batch --redact`.
     #[arg(long)]
@@ -489,6 +533,13 @@ pub(crate) struct BatchSign {
     /// Don't render a live terminal preview of the camera feed once scanning starts.
     #[arg(long)]
     no_preview: bool,
+
+    /// Show the camera feed, scan progress, and log in a full-screen terminal UI with fixed
+    /// panes once scanning starts. The outgoing QR still shows as plain output before that.
+    /// Press `q` to quit the scan.
+    #[cfg(feature = "tui")]
+    #[arg(long, conflicts_with = "no_preview")]
+    pub(crate) tui: bool,
 
     /// Select the camera whose name contains this text (case-insensitive), e.g. "iphone".
     /// Skips the interactive picker and errors out if no camera name matches.
@@ -509,15 +560,22 @@ impl BatchSign {
     /// not the other way round), so opening ours from the start doesn't reflect reality and
     /// needlessly holds the camera the whole time you're still just showing the outgoing loop.
     /// Enter is the deliberate handoff instead of a guess.
-    pub(crate) async fn run(self, mut shutdown: ShutdownListener) -> Result<(), anyhow::Error> {
+    pub(crate) async fn run(
+        self,
+        mut shutdown: ShutdownListener,
+        #[cfg(feature = "tui")] tui: Tui,
+    ) -> Result<(), anyhow::Error> {
         let original_pczts = read_pczts(&self.pczts)?;
         let outgoing_pczts = maybe_redact_batch(original_pczts.clone(), self.redact);
         println!("Sending batch of {} PCZT(s)", outgoing_pczts.len());
 
         let (batch_packet, request_id) = build_batch_request_packet(outgoing_pczts)?;
-        let mut send_encoder =
-            ur::Encoder::new(&batch_packet, self.max_fragment_len, ZCASH_SIGN_BATCH)
-                .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
+        let mut send_encoder = ur::Encoder::new(
+            &batch_packet,
+            self.qr_density.bytes_per_qr(),
+            ZCASH_SIGN_BATCH,
+        )
+        .map_err(|e| anyhow!("Failed to build UR encoder: {e}"))?;
 
         eprintln!(
             "Showing the outgoing batch QR -- scan it on the device, then review and sign as \
@@ -554,11 +612,13 @@ impl BatchSign {
         let mut camera = open_scan_camera(self.camera.as_deref()).await?;
 
         eprintln!("Starting detection loop");
-        let outcome = scan_for_ur(
+        let outcome = scan_with_display(
             &mut camera,
             UR_ZCASH_BATCH_SIG_RESULT,
             self.interval,
             self.no_preview,
+            #[cfg(feature = "tui")]
+            self.tui.then_some(tui),
             &mut shutdown,
         )
         .await?;
@@ -938,16 +998,75 @@ enum ScanOutcome {
     ShutdownRequested,
 }
 
-/// Reads camera frames on a fixed interval, looking for a multi-part UR whose text starts with
-/// `expected_ur_type`, until the full message is reconstructed. Renders the live terminal
-/// preview (or, with `no_preview`, nothing but error lines) each tick. Shared by `from-qr`,
-/// `from-qr-batch`, and `batch-sign`'s scan phase -- the only thing that differs between them is
-/// which UR type they're waiting for and what they do with the bytes once complete.
-async fn scan_for_ur(
+/// How [`scan_for_ur`] shows scan progress each tick.
+enum ScanDisplay {
+    /// Redraws the camera feed and status lines in place on stderr.
+    Preview,
+    /// Prints only error lines.
+    Plain,
+    /// Sends each frame and the progress state to a full-screen terminal UI.
+    #[cfg(feature = "tui")]
+    Tui(scan_tui::AppHandle),
+}
+
+impl ScanDisplay {
+    fn from_no_preview(no_preview: bool) -> Self {
+        if no_preview {
+            ScanDisplay::Plain
+        } else {
+            ScanDisplay::Preview
+        }
+    }
+}
+
+/// Runs [`scan_for_ur`] with the full-screen scan TUI when `tui` is given, or else with the
+/// preview that `no_preview` selects. Restores the terminal before it returns, so the caller
+/// can write any error or output.
+async fn scan_with_display(
     camera: &mut Camera,
     expected_ur_type: &str,
     interval_ms: u64,
     no_preview: bool,
+    #[cfg(feature = "tui")] tui: Option<Tui>,
+    shutdown: &mut ShutdownListener,
+) -> anyhow::Result<ScanOutcome> {
+    #[cfg(feature = "tui")]
+    if let Some(tui) = tui {
+        let mut app = scan_tui::App::new(shutdown.tui_quit_signal());
+        let display = ScanDisplay::Tui(app.handle());
+        let finish_handle = app.handle();
+        let task = tokio::spawn(async move {
+            if let Err(e) = app.run(tui).await {
+                tracing::error!("Error while running TUI: {e}");
+            }
+        });
+
+        let outcome = scan_for_ur(camera, expected_ur_type, interval_ms, &display, shutdown).await;
+        finish_handle.finish();
+        task.await?;
+        return outcome;
+    }
+
+    scan_for_ur(
+        camera,
+        expected_ur_type,
+        interval_ms,
+        &ScanDisplay::from_no_preview(no_preview),
+        shutdown,
+    )
+    .await
+}
+
+/// Reads camera frames on a fixed interval, looking for a multi-part UR whose text starts with
+/// `expected_ur_type`, until the full message is reconstructed. Shows progress through
+/// `display` each tick. Shared by `from-qr`, `from-qr-batch`, and `batch-sign`'s scan phase --
+/// the only thing that differs between them is which UR type they're waiting for and what they
+/// do with the bytes once complete.
+async fn scan_for_ur(
+    camera: &mut Camera,
+    expected_ur_type: &str,
+    interval_ms: u64,
+    display: &ScanDisplay,
     shutdown: &mut ShutdownListener,
 ) -> anyhow::Result<ScanOutcome> {
     let mut decoder = ur::Decoder::default();
@@ -980,7 +1099,7 @@ async fn scan_for_ur(
                     // hundreds-of-parts session.
                     Err(e) => {
                         progress.last_status = format!("Rejected QR part: {e:?}");
-                        if no_preview {
+                        if matches!(display, ScanDisplay::Plain) {
                             eprintln!("Rejected QR part: {e:?}");
                         }
                     }
@@ -995,12 +1114,15 @@ async fn scan_for_ur(
             }
         }
 
-        if no_preview {
-            if let Err(e) = &detected_result {
-                eprintln!("{e}");
+        match display {
+            ScanDisplay::Preview => render_preview(&decoded, detected, &progress),
+            ScanDisplay::Plain => {
+                if let Err(e) = &detected_result {
+                    eprintln!("{e}");
+                }
             }
-        } else {
-            render_preview(&decoded, detected, &progress);
+            #[cfg(feature = "tui")]
+            ScanDisplay::Tui(handle) => handle.update(decoded, detected, progress.clone()),
         }
     }
 
@@ -1037,7 +1159,7 @@ fn detect_qr(
 /// Progress counts recovered fragments, not distinct part sequence numbers. Parts past the
 /// first pass are XOR mixes of several fragments, so their sequence numbers do not map to
 /// fragments and a count of them can exceed the fragment total.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct ScanProgress {
     /// `(recovered, total)` source fragments, once the first multi-part frame is accepted.
     fragments: Option<(usize, usize)>,
@@ -1092,9 +1214,11 @@ fn parse_ur_sequence(content: &str) -> Option<(usize, usize)> {
 
 /// Renders a live terminal preview of the camera feed while scanning: the current frame as
 /// ANSI truecolor half-block characters (two vertical pixels per character row, so the aspect
-/// ratio roughly matches a normal terminal font), followed by a status line covering QR
-/// detection, fragment-recovery progress, and the last scan event. Redraws in place (clear + home)
-/// each call so it reads as a live video rather than scrolling text.
+/// ratio roughly matches a normal terminal font), followed by a progress line (fragment recovery
+/// and matching frames read) and a status line (QR detection and the last scan event). The
+/// progress line comes first so it holds its position while the status text changes length.
+/// Redraws in place (clear + home) each call so it reads as a live video rather than scrolling
+/// text.
 fn render_preview(
     img: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
     qr_detected: bool,
@@ -1113,11 +1237,7 @@ fn render_preview(
     out.push_str("\x1B[2J\x1B[H");
     for row in 0..rows {
         for col in 0..COLS {
-            let x = (col * w / COLS).min(w - 1);
-            let y_top = ((row * 2) * h / (rows * 2)).min(h - 1);
-            let y_bot = ((row * 2 + 1) * h / (rows * 2)).min(h - 1);
-            let top = img.get_pixel(x, y_top);
-            let bot = img.get_pixel(x, y_bot);
+            let (top, bot) = half_block_pixels(img, (col, row), (COLS, rows));
             let _ = write!(
                 out,
                 "\x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m▀",
@@ -1129,18 +1249,36 @@ fn render_preview(
 
     let _ = writeln!(
         out,
-        "QR detected: {}   |   {}   |   matching frames read: {}   |   {}",
+        "{}   |   matching frames read: {}",
+        progress.fragments_summary(),
+        progress.frames_seen,
+    );
+    let _ = writeln!(
+        out,
+        "QR detected: {}   |   {}",
         if qr_detected {
             "yes"
         } else {
             "no -- reposition the camera"
         },
-        progress.fragments_summary(),
-        progress.frames_seen,
         progress.last_status,
     );
 
     eprint!("{out}");
+}
+
+/// Returns the top and bottom pixels of `img` for the half-block character at `(col, row)`
+/// in a `(cols, rows)` character grid that covers the whole image. `img` must not be empty.
+fn half_block_pixels(
+    img: &image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
+    (col, row): (u32, u32),
+    (cols, rows): (u32, u32),
+) -> (image::Rgb<u8>, image::Rgb<u8>) {
+    let (w, h) = img.dimensions();
+    let x = (col * w / cols).min(w - 1);
+    let y_top = ((row * 2) * h / (rows * 2)).min(h - 1);
+    let y_bot = ((row * 2 + 1) * h / (rows * 2)).min(h - 1);
+    (*img.get_pixel(x, y_top), *img.get_pixel(x, y_bot))
 }
 
 fn convert_buffer_to_image(
@@ -1192,6 +1330,13 @@ fn yuv_to_rgb(y: f32, u: f32, v: f32) -> image::Rgb<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn render_qr_rejects_a_fragment_too_large_for_a_qr_code() {
+        let ur = format!("ur:zcash-pczt/1-2/{}", "ae".repeat(4000));
+        let err = render_qr(&ur).unwrap_err().to_string();
+        assert!(err.contains("lower --qr-density"), "{err}");
+    }
 
     #[test]
     fn parse_ur_sequence_parses_valid_multi_part_ur() {

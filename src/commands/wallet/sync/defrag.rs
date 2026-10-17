@@ -395,8 +395,8 @@ impl Action {
             tui::Event::Error => None,
             tui::Event::Tick => Some(Action::Tick),
             tui::Event::Render => Some(Action::Render),
+            tui::Event::Key(key) if tui::is_quit_key(&key) => Some(Action::Quit),
             tui::Event::Key(key) => match key.code {
-                KeyCode::Char('q') => Some(Action::Quit),
                 KeyCode::Char(' ') => {
                     Some(Action::LoggerEvent(tui_logger::TuiWidgetEvent::SpaceKey))
                 }

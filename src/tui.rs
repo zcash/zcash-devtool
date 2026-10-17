@@ -8,7 +8,7 @@ use crossterm::{
     cursor,
     event::{
         DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-        Event as CrosstermEvent, KeyEvent, KeyEventKind, MouseEvent,
+        Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent,
     },
     terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -33,6 +33,16 @@ pub enum Event {
     Key(KeyEvent),
     Mouse(MouseEvent),
     Resize(u16, u16),
+}
+
+/// Returns `true` for a key that quits a TUI: `q` or Ctrl-C. Raw mode stops the terminal from
+/// sending SIGINT on Ctrl-C, so each TUI must handle Ctrl-C as a key.
+pub fn is_quit_key(key: &KeyEvent) -> bool {
+    match key.code {
+        KeyCode::Char('q') => true,
+        KeyCode::Char('c') => key.modifiers.contains(KeyModifiers::CONTROL),
+        _ => false,
+    }
 }
 
 pub struct Tui {

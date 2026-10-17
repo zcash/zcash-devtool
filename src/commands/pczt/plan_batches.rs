@@ -4,6 +4,8 @@ use anyhow::anyhow;
 use clap::Args;
 use pczt::{Pczt, roles::verifier::Verifier};
 
+use super::qr_density::QrDensity;
+
 // Options accepted for the `pczt plan-batches` command
 #[derive(Debug, Args)]
 pub(crate) struct Command {
@@ -29,15 +31,16 @@ pub(crate) struct Command {
     #[arg(long)]
     camera: Option<String>,
 
-    /// Include `--max-fragment-len <N>` in the printed `batch-sign` commands. `to-qr-batch`'s
-    /// own default (100) is far more conservative than other Zcash/Keystone integrations --
-    /// Vizor uses 140, zodl-ios's production signing flow uses KeystoneSDK's own default of
-    /// 400 -- so the default here is slower than it needs to be. Not raised automatically since
+    /// Include `--qr-density <TIER>` in the printed `batch-sign` commands. `batch-sign`'s own
+    /// default (`low`, 100 bytes per QR code) is far more conservative than other
+    /// Zcash/Keystone integrations -- Vizor uses 140 bytes, zodl-ios's production signing flow
+    /// uses KeystoneSDK's own default of 400 (`high`) -- so the default here is slower than it
+    /// needs to be. Not raised automatically since
     /// this tool renders the QR as terminal Unicode block characters (coarser than a native
     /// app's pixel-perfect image), so a value proven fine on a phone screen may still need
     /// checking here before trusting it on real hardware.
-    #[arg(long)]
-    max_fragment_len: Option<usize>,
+    #[arg(long, value_enum)]
+    qr_density: Option<QrDensity>,
 
     /// Include `--interval <ms>` in the printed `batch-sign` commands. `to-qr-batch`'s own
     /// default (500) is slower than Vizor/zodl-ios (200).
@@ -105,8 +108,8 @@ impl Command {
             Some(camera) => format!(" --camera {camera}"),
             None => String::new(),
         };
-        let max_fragment_len_flag = match self.max_fragment_len {
-            Some(n) => format!(" --max-fragment-len {n}"),
+        let qr_density_flag = match self.qr_density {
+            Some(density) => format!(" --qr-density {density}"),
             None => String::new(),
         };
         let interval_flag = match self.interval {
@@ -129,7 +132,7 @@ impl Command {
             // around and point it at the device -- switches straight into scanning for the
             // signed response. See `pczt batch-sign --help`.
             println!(
-                "pczt batch-sign{redact_flag}{camera_flag}{max_fragment_len_flag}{interval_flag} --pczt {files}\n"
+                "pczt batch-sign{redact_flag}{camera_flag}{qr_density_flag}{interval_flag} --pczt {files}\n"
             );
         }
 
