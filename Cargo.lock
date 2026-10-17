@@ -84,7 +84,7 @@ checksum = "fd290633c2482479f70f6d1d96ae0e9f52c6a26cd5859edd47ee1fe33fc89f26"
 dependencies = [
  "age-core",
  "base64 0.22.1",
- "bech32",
+ "bech32 0.11.1",
  "chacha20poly1305 0.10.1",
  "cipher 0.4.4",
  "cookie-factory",
@@ -117,7 +117,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01d4375964d1501e5f1b32aef2ead573913893ff238448d4e9fdf1522d828656"
 dependencies = [
  "base64 0.22.1",
- "bech32",
+ "bech32 0.11.1",
  "chacha20poly1305 0.10.1",
  "cookie-factory",
  "hkdf",
@@ -641,6 +641,12 @@ name = "bech32"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32637268377fc7b10a8c6d51de3e7fba1ce5dd371a96e342b34e6078db558e7f"
+
+[[package]]
+name = "bech32"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efbd3e1070bbdf4cd88a75264e18e8a26f7cb5c6949eadf0ceb85fb159cf08f8"
 
 [[package]]
 name = "bellman"
@@ -9564,7 +9570,7 @@ version = "0.1.0"
 dependencies = [
  "age",
  "anyhow",
- "bech32",
+ "bech32 0.12.0",
  "bip0039",
  "bip32",
  "blake2b_simd",
@@ -9645,7 +9651,7 @@ name = "zcash_address"
 version = "0.14.0-pre.2"
 source = "git+https://github.com/zcash/librustzcash.git?rev=eb38d7a373661179dbc083a2fd58b3a6c9b25818#eb38d7a373661179dbc083a2fd58b3a6c9b25818"
 dependencies = [
- "bech32",
+ "bech32 0.11.1",
  "bs58",
  "corez",
  "f4jumble",
@@ -9662,7 +9668,7 @@ dependencies = [
  "arti-client",
  "assert_matches",
  "base64 0.22.1",
- "bech32",
+ "bech32 0.11.1",
  "bip32",
  "bls12_381",
  "bs58",
@@ -9793,7 +9799,7 @@ name = "zcash_keys"
 version = "0.17.0-pre.2"
 source = "git+https://github.com/zcash/librustzcash.git?rev=eb38d7a373661179dbc083a2fd58b3a6c9b25818#eb38d7a373661179dbc083a2fd58b3a6c9b25818"
 dependencies = [
- "bech32",
+ "bech32 0.11.1",
  "bip32",
  "blake2b_simd",
  "bls12_381",
@@ -10070,7 +10076,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "601ab4bc5f8312fa39f5411e07eb66b538687064c6e936b34eaa78f1e99ebe4d"
 dependencies = [
- "bech32",
+ "bech32 0.11.1",
  "blake2b_simd",
  "memuse",
  "subtle",
