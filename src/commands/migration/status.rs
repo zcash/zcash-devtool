@@ -72,17 +72,7 @@ impl Command {
                 }
                 MigrationTxKind::Transfer { crossing } => format!("transfer crossing={crossing}"),
             };
-            let state_str = match tx.state() {
-                MigrationTxState::AwaitingSignature => "awaiting_signature".to_string(),
-                MigrationTxState::Signed => "signed".to_string(),
-                MigrationTxState::Proved => "proved".to_string(),
-                MigrationTxState::Broadcast { txid } => {
-                    format!("broadcast (txid {})", hex::encode(*txid.as_ref()))
-                }
-                MigrationTxState::Mined { txid, height } => {
-                    format!("mined at {height} (txid {})", hex::encode(*txid.as_ref()))
-                }
-            };
+            let state_str = state_label(tx.state());
             let blocker = match tx.blocked_on() {
                 Some(Blocker::Dependencies) => " [blocked: dependencies]".to_string(),
                 Some(Blocker::Schedule) => " [blocked: schedule]".to_string(),
@@ -160,5 +150,47 @@ impl Command {
         }
 
         Ok(())
+    }
+}
+
+/// Renders a transaction's lifecycle state. Transaction ids are shown in their canonical
+/// (byte-reversed) form via `TxId`'s `Display` impl, which is what block explorers and node RPCs
+/// accept; the internal byte order would not be found by either.
+fn state_label(state: MigrationTxState) -> String {
+    match state {
+        MigrationTxState::AwaitingSignature => "awaiting_signature".to_string(),
+        MigrationTxState::Signed => "signed".to_string(),
+        MigrationTxState::Proved => "proved".to_string(),
+        MigrationTxState::Broadcast { txid } => format!("broadcast (txid {txid})"),
+        MigrationTxState::Mined { txid, height } => format!("mined at {height} (txid {txid})"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zcash_pool_migration::engine::MigrationTxState;
+    use zcash_protocol::{TxId, consensus::BlockHeight};
+
+    use super::state_label;
+
+    #[test]
+    fn txids_are_shown_in_canonical_byte_order() {
+        let mut bytes = [0u8; 32];
+        bytes[0] = 0x01;
+        bytes[31] = 0xff;
+        let txid = TxId::from_bytes(bytes);
+        let canonical = format!("ff{}01", "00".repeat(30));
+
+        assert_eq!(
+            state_label(MigrationTxState::Broadcast { txid }),
+            format!("broadcast (txid {canonical})"),
+        );
+        assert_eq!(
+            state_label(MigrationTxState::Mined {
+                txid,
+                height: BlockHeight::from_u32(3_428_200),
+            }),
+            format!("mined at 3428200 (txid {canonical})"),
+        );
     }
 }
