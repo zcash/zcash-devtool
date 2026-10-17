@@ -61,6 +61,14 @@ impl Command {
             );
         }
 
+        for note in notes.ironwood() {
+            println!(
+                "Ironwood {}: {}",
+                note.internal_note_id(),
+                format_zec(note.note_value()?, net)
+            );
+        }
+
         Ok(())
     }
 }
