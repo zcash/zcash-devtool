@@ -66,6 +66,9 @@ impl Command {
             Orchard {
                 index: usize,
             },
+            Ironwood {
+                index: usize,
+            },
             Sapling {
                 index: usize,
             },
@@ -81,25 +84,29 @@ impl Command {
             },
         }
         let mut keys = BTreeMap::<zip32::AccountId, Vec<KeyRef>>::new();
+        // Orchard and Ironwood bundles have the same shape, and Ironwood spends are
+        // authorized with the account's Orchard key, so one visitor serves both.
+        let coin_type = zip32::ChildIndex::hardened(params.network_type().coin_type());
+        let mut find_actions = |bundle: &orchard::pczt::Bundle, key_ref: fn(usize) -> KeyRef| {
+            for (index, action) in bundle.actions().iter().enumerate() {
+                if let Some(account_index) = action
+                    .spend()
+                    .zip32_derivation()
+                    .as_ref()
+                    .and_then(|derivation| derivation.extract_account_index(&seed_fp, coin_type))
+                {
+                    keys.entry(account_index).or_default().push(key_ref(index));
+                }
+            }
+        };
         let pczt = Verifier::new(pczt)
             .with_orchard::<Infallible, _>(|bundle| {
-                for (index, action) in bundle.actions().iter().enumerate() {
-                    if let Some(account_index) = action
-                        .spend()
-                        .zip32_derivation()
-                        .as_ref()
-                        .and_then(|derivation| {
-                            derivation.extract_account_index(
-                                &seed_fp,
-                                zip32::ChildIndex::hardened(params.network_type().coin_type()),
-                            )
-                        })
-                    {
-                        keys.entry(account_index)
-                            .or_default()
-                            .push(KeyRef::Orchard { index });
-                    }
-                }
+                find_actions(bundle, |index| KeyRef::Orchard { index });
+                Ok(())
+            })
+            .map_err(|e| anyhow!("Invalid PCZT: {:?}", e))?
+            .with_ironwood::<Infallible, _>(|bundle| {
+                find_actions(bundle, |index| KeyRef::Ironwood { index });
                 Ok(())
             })
             .map_err(|e| anyhow!("Invalid PCZT: {:?}", e))?
@@ -173,6 +180,17 @@ impl Command {
                             )
                             .map_err(|e| {
                                 anyhow!("Failed to sign Orchard spend {index}: {:?}", e)
+                            })?;
+                    }
+                    KeyRef::Ironwood { index } => {
+                        signer
+                            .sign_ironwood(
+                                UnwrapErr(SysRng),
+                                index,
+                                &orchard::keys::SpendAuthorizingKey::from(usk.orchard()),
+                            )
+                            .map_err(|e| {
+                                anyhow!("Failed to sign Ironwood spend {index}: {:?}", e)
                             })?;
                     }
                     KeyRef::Sapling { index } => {
