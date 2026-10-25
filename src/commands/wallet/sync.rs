@@ -47,7 +47,6 @@ use {
     zcash_script::script,
 };
 
-#[cfg(feature = "tui")]
 use zcash_protocol::consensus::NetworkUpgrade;
 
 #[cfg(feature = "tui")]
@@ -221,9 +220,12 @@ impl Command {
                             return Ok(false);
                         }
 
-                        let chain_state =
-                            download_chain_state(client, scan_range.block_range().start - 1)
-                                .await?;
+                        let chain_state = download_chain_state(
+                            client,
+                            params,
+                            scan_range.block_range().start - 1,
+                        )
+                        .await?;
 
                         // Scan the downloaded blocks and check for scanning errors that
                         // indicate the wallet's chain tip is out of sync with blockchain
@@ -322,7 +324,8 @@ impl Command {
                 }
 
                 let chain_state =
-                    download_chain_state(client, scan_range.block_range().start - 1).await?;
+                    download_chain_state(client, params, scan_range.block_range().start - 1)
+                        .await?;
 
                 // Scan the downloaded blocks.
                 let scan_ranges_updated = scan_blocks(
@@ -635,10 +638,31 @@ async fn download_blocks(
     Ok(block_meta)
 }
 
-async fn download_chain_state(
+async fn download_chain_state<P: Parameters>(
     client: &mut CompactTxStreamerClient<Channel>,
+    params: &P,
     block_height: BlockHeight,
 ) -> Result<ChainState, anyhow::Error> {
+    // The block prior to Sapling activation has empty note commitment trees,
+    // and the server rejects `GetTreeState` below Sapling activation. As in
+    // `wallet init`, construct the empty chain state directly, taking the
+    // block's hash from the activation block's `prev_hash`.
+    if let Some(sapling_activation) = params.activation_height(NetworkUpgrade::Sapling) {
+        if block_height < sapling_activation {
+            let activation_block = client
+                .get_block(BlockId {
+                    height: u64::from(sapling_activation),
+                    hash: vec![],
+                })
+                .await?
+                .into_inner();
+            return Ok(ChainState::empty(
+                sapling_activation - 1,
+                activation_block.prev_hash(),
+            ));
+        }
+    }
+
     let tree_state = client
         .get_tree_state(BlockId {
             height: block_height.into(),
