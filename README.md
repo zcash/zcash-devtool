@@ -26,6 +26,26 @@ WALLET="$HOME/tachyon-wallet"
 
 New wallets use the current tip as their birthday and trust the configured node's checkpoint at the start of that epoch. Use `--birthday-height HEIGHT` for an older birthday, or `--sync-from-activation` to replay from height 8. Existing wallets keep their history.
 
+## Shell completions
+
+Completions use clap_complete's dynamic engine (`COMPLETE=<shell>`), so
+subcommands are completed recursively at any depth and options are offered on
+an empty token.
+
+Install user-scoped registrations for fish, bash, zsh, PowerShell, and Elvish:
+
+```sh
+scripts/install-completions.sh             # zdev wrapper
+scripts/install-completions.sh --cli       # also the full zcash-devtool CLI
+scripts/install-completions.sh --uninstall
+```
+
+The registrations call `zdev` at completion time, so it must be on `PATH`
+(direnv adds it inside the repo). Fish and bash pick the files up
+automatically. The script prints the one-time `fpath` / `$PROFILE` /
+`use zdev` lines for zsh, PowerShell, and Elvish. The registrations only call
+back into the binary, so they don't need refreshing when the CLI changes.
+
 ## Sync
 
 Sync downloads and validates chain data to update your wallet's note status and balances.

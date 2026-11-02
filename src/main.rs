@@ -7,7 +7,7 @@ use std::env;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use iso_currency::Currency;
 use tracing_subscriber::{Layer, layer::SubscriberExt};
 
@@ -65,7 +65,35 @@ pub(crate) enum Command {
     CreateMultisigAddress(commands::create_multisig_address::Command),
 }
 
+/// Serve a `COMPLETE=<shell>` request using clap_complete's dynamic engine.
+///
+/// This runs before argument parsing and before any output. The `zdev` shim
+/// sets `ZDEV_COMPLETE` so the same binary can answer for the `tachyon` subtree
+/// under the `zdev` name.
+fn complete_shells() {
+    if env::var_os("ZDEV_COMPLETE").is_some() {
+        clap_complete::CompleteEnv::with_factory(zdev_completion_command)
+            .completer("zdev")
+            .complete();
+    } else {
+        clap_complete::CompleteEnv::with_factory(MyOptions::command).complete();
+    }
+}
+
+fn zdev_completion_command() -> clap::Command {
+    MyOptions::command()
+        .find_subcommand("tachyon")
+        .expect("the `tachyon` subcommand is unavailable; rebuild with `--features tachyon`")
+        .clone()
+        .name("zdev")
+        .bin_name("zdev")
+        // The shim already passes `--wallet-dir`; a second one would be rejected.
+        .mut_arg("wallet_dir", |arg| arg.hide(true))
+}
+
 fn main() -> Result<(), anyhow::Error> {
+    complete_shells();
+
     let opts = MyOptions::parse();
 
     let level_filter = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned());

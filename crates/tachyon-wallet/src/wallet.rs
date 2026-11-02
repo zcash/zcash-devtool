@@ -30,7 +30,7 @@ use sync::sync;
 #[derive(Debug, Args)]
 pub struct Command {
     /// Separate, private directory for this experimental wallet (not the ordinary wallet DB).
-    #[arg(long)]
+    #[arg(long, value_hint = clap::ValueHint::DirPath)]
     wallet_dir: PathBuf,
     /// Optional wallet-local idempotency key for shield/send/unshield/transparent-send.
     #[arg(long, global = true)]
@@ -50,7 +50,7 @@ enum Operation {
         rpc_url: String,
         #[arg(long)]
         activation_height: u32,
-        #[arg(long)]
+        #[arg(long, value_hint = clap::ValueHint::FilePath)]
         cookie_file: Option<PathBuf>,
         /// Required acknowledgement: test funds only; neither proofs nor storage are production-safe.
         #[arg(long)]
@@ -76,7 +76,7 @@ enum Operation {
     },
     /// Import a confidential payment receipt received out of band.
     Receive {
-        #[arg(long)]
+        #[arg(long, value_hint = clap::ValueHint::FilePath)]
         receipt: PathBuf,
         /// Supply or correct the originating transaction ID in a legacy receipt.
         #[arg(long)]
@@ -125,7 +125,7 @@ enum Operation {
     ExportReceipt {
         #[arg(long)]
         txid: String,
-        #[arg(long)]
+        #[arg(long, value_hint = clap::ValueHint::FilePath)]
         out: PathBuf,
         /// Omit location metadata for older receivers that reject extra JSON fields.
         #[arg(long)]

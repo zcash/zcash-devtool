@@ -1,0 +1,30 @@
+#!/bin/sh
+# `zdev` == `zcash-devtool tachyon --wallet-dir "$WALLET"`.
+#
+# POSIX sh so it works unchanged in bash, zsh, fish, and sh.
+#
+# This is also the completer for clap_complete's dynamic completion engine:
+# when the shell invokes it with COMPLETE set, forward the raw command line to
+# zcash-devtool with ZDEV_COMPLETE=1 so it completes the tachyon subtree under
+# the `zdev` name.
+
+self_dir=$(CDPATH= cd "$(dirname "$0")" && pwd -P) || exit 1
+repo_dir=$(dirname "$self_dir")
+
+devtool=$repo_dir/target/release/zcash-devtool
+if [ ! -x "$devtool" ]; then
+    devtool=$(command -v zcash-devtool 2>/dev/null) || {
+        echo "zdev: zcash-devtool not found" >&2
+        exit 127
+    }
+fi
+
+if [ -n "${COMPLETE:-}" ]; then
+    ZDEV_COMPLETE=1 exec "$devtool" "$@"
+fi
+
+if [ -z "${WALLET:-}" ]; then
+    WALLET=$repo_dir/.wallet
+fi
+
+exec "$devtool" tachyon --wallet-dir "$WALLET" "$@"
