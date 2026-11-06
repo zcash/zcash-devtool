@@ -77,14 +77,45 @@ New receipts include a transaction locator. For an older receipt, add `--txid PA
 
 ```sh
 "$DEVTOOL" tachyon --wallet-dir "$WALLET" send \
-  --to 'tachyon-test:RECIPIENT_PAYMENT_KEY' --amount-zat 1000000
+  --to 'tachyon-test:RECIPIENT_PAYMENT_KEY' --amount-zat 100000
 "$DEVTOOL" tachyon --wallet-dir "$WALLET" export-receipt \
   --txid PAYMENT_TXID --out "$HOME/payment.json"
 ```
 
+The fee is added to `--amount-zat`, and one note must cover both; notes are not combined. A single faucet payment cannot be sent in full.
+
 Replace `PAYMENT_TXID` with the ID returned by `send`. Share `payment.json` privately with the recipient so they can import it with `receive`.
 
 Exports include the transaction ID, plus its block height and hash when known to the wallet. Add `--legacy` for older receivers that reject location metadata.
+
+## Shield and unshield
+
+`address` also prints a transparent `funding_address`. Move funds between it and Tachyon:
+
+```sh
+"$DEVTOOL" tachyon --wallet-dir "$WALLET" shield 1000000
+"$DEVTOOL" tachyon --wallet-dir "$WALLET" unshield \
+  --to TRANSPARENT_ADDRESS --amount-zat 100000
+"$DEVTOOL" tachyon --wallet-dir "$WALLET" transparent-send \
+  --to TRANSPARENT_ADDRESS --amount-zat 100000
+```
+
+`shield` selects one confirmed UTXO that covers the amount plus the fee. A coinbase output must be shielded in full: pass `--txid TXID --index N` and omit the amount. `transparent-send` cannot spend coinbase outputs.
+
+## Recovery
+
+A payment is saved before it is broadcast, so a failed or timed-out broadcast can be retried.
+
+```sh
+"$DEVTOOL" tachyon --wallet-dir "$WALLET" transactions
+"$DEVTOOL" tachyon --wallet-dir "$WALLET" submit --txid PAYMENT_TXID
+```
+
+`transactions` lists each saved transaction as `pending`, `mined`, or `expired`. `submit` rebroadcasts the stored transaction unchanged, and `export-receipt` still works for it. An expired transaction cannot be resubmitted; sync and create a new payment.
+
+Add `--operation-id ID` to `shield`, `send`, `unshield`, or `transparent-send` to make retries safe: repeating the command with the same ID returns the saved result instead of building a second payment. `operation ID` looks it up offline.
+
+Tachyon payments are refused while the tip is the last block of an epoch; wait for the next block.
 
 ## License
 
