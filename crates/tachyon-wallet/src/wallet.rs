@@ -1,7 +1,7 @@
 //! Scriptable, single-note development wallet commands. No background scheduler.
 
 use crate::{
-    chain::{Block, bytes32},
+    chain::bytes32,
     control::{self, Control},
     funding_balance::{AddressUtxos, COINBASE_MATURITY},
     note::{self, Locator, Receipt},
@@ -11,17 +11,13 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use clap::{Args, Subcommand};
-use ff::PrimeField;
-use pasta_curves::Fp;
 use primitives::transaction::Transaction;
 use protocol::consensus::BranchId;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    io::Read,
-    path::PathBuf,
-};
+use std::{collections::BTreeSet, io::Read, path::PathBuf};
+use udon::field::Field;
+use zcash_tachyon::pasta::Fp;
 use zcash_tachyon::{EpochIndex, constants::EPOCH_SIZE, keys::private::SpendingKey};
 
 mod sync;
@@ -253,8 +249,8 @@ impl Command {
             Operation::Init { .. } => unreachable!("init returned above"),
             Operation::Address => addresses(&config)?,
             Operation::Balance => {
-                let blocks = store.blocks()?;
-                let states = note_states(&store, &config, &blocks, control)?;
+                let tip = store.tip()?;
+                let states = note_states(&store, &config, control)?;
                 let available = states
                     .iter()
                     .filter(|(_, s)| *s == "available")
@@ -262,24 +258,25 @@ impl Command {
                         total.checked_add(r.value_zat).context("balance overflow")
                     })?;
                 let snapshot = store.funding_snapshot()?;
-                let reserved = store
-                    .pending()?
-                    .into_iter()
-                    .filter(|p| pending_status(p, &blocks) != "expired")
-                    .map(|p| p.source)
-                    .collect();
+                let mut reserved = BTreeSet::new();
+                for pending in store.pending()? {
+                    if pending_status(&pending, &store)? != "expired" {
+                        reserved.insert(pending.source);
+                    }
+                }
                 let transparent = snapshot
                     .as_ref()
                     .map(|snapshot| {
                         ensure!(
-                            blocks.iter().any(|block| block.height == snapshot.height
-                                && block.hash == snapshot.hash),
+                            store
+                                .block(snapshot.height)?
+                                .is_some_and(|block| block.hash == snapshot.hash),
                             "transparent snapshot is no longer on the synced chain; run sync"
                         );
                         snapshot.balance(&reserved)
                     })
                     .transpose()?;
-                json!({"synced_height":blocks.last().map(|b| b.height), "available_zat":available,
+                json!({"synced_height":tip.map(|block| block.height), "available_zat":available,
                     "transparent":transparent,
                     "notes":states.into_iter().map(|(r,s)| Ok(json!({"id":r.id()?,"value_zat":r.value_zat,"status":s}))).collect::<Result<Vec<_>>>()?})
             }
@@ -334,25 +331,27 @@ impl Command {
                 receipt.locator = if legacy {
                     None
                 } else {
-                    let blocks = store.blocks()?;
-                    let block = blocks
-                        .iter()
-                        .find(|block| block.transactions.contains(&txid));
+                    let block = store.block_by_txid(&txid)?;
                     Some(Locator {
                         txid: hex::encode(bytes32(&txid)?),
-                        height: block.map(|block| block.height),
-                        block_hash: block.map(|block| block.hash.clone()),
+                        height: block.as_ref().map(|block| block.height),
+                        block_hash: block.map(|block| block.hash),
                     })
                 };
                 write_private(&out, &serde_json::to_vec_pretty(&receipt)?)?;
                 json!({"txid":txid,"receipt":out})
             }
             Operation::Transactions => {
-                let blocks = store.blocks()?;
                 let ids = store.operation_ids()?;
-                json!({"transactions":store.pending()?.into_iter().map(|p| {
-                    json!({"txid":p.txid,"operation_id":ids.get(&p.txid),"expiry_height":p.expiry,"status":pending_status(&p,&blocks)})
-                }).collect::<Vec<_>>()})
+                let transactions = store
+                    .pending()?
+                    .into_iter()
+                    .map(|pending| {
+                        Ok(json!({"txid":pending.txid,"operation_id":ids.get(&pending.txid),
+                            "expiry_height":pending.expiry,"status":pending_status(&pending,&store)?}))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                json!({"transactions":transactions})
             }
             Operation::Lookup { id } => {
                 validate_operation_id(&id)?;
@@ -365,8 +364,7 @@ impl Command {
                     "run sync until caught up before submitting"
                 );
                 let pending = find_pending(&store, &txid)?;
-                let blocks = store.blocks()?;
-                let status = pending_status(&pending, &blocks);
+                let status = pending_status(&pending, &store)?;
                 ensure!(
                     status != "expired",
                     "transaction expired; create a new payment"
@@ -409,17 +407,17 @@ fn addresses(config: &Config) -> Result<Value> {
     )
 }
 
-fn pending_status(pending: &Pending, blocks: &[Block]) -> &'static str {
-    if blocks
-        .iter()
-        .any(|b| b.transactions.contains(&pending.txid))
-    {
+fn pending_status(pending: &Pending, store: &Store) -> Result<&'static str> {
+    Ok(if store.has_transaction(&pending.txid)? {
         "mined"
-    } else if blocks.last().is_some_and(|b| b.height > pending.expiry) {
+    } else if store
+        .tip()?
+        .is_some_and(|block| block.height > pending.expiry)
+    {
         "expired"
     } else {
         "pending"
-    }
+    })
 }
 
 fn find_pending(store: &Store, txid: &str) -> Result<Pending> {
@@ -433,27 +431,15 @@ fn find_pending(store: &Store, txid: &str) -> Result<Pending> {
 fn note_states(
     store: &Store,
     config: &Config,
-    blocks: &[Block],
     control: &Control,
 ) -> Result<Vec<(Receipt, &'static str)>> {
     control.stage("Checking note states…")?;
     let key = SpendingKey::from(config.seed);
-    let reserved: BTreeSet<_> = store
-        .pending()?
-        .into_iter()
-        .filter(|p| pending_status(p, blocks) != "expired")
-        .map(|p| p.source)
-        .collect();
-    let mut epoch_members: BTreeMap<u32, BTreeSet<&str>> = BTreeMap::new();
-    for block in blocks {
-        control.check()?;
-        let members = epoch_members.entry(block.epoch).or_default();
-        members.extend(
-            block
-                .stamps
-                .iter()
-                .flat_map(|s| s.tachygrams.iter().map(String::as_str)),
-        );
+    let mut reserved = BTreeSet::new();
+    for pending in store.pending()? {
+        if pending_status(&pending, store)? != "expired" {
+            reserved.insert(pending.source);
+        }
     }
     store
         .notes()?
@@ -464,15 +450,21 @@ fn note_states(
             let id = receipt.id()?;
             let note = receipt.note()?;
             let master = key.derive_nullifier_private().derive_note_private(note.psi);
-            let mined = epoch_members
-                .values()
-                .any(|members| members.contains(id.as_str()));
-            let spent = epoch_members.iter().any(|(epoch, members)| {
-                let nf = hex::encode(
-                    Fp::from(master.derive_nullifier(EpochIndex::new(*epoch))).to_repr(),
-                );
-                members.contains(nf.as_str())
-            });
+            let mined = store.has_tachygram(&id)?;
+            let mut spent = false;
+            if let Some(creation) = store.tachygram_height(&id)? {
+                let current = store.tip()?.map(|block| block.epoch).unwrap_or(0);
+                let first_epoch = (creation - config.activation) / EPOCH_SIZE;
+                for epoch in first_epoch..=current {
+                    let nf = hex::encode(
+                        Fp::from(master.derive_nullifier(EpochIndex::new(epoch))).to_bytes(),
+                    );
+                    if store.has_tachygram(&nf)? {
+                        spent = true;
+                        break;
+                    }
+                }
+            }
             let status = if spent {
                 "spent"
             } else if !mined {
@@ -501,10 +493,9 @@ fn validate_operation_id(id: &str) -> Result<()> {
 
 fn operation_result(store: &Store, saved: &StoredOperation) -> Result<Value> {
     let pending = find_pending(store, &saved.txid)?;
-    let blocks = store.blocks()?;
     Ok(
         json!({"operation_id":saved.id,"txid":saved.txid,"request":saved.request,
-        "status":pending_status(&pending,&blocks),"synced_height":blocks.last().map(|b| b.height),
+        "status":pending_status(&pending,store)?,"synced_height":store.tip()?.map(|block| block.height),
         "expiry_height":pending.expiry,"fee_zat":FEE,"has_receipt":pending.receipt.is_some()}),
     )
 }
@@ -581,8 +572,7 @@ fn pay(
         sync(store, config, 1000, None, control)?["caught_up"] == true,
         "run sync until caught up before creating transactions"
     );
-    let blocks = store.blocks()?;
-    let tip = blocks.last().context("wallet has not synced")?;
+    let tip = store.tip()?.context("wallet has not synced")?;
     let epoch_end = config
         .activation
         .checked_add(
@@ -621,7 +611,6 @@ fn pay(
                 (Some(txid), Some(index)) => (hex::encode(bytes32(&txid)?), index),
                 (None, None) => select_funding_outpoint(
                     store,
-                    &blocks,
                     &rpc,
                     amount_zat
                         .context("automatic selection requires an amount")?
@@ -632,13 +621,12 @@ fn pay(
                 _ => anyhow::bail!("--txid and --index must be provided together"),
             };
             source = format!("outpoint:{txid}:{index}");
-            ensure!(
-                !store
-                    .pending()?
-                    .iter()
-                    .any(|p| p.source == source && pending_status(p, &blocks) != "expired"),
-                "funding output is already reserved"
-            );
+            for pending in store.pending()? {
+                ensure!(
+                    pending.source != source || pending_status(&pending, store)? == "expired",
+                    "funding output is already reserved"
+                );
+            }
             let (selected, coinbase) = load_funding(&rpc, config.seed, &txid, index)?;
             let after_fee = selected
                 .output
@@ -665,13 +653,8 @@ fn pay(
             let needed = amount_zat
                 .checked_add(FEE)
                 .context("amount plus fee overflow")?;
-            let (txid, index) = select_funding_outpoint(
-                store,
-                &blocks,
-                &rpc,
-                needed,
-                FundingPurpose::TransparentSend,
-            )?;
+            let (txid, index) =
+                select_funding_outpoint(store, &rpc, needed, FundingPurpose::TransparentSend)?;
             source = format!("outpoint:{txid}:{index}");
             let (selected, coinbase) = load_funding(&rpc, config.seed, &txid, index)?;
             ensure!(
@@ -684,7 +667,7 @@ fn pay(
         Operation::Send { to, amount_zat } | Operation::Unshield { to, amount_zat } => {
             ensure!(amount_zat > 0, "amount must be positive");
             let needed = amount_zat.checked_add(FEE).context("amount overflow")?;
-            let selected = note_states(store, config, &blocks, control)?.into_iter().filter(|(r,s)| *s == "available" && r.value_zat >= needed)
+            let selected = note_states(store, config, control)?.into_iter().filter(|(r,s)| *s == "available" && r.value_zat >= needed)
                 .min_by_key(|(r,_)| r.value_zat).map(|(r,_)| r).context("no single available note covers amount plus fee; this wallet does not consolidate notes")?;
             source = format!("note:{}", selected.id()?);
             // The command-specific address format was checked before accessing the node.
@@ -718,7 +701,7 @@ fn pay(
         transaction::build(
             Payment {
                 seed: config.seed,
-                blocks: &blocks,
+                blocks: store.into(),
                 spend: spend.as_ref(),
                 funding,
                 outputs: &outputs,
@@ -825,7 +808,6 @@ fn load_funding(rpc: &Rpc, seed: [u8; 32], txid: &str, index: u32) -> Result<(Fu
 
 fn select_funding_outpoint(
     store: &Store,
-    blocks: &[Block],
     rpc: &Rpc,
     needed: u64,
     purpose: FundingPurpose,
@@ -833,23 +815,14 @@ fn select_funding_outpoint(
     let snapshot = store
         .funding_snapshot()?
         .context("run sync until caught up before selecting funding")?;
-    let reserved = store
-        .pending()?
-        .into_iter()
-        .filter(|pending| pending_status(pending, blocks) != "expired")
-        .map(|pending| pending.source)
-        .collect();
-    // Avoid an RPC per mining reward when all of them would require forbidden transparent change.
-    let coinbases: BTreeSet<_> = blocks
-        .iter()
-        .filter_map(|block| block.transactions.first())
-        .map(String::as_str)
-        .collect();
+    let mut reserved = BTreeSet::new();
+    for pending in store.pending()? {
+        if pending_status(&pending, store)? != "expired" {
+            reserved.insert(pending.source);
+        }
+    }
     for (txid, index, value) in snapshot.candidates(needed, &reserved) {
         let allow_coinbase = matches!(purpose, FundingPurpose::Shield) && value == needed;
-        if !allow_coinbase && coinbases.contains(txid) {
-            continue;
-        }
         let available: Value = rpc.call("gettxout", json!([txid, index, true]))?;
         if available.is_null() {
             continue; // Spent in the mempool, or since the captured UTXO snapshot.

@@ -5656,53 +5656,64 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 [[package]]
 name = "ragu"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9#0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9"
+source = "git+https://github.com/cnode-agent/ragu?branch=c%2Fmock-wire%2Bdriver#bf3b2a949c1bfdd538754031ff31fad9b8c8bf20"
 dependencies = [
  "blake2b_simd",
- "ragu_arithmetic",
+ "ragu_circuits",
  "ragu_core",
- "ragu_pasta",
+ "ragu_primitives",
+ "rand 0.10.2",
+ "zakura-udon",
 ]
 
 [[package]]
-name = "ragu_arithmetic"
+name = "ragu_acceleration"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9#0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9"
+source = "git+https://github.com/cnode-agent/ragu?branch=c%2Fmock-wire%2Bdriver#bf3b2a949c1bfdd538754031ff31fad9b8c8bf20"
 dependencies = [
- "ff 0.14.0",
- "group 0.14.0",
- "ragu_macros",
- "rand 0.10.2",
- "tachyon-maybe-rayon",
- "zakura-pasta-curves 1.2.0",
+ "ragu_backend",
+ "ragu_core",
+ "zakura-udon",
+]
+
+[[package]]
+name = "ragu_backend"
+version = "0.0.0"
+source = "git+https://github.com/cnode-agent/ragu?branch=c%2Fmock-wire%2Bdriver#bf3b2a949c1bfdd538754031ff31fad9b8c8bf20"
+dependencies = [
+ "ragu_circuits",
+ "ragu_core",
+ "zakura-udon",
 ]
 
 [[package]]
 name = "ragu_circuits"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9#0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9"
+source = "git+https://github.com/cnode-agent/ragu?branch=c%2Fmock-wire%2Bdriver#bf3b2a949c1bfdd538754031ff31fad9b8c8bf20"
 dependencies = [
  "blake2b_simd",
- "ragu_arithmetic",
  "ragu_core",
  "ragu_primitives",
+ "rand 0.10.2",
  "tachyon-maybe-rayon",
+ "zakura-udon",
 ]
 
 [[package]]
 name = "ragu_core"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9#0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9"
+source = "git+https://github.com/cnode-agent/ragu?branch=c%2Fmock-wire%2Bdriver#bf3b2a949c1bfdd538754031ff31fad9b8c8bf20"
 dependencies = [
- "ragu_arithmetic",
  "ragu_macros",
+ "tachyon-maybe-rayon",
  "thiserror 2.0.19",
+ "zakura-udon",
 ]
 
 [[package]]
 name = "ragu_macros"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9#0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9"
+source = "git+https://github.com/cnode-agent/ragu?branch=c%2Fmock-wire%2Bdriver#bf3b2a949c1bfdd538754031ff31fad9b8c8bf20"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -5713,23 +5724,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "ragu_pasta"
+name = "ragu_pcd"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9#0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9"
+source = "git+https://github.com/cnode-agent/ragu?branch=c%2Fmock-wire%2Bdriver#bf3b2a949c1bfdd538754031ff31fad9b8c8bf20"
 dependencies = [
  "lazy_static",
- "ragu_arithmetic",
+ "ragu_acceleration",
+ "ragu_backend",
+ "ragu_circuits",
+ "ragu_core",
+ "ragu_primitives",
+ "rand 0.10.2",
+ "tachyon-maybe-rayon",
+ "zakura-bento",
+ "zakura-pasta-curves 1.2.0",
+ "zakura-udon",
 ]
 
 [[package]]
 name = "ragu_primitives"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9#0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9"
+source = "git+https://github.com/cnode-agent/ragu?branch=c%2Fmock-wire%2Bdriver#bf3b2a949c1bfdd538754031ff31fad9b8c8bf20"
 dependencies = [
- "ragu_arithmetic",
  "ragu_core",
  "ragu_macros",
  "thiserror 2.0.19",
+ "zakura-udon",
 ]
 
 [[package]]
@@ -7331,6 +7351,7 @@ dependencies = [
  "zakura-primitives",
  "zakura-protocol",
  "zakura-transparent",
+ "zakura-udon",
  "zcash_script",
  "zcash_tachyon",
 ]
@@ -10011,7 +10032,7 @@ dependencies = [
 [[package]]
 name = "zakura-address"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "bech32",
  "blake2b_simd",
@@ -10019,6 +10040,35 @@ dependencies = [
  "corez",
  "zakura-protocol",
  "zcash_encoding",
+]
+
+[[package]]
+name = "zakura-bento"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "feb6bc45a1c5ec17d7721ddefec96edfbc0f15620e9aea845b482b3b67f61c97"
+dependencies = [
+ "zakura-bento-core",
+ "zakura-bento-macros",
+]
+
+[[package]]
+name = "zakura-bento-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22674d025e6df7ef104c85d725b9f6ba492743dc26bc2b826fdb03afddc87e4e"
+
+[[package]]
+name = "zakura-bento-macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ec31cdcdd72866e1aed6ff8a5d38fdb56e5038cdf86f44b0f45cf84ef4bf224"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+ "zakura-bento-core",
 ]
 
 [[package]]
@@ -10035,7 +10085,7 @@ dependencies = [
 [[package]]
 name = "zakura-bls12-381"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "ff 0.14.0",
  "group 0.14.0",
@@ -10046,7 +10096,7 @@ dependencies = [
 [[package]]
 name = "zakura-equihash"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "blake2b_simd",
  "corez",
@@ -10055,7 +10105,7 @@ dependencies = [
 [[package]]
 name = "zakura-halo2-poseidon"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "bitvec",
  "ff 0.14.0",
@@ -10080,7 +10130,7 @@ dependencies = [
 [[package]]
 name = "zakura-jubjub"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "bitvec",
  "ff 0.14.0",
@@ -10093,7 +10143,7 @@ dependencies = [
 [[package]]
 name = "zakura-orchard"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "aes",
  "bitvec",
@@ -10140,7 +10190,7 @@ dependencies = [
 [[package]]
 name = "zakura-pasta-curves"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "blake2b_simd",
  "ff 0.14.0",
@@ -10154,7 +10204,7 @@ dependencies = [
 [[package]]
 name = "zakura-primitives"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "blake2b_simd",
  "block-buffer 0.11.0-rc.3",
@@ -10183,7 +10233,7 @@ dependencies = [
 [[package]]
 name = "zakura-protocol"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "corez",
  "memuse",
@@ -10211,7 +10261,7 @@ dependencies = [
 [[package]]
 name = "zakura-reddsa"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "blake2b_simd",
  "frost-rerandomized",
@@ -10226,7 +10276,7 @@ dependencies = [
 [[package]]
 name = "zakura-redjubjub"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "rand_core 0.10.1",
  "thiserror 2.0.19",
@@ -10236,7 +10286,7 @@ dependencies = [
 [[package]]
 name = "zakura-sapling-crypto"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "aes",
  "bitvec",
@@ -10267,7 +10317,7 @@ dependencies = [
 [[package]]
 name = "zakura-sinsemilla"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "group 0.14.0",
  "once_cell",
@@ -10278,7 +10328,7 @@ dependencies = [
 [[package]]
 name = "zakura-transparent"
 version = "2.2.0"
-source = "git+https://github.com/zakura-core/common.git?rev=a9081dc0c3df782bd2badb829f9ebff51d01a9a7#a9081dc0c3df782bd2badb829f9ebff51d01a9a7"
+source = "git+https://github.com/cnode-agent/common.git?branch=c%2Fdevtool-tachyon#5376a75c5601867e34dd9a31733cd3d44f8abf31"
 dependencies = [
  "bip32",
  "bs58",
@@ -10296,6 +10346,15 @@ dependencies = [
  "zcash_script",
  "zcash_spec",
  "zip32",
+]
+
+[[package]]
+name = "zakura-udon"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23e592f34daf47ed96906c7785842ffc9b558c139bc23ea54d7f6e5ecc03e50d"
+dependencies = [
+ "zakura-bento",
 ]
 
 [[package]]
@@ -10700,7 +10759,7 @@ dependencies = [
 [[package]]
 name = "zcash_tachyon"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/tachyon?rev=a4abfbddb7dd4ac1db67df7cc19d57d0d965d3e7#a4abfbddb7dd4ac1db67df7cc19d57d0d965d3e7"
+source = "git+https://github.com/cnode-agent/tachyon?branch=c%2Fmock-wire%2Bdriver#a86bd484810183b7ad2a0485bbb8e7ec779cfbae"
 dependencies = [
  "blake2b_simd",
  "corez",
@@ -10709,14 +10768,14 @@ dependencies = [
  "group 0.14.0",
  "lazy_static",
  "ragu",
- "ragu_arithmetic",
  "ragu_circuits",
  "ragu_core",
- "ragu_pasta",
+ "ragu_pcd",
  "ragu_primitives",
  "rand_core 0.10.1",
  "zakura-pasta-curves 1.2.0",
  "zakura-reddsa 1.2.0",
+ "zakura-udon",
 ]
 
 [[package]]

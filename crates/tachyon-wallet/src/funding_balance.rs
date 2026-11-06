@@ -3,14 +3,10 @@
 use anyhow::{Context, Result, ensure};
 use protocol::value::Zatoshis;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use serde_json::{Value, json};
+use std::collections::BTreeSet;
 
-use crate::{
-    chain::{Block, bytes32},
-    rpc::Rpc,
-    transaction,
-};
+use crate::{chain::bytes32, rpc::Rpc, store::Store, transaction};
 
 pub const COINBASE_MATURITY: u64 = 100;
 
@@ -73,17 +69,15 @@ impl AddressUtxos {
         Ok(snapshot)
     }
 
-    pub fn into_snapshot(self, rpc: &Rpc, address: &str, blocks: &[Block]) -> Result<Snapshot> {
-        let tip = blocks.last().context("wallet has not synced")?;
+    pub fn into_snapshot(self, rpc: &Rpc, address: &str, store: &Store) -> Result<Snapshot> {
+        let tip = store
+            .block(self.height)?
+            .context("transparent snapshot tip is missing from the synced chain")?;
         ensure!(
             tip.height == self.height && tip.hash == self.hash,
             "transparent snapshot does not match the synced chain; retry sync"
         );
         let expected_script = transaction::transparent_script(address)?;
-        let mut coinbases: BTreeMap<u32, String> = blocks
-            .iter()
-            .filter_map(|b| b.transactions.first().map(|txid| (b.height, txid.clone())))
-            .collect();
         let mut seen = BTreeSet::new();
         let mut utxos = Vec::with_capacity(self.utxos.len());
         for output in self.utxos {
@@ -100,30 +94,32 @@ impl AddressUtxos {
             Zatoshis::from_u64(output.satoshis).context("invalid funding UTXO amount")?;
             ensure!(
                 output.height <= self.height,
-                "funding UTXO is above the snapshot tip"
+                "funding output is above the snapshot tip"
             );
             let confirmations = u64::from(self.height - output.height) + 1;
             let immature_coinbase = if confirmations < COINBASE_MATURITY {
-                if let Entry::Vacant(entry) = coinbases.entry(output.height) {
-                    // Recent pre-activation funding is outside the Tachyon feed. Fetch only
-                    // these missing block headers/txids; older outputs are already mature.
-                    #[derive(Deserialize)]
-                    struct FundingBlock {
-                        height: u32,
-                        hash: String,
-                        tx: Vec<String>,
-                    }
-                    let block: FundingBlock =
+                let coinbase_txid = if let Some(block) = store.block(output.height)? {
+                    block.transactions.first().cloned()
+                } else {
+                    // Recent pre-activation funding is outside the Tachyon feed;
+                    // fetch only this missing block's transaction IDs.
+                    let response: Value =
                         rpc.call("getblock", json!([output.height.to_string(), 1]))?;
                     ensure!(
-                        block.height == output.height,
+                        response["height"].as_u64() == Some(u64::from(output.height)),
                         "funding block height mismatch"
                     );
-                    bytes32(&block.hash)?;
-                    let coinbase = block.tx.first().context("funding block has no coinbase")?;
-                    entry.insert(hex::encode(bytes32(coinbase)?));
-                }
-                coinbases.get(&output.height) == Some(&txid)
+                    let hash = response["hash"]
+                        .as_str()
+                        .context("funding block has no hash")?;
+                    bytes32(hash)?;
+                    response["tx"]
+                        .as_array()
+                        .and_then(|transactions| transactions.first())
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                };
+                coinbase_txid.as_ref() == Some(&txid)
             } else {
                 false
             };

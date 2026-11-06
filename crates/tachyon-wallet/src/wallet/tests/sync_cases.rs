@@ -220,7 +220,7 @@ fn old_receipt_backfills_its_epoch_resumes_a_gap_and_reuses_cached_suffix() -> R
     let sent = transaction::build(
         Payment {
             seed: SEED,
-            blocks: &blocks,
+            blocks: (&blocks).into(),
             spend: Some(&receipt),
             funding: None,
             outputs: &[Receipt::new(

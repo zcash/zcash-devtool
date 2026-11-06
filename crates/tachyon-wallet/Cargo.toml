@@ -14,6 +14,7 @@ ff = "0.14"
 hex = "0.4"
 pasta_curves = { package = "zakura-pasta-curves", version = "1.0.1" }
 rand = { version = "0.10", features = ["std_rng"] }
+udon = { package = "zakura-udon", version = "0.1.0", features = ["traits"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["rt", "macros", "signal", "sync", "time"] }
 tokio-util = { version = "0.7", features = ["rt"] }
@@ -24,12 +25,17 @@ serde_json = "1"
 sha2 = "0.10"
 ripemd = "0.1"
 zcash_script = "0.4.3"
-ragu = { git = "https://github.com/tachyon-zcash/ragu", rev = "0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9", features = ["mock"] }
-ragu_circuits = { git = "https://github.com/tachyon-zcash/ragu", rev = "0881656dc3d9f47d3d9eaaf692b15dd8938d9bf9" }
-zcash_tachyon = { git = "https://github.com/tachyon-zcash/tachyon", rev = "a4abfbddb7dd4ac1db67df7cc19d57d0d965d3e7" }
-primitives = { package = "zakura-primitives", git = "https://github.com/zakura-core/common.git", rev = "a9081dc0c3df782bd2badb829f9ebff51d01a9a7", default-features = false, features = ["std"] }
-protocol = { package = "zakura-protocol", git = "https://github.com/zakura-core/common.git", rev = "a9081dc0c3df782bd2badb829f9ebff51d01a9a7" }
-transparent = { package = "zakura-transparent", git = "https://github.com/zakura-core/common.git", rev = "a9081dc0c3df782bd2badb829f9ebff51d01a9a7" }
+# TEMPORARY: integration branch containing ragu main, #929, and the mock
+# wire format. Return to tachyon-zcash/ragu after those changes land upstream.
+ragu = { git = "https://github.com/cnode-agent/ragu", branch = "c/mock-wire+driver", features = ["mock"] }
+# TEMPORARY: same integration branch as ragu above.
+ragu_circuits = { git = "https://github.com/cnode-agent/ragu", branch = "c/mock-wire+driver" }
+# TEMPORARY: tachyon main plus #259/#260 and WireHeader support for cached
+# epoch-bucket and spendability proofs. Return upstream after those land.
+zcash_tachyon = { git = "https://github.com/cnode-agent/tachyon", branch = "c/mock-wire+driver" }
+primitives = { package = "zakura-primitives", git = "https://github.com/cnode-agent/common.git", branch = "c/devtool-tachyon", default-features = false, features = ["std"] }
+protocol = { package = "zakura-protocol", git = "https://github.com/cnode-agent/common.git", branch = "c/devtool-tachyon" }
+transparent = { package = "zakura-transparent", git = "https://github.com/cnode-agent/common.git", branch = "c/devtool-tachyon" }
 
 [dev-dependencies]
 tempfile = "3"

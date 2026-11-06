@@ -1,5 +1,19 @@
 use super::*;
-use crate::control::Control;
+use crate::{chain::Block, control::Control, store::Store};
+
+fn store_with(blocks: &[Block]) -> Result<(tempfile::TempDir, Store)> {
+    let directory = tempfile::tempdir()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))?;
+    }
+    let store = Store::open(directory.path(), true)?;
+    for block in blocks {
+        store.put_block(block)?;
+    }
+    Ok((directory, store))
+}
 
 fn snapshot(height: u32, output_height: u32, coinbase: bool) -> Result<Snapshot> {
     let address = transaction::funding_address(crate::tests::SEED)?;
@@ -22,10 +36,11 @@ fn snapshot(height: u32, output_height: u32, coinbase: bool) -> Result<Snapshot>
             "script": hex::encode(transaction::transparent_script(&address)?.0.0),
             "satoshis": 625_000_000, "height": output_height}]
     }))?;
+    let (_directory, store) = store_with(&[origin, tip])?;
     response.into_snapshot(
         &Rpc::new("http://127.0.0.1:1", None, &Control::new(true))?,
         &address,
-        &[origin, tip],
+        &store,
     )
 }
 
@@ -86,12 +101,13 @@ fn rejects_duplicate_foreign_future_and_malformed_outputs() -> Result<()> {
         let response: AddressUtxos = serde_json::from_value(
             json!({"height": tip.height, "hash": tip.hash, "utxos": utxos}),
         )?;
+        let (_directory, store) = store_with(std::slice::from_ref(&tip))?;
         assert!(
             response
                 .into_snapshot(
                     &Rpc::new("http://127.0.0.1:1", None, &Control::new(true))?,
                     &address,
-                    std::slice::from_ref(&tip)
+                    &store
                 )
                 .is_err()
         );

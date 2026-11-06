@@ -1,11 +1,12 @@
 //! Explicit out-of-band receipts: Tachyon has no on-chain note ciphertext to scan.
 
 use anyhow::{Result, ensure};
-use ff::{Field, PrimeField};
-use pasta_curves::Fp;
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
-use zcash_tachyon::{Note, keys::private::SpendingKey, note::CommitmentTrapdoor, nullifier, value};
+use udon::field::Field;
+use zcash_tachyon::{
+    Note, keys::private::SpendingKey, note::CommitmentTrapdoor, nullifier, pasta::Fp, value,
+};
 
 use crate::chain::bytes32;
 
@@ -44,12 +45,13 @@ impl Locator {
 }
 
 fn field(encoded: &str) -> Result<Fp> {
-    Option::<Fp>::from(Fp::from_repr(bytes32(encoded)?))
-        .ok_or_else(|| anyhow::anyhow!("non-canonical field encoding"))
+    let mut repr = Fp::ZERO.to_bytes();
+    repr.as_mut_slice().copy_from_slice(&bytes32(encoded)?);
+    Fp::from_bytes(repr).ok_or_else(|| anyhow::anyhow!("non-canonical field encoding"))
 }
 
 pub fn payment_key(key: &SpendingKey) -> String {
-    hex::encode(Fp::from(key.derive_payment_key()).to_repr())
+    hex::encode(Fp::from(key.derive_payment_key()).to_bytes())
 }
 
 pub fn address(key: &SpendingKey) -> String {
@@ -71,15 +73,15 @@ impl Receipt {
         let psi: Fp = nullifier::Trapdoor::random(&mut rng).into();
         let mut rcm: Fp = CommitmentTrapdoor::random(&mut rng).into();
         while rcm == Fp::ZERO {
-            rcm = Fp::random(&mut rng);
+            rcm = CommitmentTrapdoor::random(&mut rng).into();
         }
         let receipt = Self {
             version: 1,
             network_id: network_id.into(),
             payment_key: pk,
             value_zat,
-            psi: hex::encode(psi.to_repr()),
-            rcm: hex::encode(rcm.to_repr()),
+            psi: hex::encode(psi.to_bytes()),
+            rcm: hex::encode(rcm.to_bytes()),
             locator: None,
         };
         receipt.note()?;
@@ -107,7 +109,7 @@ impl Receipt {
 
     pub fn id(&self) -> Result<String> {
         let cm: Fp = self.note()?.commitment().into();
-        Ok(hex::encode(cm.to_repr()))
+        Ok(hex::encode(cm.to_bytes()))
     }
 
     pub fn check_owner(&self, key: &SpendingKey, network_id: &str) -> Result<()> {

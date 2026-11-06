@@ -10,6 +10,8 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+use udon::field::Field;
+use zcash_tachyon::{Anchor, EpochIndex, QrProfile, Tachygram, constants::EPOCH_SIZE, pasta::Fp};
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,6 +46,130 @@ pub struct StoredOperation {
 
 pub struct Store {
     conn: Connection,
+}
+
+/// Chain evidence access for proofs: tests may use an in-memory slice, while
+/// production reads only the epochs it needs from SQLite and uses the proof
+/// cache. Cached proofs are serialized with ragu's versioned wire format.
+pub enum ChainData<'a> {
+    Blocks(&'a [Block]),
+    Store(&'a Store),
+}
+
+impl<'a> From<&'a [Block]> for ChainData<'a> {
+    fn from(blocks: &'a [Block]) -> Self {
+        Self::Blocks(blocks)
+    }
+}
+
+impl<'a> From<&'a Vec<Block>> for ChainData<'a> {
+    fn from(blocks: &'a Vec<Block>) -> Self {
+        Self::Blocks(blocks)
+    }
+}
+
+impl<'a> From<&'a Store> for ChainData<'a> {
+    fn from(store: &'a Store) -> Self {
+        Self::Store(store)
+    }
+}
+
+impl<'a> From<&'a ChainData<'a>> for ChainData<'a> {
+    fn from(chain: &'a ChainData<'a>) -> Self {
+        match chain {
+            Self::Blocks(blocks) => Self::Blocks(blocks),
+            Self::Store(store) => Self::Store(store),
+        }
+    }
+}
+
+impl ChainData<'_> {
+    pub fn tip(&self) -> Result<Block> {
+        match self {
+            Self::Blocks(blocks) => blocks.last().cloned().context("wallet has not synced"),
+            Self::Store(store) => store.tip()?.context("wallet has not synced"),
+        }
+    }
+
+    /// All blocks in `epoch`, plus the first block of the next epoch when the
+    /// epoch has closed. Only this range is read, never the whole chain.
+    pub fn epoch_blocks(&self, epoch: u32) -> Result<Vec<Block>> {
+        match self {
+            Self::Blocks(blocks) => Ok(blocks
+                .iter()
+                .filter(|block| block.epoch == epoch || block.epoch == epoch + 1)
+                .cloned()
+                .collect()),
+            Self::Store(store) => {
+                let activation = self.tip()?.activation_height;
+                let start = activation
+                    .checked_add(epoch.checked_mul(EPOCH_SIZE).context("epoch overflow")?)
+                    .context("epoch height overflow")?;
+                store.blocks_range(start, start.saturating_add(EPOCH_SIZE))
+            }
+        }
+    }
+
+    /// The stamp that created `cm`, its epoch and its preceding anchor.
+    pub fn creation(&self, cm: Tachygram) -> Result<Option<(u32, Anchor, Vec<Tachygram>)>> {
+        let id = hex::encode(Fp::from(cm).to_bytes());
+        let blocks: Vec<Block> = match self {
+            Self::Blocks(blocks) => blocks.to_vec(),
+            Self::Store(store) => match store.tachygram_height(&id)? {
+                Some(height) => store.block(height)?.into_iter().collect(),
+                None => Vec::new(),
+            },
+        };
+        for block in blocks {
+            let mut cursor = block.entry()?;
+            for stamp in &block.stamps {
+                let members = stamp.members()?;
+                if members.contains(&cm) {
+                    return Ok(Some((block.epoch, cursor, members)));
+                }
+                cursor = cursor.next_stamp(EpochIndex::new(block.epoch), &stamp.commitment()?)?;
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn bucket_proof(
+        &self,
+        epoch: u32,
+        profile: QrProfile,
+    ) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+        match self {
+            Self::Blocks(_) => Ok(None),
+            Self::Store(store) => store.bucket_proof(epoch, profile),
+        }
+    }
+
+    pub fn put_bucket_proof(
+        &self,
+        epoch: u32,
+        profile: QrProfile,
+        pcd: &[u8],
+        members: &[u8],
+    ) -> Result<()> {
+        match self {
+            Self::Blocks(_) => Ok(()),
+            Self::Store(store) => store.put_bucket_proof(epoch, profile, pcd, members),
+        }
+    }
+
+    pub fn spendable_proof_bytes(&self, note_id: &str) -> Result<Option<Vec<u8>>> {
+        match self {
+            Self::Blocks(_) => Ok(None),
+            Self::Store(store) => store.spendable_proof(note_id),
+        }
+    }
+
+    pub fn put_spendable_proof_bytes(&self, note_id: &str, pcd: &[u8]) -> Result<()> {
+        match self {
+            Self::Blocks(_) => Ok(()),
+            Self::Store(store) => store.put_spendable_proof(note_id, pcd),
+        }
+    }
 }
 
 /// Never overwrite receipt files, and create private data with restrictive permissions.
@@ -142,6 +268,123 @@ impl Store {
         }
         Ok(blocks)
     }
+    pub fn first_height(&self) -> Result<Option<u32>> {
+        self.conn
+            .query_row("SELECT MIN(height) FROM blocks", [], |row| row.get(0))
+            .optional()
+            .map(|value| value.flatten())
+            .map_err(Into::into)
+    }
+    pub fn tip(&self) -> Result<Option<Block>> {
+        // Backfills may leave a cached suffix above a gap. Only the contiguous
+        // prefix is usable as wallet evidence; walking heights in SQL avoids
+        // deserializing that suffix or the whole chain.
+        self.conn
+            .query_row(
+                "WITH RECURSIVE contiguous(height) AS (
+                    SELECT MIN(height) FROM blocks
+                    UNION ALL
+                    SELECT contiguous.height + 1 FROM contiguous
+                    JOIN blocks ON blocks.height = contiguous.height + 1
+                 )
+                 SELECT data FROM blocks WHERE height = (SELECT MAX(height) FROM contiguous)",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|data| Ok(serde_json::from_str(&data)?))
+            .transpose()
+    }
+    pub fn blocks_range(&self, start: u32, end: u32) -> Result<Vec<Block>> {
+        self.conn
+            .prepare("SELECT data FROM blocks WHERE height BETWEEN ? AND ? ORDER BY height")?
+            .query_map(params![start, end], |row| row.get::<_, String>(0))?
+            .map(|row| Ok(serde_json::from_str(&row?)?))
+            .collect()
+    }
+    fn index_block(&self, block: &Block) -> Result<()> {
+        for stamp in &block.stamps {
+            for member in &stamp.tachygrams {
+                self.conn.execute(
+                    "INSERT INTO tachygrams VALUES(?, ?) ON CONFLICT DO NOTHING",
+                    params![member, block.height],
+                )?;
+            }
+        }
+        for txid in &block.transactions {
+            self.conn.execute(
+                "INSERT INTO block_transactions VALUES(?, ?) ON CONFLICT DO NOTHING",
+                params![txid, block.height],
+            )?;
+        }
+        Ok(())
+    }
+    /// Additive, one-time index migration for existing wallets. Steady-state
+    /// sync only indexes the blocks it appends.
+    fn ensure_indexes(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS tachygrams (id TEXT NOT NULL, height INTEGER NOT NULL, PRIMARY KEY(id, height));
+             CREATE INDEX IF NOT EXISTS tachygrams_by_height ON tachygrams(height);
+             CREATE TABLE IF NOT EXISTS block_transactions (txid TEXT NOT NULL, height INTEGER NOT NULL, PRIMARY KEY(txid, height));
+             CREATE INDEX IF NOT EXISTS transactions_by_height ON block_transactions(height);",
+        )?;
+        let version: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key='chain_index_v1'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if version.is_none() {
+            for block in self.blocks()? {
+                self.index_block(&block)?;
+            }
+            self.conn
+                .execute("INSERT INTO metadata VALUES('chain_index_v1', '1')", [])?;
+        }
+        Ok(())
+    }
+    pub fn tachygram_height(&self, id: &str) -> Result<Option<u32>> {
+        self.ensure_indexes()?;
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT MIN(height) FROM tachygrams WHERE id=?",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten())
+    }
+    pub fn has_tachygram(&self, id: &str) -> Result<bool> {
+        Ok(self.tachygram_height(id)?.is_some())
+    }
+    pub fn has_transaction(&self, txid: &str) -> Result<bool> {
+        self.ensure_indexes()?;
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM block_transactions WHERE txid=?)",
+            [txid],
+            |row| row.get(0),
+        )?)
+    }
+    pub fn block_by_txid(&self, txid: &str) -> Result<Option<Block>> {
+        self.ensure_indexes()?;
+        let height: Option<u32> = self
+            .conn
+            .query_row(
+                "SELECT MIN(height) FROM block_transactions WHERE txid=?",
+                [txid],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        height
+            .map(|height| self.block(height))
+            .transpose()
+            .map(Option::flatten)
+    }
     pub fn block(&self, height: u32) -> Result<Option<Block>> {
         self.conn
             .query_row("SELECT data FROM blocks WHERE height=?", [height], |row| {
@@ -157,8 +400,77 @@ impl Store {
         }
         Ok(())
     }
+    fn ensure_proof_tables(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS epoch_proofs (
+                epoch INTEGER NOT NULL, depth INTEGER NOT NULL, bits INTEGER NOT NULL,
+                pcd BLOB NOT NULL, members BLOB NOT NULL,
+                PRIMARY KEY(epoch, depth, bits));
+             CREATE TABLE IF NOT EXISTS spendable_proofs (
+                note_id TEXT PRIMARY KEY, pcd BLOB NOT NULL);",
+        )?;
+        Ok(())
+    }
+    pub fn bucket_proof(
+        &self,
+        epoch: u32,
+        profile: QrProfile,
+    ) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+        self.ensure_proof_tables()?;
+        self.conn
+            .query_row(
+                "SELECT pcd, members FROM epoch_proofs WHERE epoch=? AND depth=? AND bits=?",
+                params![epoch, profile.depth, profile.bits],
+                |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+    pub fn put_bucket_proof(
+        &self,
+        epoch: u32,
+        profile: QrProfile,
+        pcd: &[u8],
+        members: &[u8],
+    ) -> Result<()> {
+        self.ensure_proof_tables()?;
+        self.conn.execute(
+            "INSERT INTO epoch_proofs VALUES(?, ?, ?, ?, ?)
+             ON CONFLICT(epoch, depth, bits) DO UPDATE SET pcd=excluded.pcd, members=excluded.members",
+            params![epoch, profile.depth, profile.bits, pcd, members],
+        )?;
+        Ok(())
+    }
+    pub fn spendable_proof(&self, note_id: &str) -> Result<Option<Vec<u8>>> {
+        self.ensure_proof_tables()?;
+        self.conn
+            .query_row(
+                "SELECT pcd FROM spendable_proofs WHERE note_id=?",
+                [note_id],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+    pub fn put_spendable_proof(&self, note_id: &str, pcd: &[u8]) -> Result<()> {
+        self.ensure_proof_tables()?;
+        self.conn.execute(
+            "INSERT INTO spendable_proofs VALUES(?, ?)
+             ON CONFLICT(note_id) DO UPDATE SET pcd=excluded.pcd",
+            params![note_id, pcd],
+        )?;
+        Ok(())
+    }
     pub fn clear_chain(&self) -> Result<()> {
         self.conn.execute("DELETE FROM blocks", [])?;
+        if self.table_exists("tachygrams")? {
+            self.conn.execute("DELETE FROM tachygrams", [])?;
+            self.conn.execute("DELETE FROM block_transactions", [])?;
+        }
+        if self.table_exists("epoch_proofs")? {
+            self.conn.execute("DELETE FROM epoch_proofs", [])?;
+            self.conn.execute("DELETE FROM spendable_proofs", [])?;
+        }
         self.clear_funding_snapshot()
     }
     pub fn notes(&self) -> Result<Vec<Receipt>> {
@@ -252,20 +564,37 @@ impl Store {
             .collect()
     }
     pub fn put_block(&self, block: &Block) -> Result<()> {
+        self.ensure_indexes()?;
         self.conn.execute(
             "INSERT INTO blocks VALUES(?, ?) ON CONFLICT(height) DO UPDATE SET data=excluded.data",
             params![block.height, serde_json::to_string(block)?],
         )?;
+        self.index_block(block)?;
         Ok(())
     }
     pub fn rewind(&self, height: u32) -> Result<()> {
         self.conn
             .execute("DELETE FROM blocks WHERE height > ?", [height])?;
+        if self.table_exists("tachygrams")? {
+            self.conn
+                .execute("DELETE FROM tachygrams WHERE height > ?", [height])?;
+            self.conn
+                .execute("DELETE FROM block_transactions WHERE height > ?", [height])?;
+        }
         if self
             .funding_snapshot()?
             .is_some_and(|snapshot| snapshot.height > height)
         {
             self.conn.execute("DELETE FROM funding_snapshot", [])?;
+        }
+        self.rewind_proofs(height)
+    }
+    fn rewind_proofs(&self, _height: u32) -> Result<()> {
+        // Reorgs are rare; discard composed evidence rather than risk reusing
+        // a bucket or lineage derived from a removed epoch transition.
+        if self.table_exists("epoch_proofs")? {
+            self.conn.execute("DELETE FROM epoch_proofs", [])?;
+            self.conn.execute("DELETE FROM spendable_proofs", [])?;
         }
         Ok(())
     }

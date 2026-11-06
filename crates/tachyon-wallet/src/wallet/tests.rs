@@ -1,7 +1,9 @@
 use super::*;
+use crate::chain::Block;
 use primitives::transaction::{Authorized, TransactionData};
 use protocol::{consensus::BlockHeight, value::Zatoshis};
 use std::{
+    collections::BTreeMap,
     io::{BufRead, BufReader, Write},
     net::TcpListener,
     sync::{
@@ -1617,17 +1619,19 @@ fn reservations_survive_restarts_and_expire_only_after_expiry_height() -> Result
         birthday_height: None,
     };
     assert_eq!(
-        note_states(&store, &config, &blocks, &Control::new(true))?[0].1,
+        note_states(&store, &config, &Control::new(true))?[0].1,
         "reserved"
     );
     crate::tests::mine(&mut blocks, None)?;
+    store.put_block(blocks.last().unwrap())?;
     assert_eq!(
-        note_states(&store, &config, &blocks, &Control::new(true))?[0].1,
+        note_states(&store, &config, &Control::new(true))?[0].1,
         "reserved"
     );
     crate::tests::mine(&mut blocks, None)?;
+    store.put_block(blocks.last().unwrap())?;
     assert_eq!(
-        note_states(&store, &config, &blocks, &Control::new(true))?[0].1,
+        note_states(&store, &config, &Control::new(true))?[0].1,
         "available"
     );
     Ok(())

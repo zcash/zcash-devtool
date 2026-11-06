@@ -18,15 +18,11 @@ use transparent::{
     sighash::{SighashType, TransparentAuthorizingContext},
 };
 use zcash_tachyon::{
-    TachyonBundle, action, bundle::Plan, entropy::ActionEntropy, keys::private::SpendingKey, value,
+    Note, TachyonBundle, action, bundle::Plan, entropy::ActionEntropy, fee,
+    keys::private::SpendingKey, note::CommitmentTrapdoor, nullifier, value,
 };
 
-use crate::{
-    chain::{Block, anchor},
-    control::Control,
-    note::Receipt,
-    proofs,
-};
+use crate::{chain::anchor, control::Control, note::Receipt, proofs, store::ChainData};
 
 pub const FEE: u64 = 50_000;
 
@@ -84,7 +80,7 @@ pub struct Funding {
 
 pub struct Payment<'a> {
     pub seed: [u8; 32],
-    pub blocks: &'a [Block],
+    pub blocks: ChainData<'a>,
     pub spend: Option<&'a Receipt>,
     pub funding: Option<Funding>,
     pub outputs: &'a [Receipt],
@@ -104,7 +100,7 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
         transparent_output,
         expiry,
     } = payment;
-    let tip = blocks.last().context("wallet has not synced")?;
+    let tip = blocks.tip()?;
     ensure!(
         spend.is_some() != funding.is_some(),
         "exactly one funding source is required"
@@ -128,7 +124,7 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
     let mut spends = Vec::new();
     if let Some(receipt) = spend {
         let note = receipt.note()?;
-        let spendable = proofs::spendable(blocks, &key, note, control)?;
+        let spendable = proofs::spendable(&blocks, &key, note, control)?;
         plan_anchor = spendable.data().2;
         spends.push(action::Plan::spend(
             note,
@@ -136,7 +132,7 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
             value::Trapdoor::random(&mut rng),
             |alpha| key.derive_proof_private().ak.derive_action_public(&alpha),
         ));
-        evidence.push((proofs::secret(&key, note, control)?, spendable));
+        evidence.push((proofs::secret(&key, note, control)?, spendable, Vec::new()));
     }
     let outputs = outputs
         .iter()
@@ -148,14 +144,29 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
             ))
         })
         .collect::<Result<Vec<_>>>()?;
-    let plan = Plan::new(spends, outputs);
+    let max_fee_note = Note {
+        pk: key.derive_payment_key(),
+        value: value::Positive::try_from(FEE)?,
+        psi: nullifier::Trapdoor::random(&mut rng),
+        rcm: CommitmentTrapdoor::random(&mut rng),
+    };
+    let plan = Plan::new(spends, outputs, max_fee_note);
     control.stage("Proving transaction stamp…")?;
-    let stamp = plan.clone().stamp_plan(plan_anchor).prove(
-        &mut rng,
-        &key.derive_proof_private(),
-        evidence,
+    let stamp = plan
+        .clone()
+        .stamp_plan(plan_anchor, value::Positive::try_from(FEE)?)
+        .prove(&mut rng, &key.derive_proof_private(), evidence)?;
+    let fee_descriptors = std::collections::BTreeSet::from([fee::Descriptor {
+        max_commitment: max_fee_note.fee_blind().commit(-max_fee_note.value),
+        value: value::Positive::try_from(FEE)?,
+    }]);
+    let stamp = proofs::lift_stamp(
+        &blocks,
+        stamp,
+        &plan.descriptors(),
+        &fee_descriptors,
+        control,
     )?;
-    let stamp = proofs::lift_stamp(blocks, stamp, &plan.descriptors(), control)?;
     control.stage("Signing transaction…")?;
     let placeholder = TachyonBundle::Proven(
         plan.clone()

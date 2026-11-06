@@ -44,6 +44,8 @@ tachyon-wallet = { path = "crates/tachyon-wallet", optional = true }
 orchard = { version = "0.15.0", default-features = false }
 pczt = { version = "0.9.1", features = ["io-finalizer", "orchard", "prover", "signer", "spend-finalizer", "transparent", "tx-extractor"] }
 sapling = { package = "sapling-crypto", version = "0.7" }
+# TEMPORARY: use the same common integration branch as tachyon-wallet so
+# the Tachyon transaction types and bip32 versions stay aligned.
 transparent = { package = "zcash_transparent", version = "0.10.0", features = ["test-dependencies", "transparent-inputs"] }
 zcash_address = "0.13.0"
 zcash_client_backend = { version = "0.24.0", features = ["lightwalletd-tonic-tls-webpki-roots", "orchard", "pczt", "tor", "unstable"] }
@@ -132,8 +134,6 @@ tui = [
 
 # Match the crypto types used by Zakura's experimental Tachyon transaction crates.
 [patch.crates-io]
-zakura-pasta-curves = { git = "https://github.com/zakura-core/common.git", rev = "a9081dc0c3df782bd2badb829f9ebff51d01a9a7" }
-zakura-reddsa = { git = "https://github.com/zakura-core/common.git", rev = "a9081dc0c3df782bd2badb829f9ebff51d01a9a7" }
 
 [workspace]
 members = ["crates/tachyon-wallet"]

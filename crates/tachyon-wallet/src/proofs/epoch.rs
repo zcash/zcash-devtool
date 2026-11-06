@@ -3,8 +3,8 @@
 use std::collections::BTreeSet;
 
 use anyhow::{Context, Result, ensure};
-use pasta_curves::Fp;
 use ragu::Pcd;
+use zcash_tachyon::pasta::Fp;
 use zcash_tachyon::{
     Anchor, EpochIndex, QrClassRoot, QrDiscriminant, QrProfile, Tachygram,
     stamp::proof::{PROOF_SYSTEM, qr},
@@ -12,8 +12,10 @@ use zcash_tachyon::{
 };
 
 use super::trivial;
-use crate::chain::{Block, MAX_EPOCH_MEMBERS, anchor, max_polynomial_members};
+use crate::chain::{MAX_EPOCH_MEMBERS, anchor, max_polynomial_members};
 use crate::control::Control;
+use crate::store::ChainData;
+use udon::field::Field;
 
 struct Intake {
     proof: Pcd<qr::QrIntake>,
@@ -103,12 +105,13 @@ impl Intake {
 }
 
 pub(super) fn bucket(
-    blocks: &[Block],
+    chain: &ChainData<'_>,
     epoch: u32,
     query: Tachygram,
     control: &Control,
 ) -> Result<(Pcd<qr::QrBucket>, Vec<Tachygram>)> {
     control.stage(format!("Collecting public evidence for epoch {epoch}…"))?;
+    let blocks = chain.epoch_blocks(epoch)?;
     let mut epoch_blocks = blocks.iter().filter(|b| b.epoch == epoch).peekable();
     let first = *epoch_blocks.peek().context("missing epoch inputs")?;
     let next_epoch = epoch.checked_add(1).context("epoch overflow")?;
@@ -147,6 +150,28 @@ pub(super) fn bucket(
         discriminant,
         control,
     )?;
+    let profile = path
+        .iter()
+        .fold(QrProfile::ROOT, |profile, &side| profile.descend(side));
+    if let Some((pcd, members)) = chain.bucket_proof(epoch, profile)? {
+        let cached = Pcd::<qr::QrBucket>::from_bytes(&pcd)
+            .ok()
+            .and_then(|bucket| {
+                (bucket.data().0 == EpochIndex::new(epoch) && bucket.data().4 == profile)
+                    .then_some(bucket)
+            })
+            .filter(|bucket| {
+                PROOF_SYSTEM
+                    .verify(bucket, rand::rng())
+                    .is_ok_and(|valid| valid)
+            });
+        if let Some(bucket) = cached
+            && let Some(members) = decode_members(&members)
+        {
+            control.stage(format!("Reusing cached epoch {epoch} bucket…"))?;
+            return Ok((bucket, members));
+        }
+    }
     let mut intakes = Vec::new();
     let total = stamps.len();
     for (index, (before, members)) in stamps.into_iter().enumerate() {
@@ -207,7 +232,33 @@ pub(super) fn bucket(
         bucket.data().2 == next.entry()?,
         "epoch evidence does not meet the next entry anchor"
     );
+    let pcd = bucket
+        .to_bytes()
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    chain.put_bucket_proof(epoch, profile, &pcd, &encode_members(&members))?;
     Ok((bucket, members))
+}
+
+fn encode_members(members: &[Tachygram]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(members.len() * 32);
+    for member in members {
+        bytes.extend_from_slice(Fp::from(*member).to_bytes().as_ref());
+    }
+    bytes
+}
+
+fn decode_members(bytes: &[u8]) -> Option<Vec<Tachygram>> {
+    if !bytes.len().is_multiple_of(32) {
+        return None;
+    }
+    bytes
+        .chunks_exact(32)
+        .map(|chunk| {
+            let mut repr = Fp::ZERO.to_bytes();
+            repr.as_mut_slice().copy_from_slice(chunk);
+            Fp::from_bytes(repr).map(Tachygram::from)
+        })
+        .collect()
 }
 
 #[cfg(test)]

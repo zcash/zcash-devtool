@@ -1,7 +1,7 @@
 //! Birthday checkpoints and bounded backfills of contiguous public evidence.
 
 use super::*;
-use crate::{note::Locator, rpc::RpcError};
+use crate::{chain::Block, note::Locator, rpc::RpcError};
 
 pub(super) fn epoch_start(height: u32, activation: u32) -> Result<u32> {
     let offset = height
@@ -145,18 +145,23 @@ pub(super) fn sync(
         "node tip precedes NuTachyon activation"
     );
     control.stage("Loading saved chain inputs…")?;
-    let mut blocks = store.blocks()?;
-    let initial_start = blocks.first().context("wallet has no checkpoint")?.height;
-    let original_last = blocks.last().context("wallet has no checkpoint")?.height;
-    while let Some(last) = blocks.last() {
+    let initial_start = store.first_height()?.context("wallet has no checkpoint")?;
+    let original_last = store.tip()?.context("wallet has no checkpoint")?;
+    let mut first = initial_start;
+    let mut last = Some(original_last.clone());
+    while let Some(candidate) = last.clone() {
         control.check()?;
-        if last.height <= tip && rpc.hash(last.height)? == last.hash {
+        if candidate.height <= tip && rpc.hash(candidate.height)? == candidate.hash {
             break;
         }
-        blocks.pop();
+        last = if candidate.height == initial_start {
+            None
+        } else {
+            store.block(candidate.height - 1)?
+        };
     }
-    if let Some(last) = blocks.last() {
-        if last.height != original_last {
+    if let Some(last) = last.clone() {
+        if last.height != original_last.height {
             store.rewind(last.height)?;
         }
     } else {
@@ -166,26 +171,19 @@ pub(super) fn sync(
         let block = checkpoint(&rpc, height, config.activation)?;
         store.clear_chain()?;
         store.put_block(&block)?;
-        blocks.push(block);
+        first = height;
+        last = Some(block);
     }
-    let first = blocks
-        .first()
-        .expect("checkpoint was retained or reloaded")
-        .height;
+    let last = last.expect("checkpoint was retained or reloaded");
     let mut needed_start = first;
     if let Some(height) = from_height {
         ensure!(height <= tip, "search height is above the node tip");
         needed_start = needed_start.min(epoch_start(height, config.activation)?);
     }
-    let known: BTreeSet<_> = blocks
-        .iter()
-        .flat_map(|block| &block.stamps)
-        .flat_map(|stamp| stamp.tachygrams.iter().map(String::as_str))
-        .collect();
     for mut receipt in store.notes()? {
         control.check()?;
         receipt.check_owner(&SpendingKey::from(config.seed), &config.network_id)?;
-        if known.contains(receipt.id()?.as_str()) {
+        if store.has_tachygram(&receipt.id()?)? {
             continue;
         }
         if let Some(block) = locate(&rpc, &receipt, config, tip)? {
@@ -200,15 +198,17 @@ pub(super) fn sync(
         }
     }
     let backfill = needed_start < first;
-    if backfill {
+    let mut previous = if backfill {
         let block = checkpoint(&rpc, needed_start, config.activation)?;
         store.put_block(&block)?;
         store.clear_funding_snapshot()?;
         // Keep the cached suffix on disk and reconnect it as the bounded
         // backfill advances. No wallet notes or reservations are discarded.
-        blocks = vec![block];
-    }
-    let start = blocks.last().expect("sync has a checkpoint").height;
+        Some(block)
+    } else {
+        Some(last)
+    };
+    let start = previous.as_ref().expect("sync has a checkpoint").height;
     let stop = start.saturating_add(max_blocks).min(tip);
     control.stage(format!(
         "Syncing heights {}–{stop} (node tip {tip})…",
@@ -227,35 +227,30 @@ pub(super) fn sync(
             fetch_block(&rpc, height)?
         };
         control.stage(format!("Validating block {height}…"))?;
-        block.validate(blocks.last(), config.activation)?;
+        block.validate(previous.as_ref(), config.activation)?;
         control.check()?;
         store.put_block(&block)?;
-        blocks.push(block);
+        previous = Some(block);
     }
-    let last = blocks.last().expect("sync has a checkpoint");
+    let last = previous.expect("sync has a checkpoint");
     if last.height == tip {
         control.stage("Validating transparent funding snapshot…")?;
-        store.put_funding_snapshot(&funding.into_snapshot(&rpc, &funding_address, &blocks)?)?;
+        store.put_funding_snapshot(&funding.into_snapshot(&rpc, &funding_address, store)?)?;
     }
     ensure!(
         rpc.hash(last.height)? == last.hash,
         "chain reorganized during sync; retry"
     );
-    let known: BTreeSet<_> = blocks
-        .iter()
-        .flat_map(|block| &block.stamps)
-        .flat_map(|stamp| stamp.tachygrams.iter().map(String::as_str))
-        .collect();
     let mut unresolved = 0;
     for receipt in store.notes()? {
-        if !known.contains(receipt.id()?.as_str()) {
+        if !store.has_tachygram(&receipt.id()?)? {
             unresolved += 1;
         }
     }
     Ok(
         json!({"height":last.height,"hash":last.hash,"epoch":last.epoch,"caught_up":last.height == tip,
         "birthday_height":config.birthday_height.unwrap_or(config.activation),
-        "sync_start_height":blocks.first().expect("sync has a checkpoint").height,
+        "sync_start_height":if backfill { needed_start } else { first },
         "unresolved_receipts":unresolved,
         "transparent_synced_height":store.funding_snapshot()?.map(|snapshot| snapshot.height)}),
     )

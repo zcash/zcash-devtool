@@ -1,10 +1,10 @@
 use anyhow::Result;
-use ff::PrimeField;
-use pasta_curves::Fp;
 use primitives::transaction::Transaction;
 use protocol::{consensus::BranchId, value::Zatoshis};
 use sha2::{Digest, Sha256};
 use transparent::bundle::{OutPoint, TxOut};
+use udon::field::Field;
+use zcash_tachyon::pasta::Fp;
 use zcash_tachyon::{
     Anchor, EpochIndex, QrClassRoot, Tachygram, TachygramSetPoly, TachyonBundle,
     constants::EPOCH_SIZE, keys::private::SpendingKey,
@@ -70,7 +70,7 @@ pub(crate) fn mine(blocks: &mut Vec<Block>, tx: Option<&Transaction>) -> Result<
                 .stamp
                 .tachygrams
                 .iter()
-                .map(|t| hex::encode(Fp::from(*t).to_repr()))
+                .map(|t| hex::encode(Fp::from(*t).to_bytes()))
                 .collect(),
         });
     }
@@ -100,7 +100,7 @@ pub(crate) fn own(value: u64) -> Receipt {
 pub(crate) fn shield(blocks: &[Block], receipt: &Receipt) -> Result<Transaction> {
     build(Payment {
         seed: SEED,
-        blocks,
+        blocks: blocks.into(),
         spend: None,
         funding: Some(Funding {
             outpoint: OutPoint::new([2; 32], 0),
@@ -264,7 +264,7 @@ fn shield_transfer_change_and_unshield_roundtrip_with_valid_authorization() -> R
     let change = own(650_000);
     let sent = build(Payment {
         seed: SEED,
-        blocks: &blocks,
+        blocks: (&blocks).into(),
         spend: Some(&funded),
         funding: None,
         outputs: &[recipient, change.clone()],
@@ -283,7 +283,7 @@ fn shield_transfer_change_and_unshield_roundtrip_with_valid_authorization() -> R
     mine(&mut blocks, Some(&sent))?;
     let unshield = build(Payment {
         seed: SEED,
-        blocks: &blocks,
+        blocks: (&blocks).into(),
         spend: Some(&change),
         funding: None,
         outputs: &[],
@@ -317,7 +317,7 @@ fn old_note_spends_after_populated_and_empty_closed_epochs() -> Result<()> {
     }
     let sent = build(Payment {
         seed: SEED,
-        blocks: &blocks,
+        blocks: (&blocks).into(),
         spend: Some(&receipt),
         funding: None,
         outputs: &[own(950_000)],
@@ -347,7 +347,7 @@ fn checkpoint_history_supports_spends_before_and_after_creation_epoch_closes() -
         }
         let sent = build(Payment {
             seed: SEED,
-            blocks: &blocks,
+            blocks: (&blocks).into(),
             spend: Some(&receipt),
             funding: None,
             outputs: &[own(950_000)],
@@ -396,7 +396,7 @@ fn populate_epoch(blocks: &mut Vec<Block>, count: usize) -> Result<()> {
             tachygram_set: hex::encode(bytes),
             tachygrams: members
                 .iter()
-                .map(|m| hex::encode(Fp::from(*m).to_repr()))
+                .map(|m| hex::encode(Fp::from(*m).to_bytes()))
                 .collect(),
         });
     }
@@ -440,7 +440,7 @@ fn spends_after_epoch_with_more_tachygrams_than_polynomial_capacity() -> Result<
     for receipt in [&receipt, &older] {
         let sent = build(Payment {
             seed: SEED,
-            blocks: &blocks,
+            blocks: (&blocks).into(),
             spend: Some(receipt),
             funding: None,
             outputs: &[own(950_000)],
@@ -453,6 +453,83 @@ fn spends_after_epoch_with_more_tachygrams_than_polynomial_capacity() -> Result<
 }
 
 #[test]
+fn store_indexes_new_blocks_and_rewinds_without_rescanning() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))?;
+    }
+    let store = crate::store::Store::open(directory.path(), true)?;
+    let mut blocks = vec![genesis()];
+    let receipt = own(1_000_000);
+    let funded = shield(&blocks, &receipt)?;
+    mine(&mut blocks, Some(&funded))?;
+    for block in &blocks {
+        store.put_block(block)?;
+    }
+    assert_eq!(store.tip()?.map(|block| block.height), Some(9));
+    assert_eq!(store.tachygram_height(&receipt.id()?)?, Some(9));
+    assert!(store.has_transaction(&funded.txid().to_string())?);
+    assert_eq!(store.blocks_range(8, 8)?.len(), 1);
+    store.rewind(8)?;
+    assert_eq!(store.tachygram_height(&receipt.id()?)?, None);
+    assert!(!store.has_transaction(&funded.txid().to_string())?);
+    Ok(())
+}
+
+#[test]
+fn cached_spendability_advances_only_across_new_epochs() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))?;
+    }
+    let store = crate::store::Store::open(directory.path(), true)?;
+    let mut blocks = vec![genesis()];
+    let receipt = own(1_000_000);
+    let funded = shield(&blocks, &receipt)?;
+    mine(&mut blocks, Some(&funded))?;
+    while blocks.last().unwrap().epoch < 2 {
+        mine(&mut blocks, None)?;
+    }
+    for block in &blocks {
+        store.put_block(block)?;
+    }
+    let chain = crate::store::ChainData::Store(&store);
+    let control = Control::new(true);
+    let key = SpendingKey::from(SEED);
+    let first = crate::proofs::spendable(&chain, &key, receipt.note()?, &control)?;
+    let cached = store
+        .spendable_proof(&receipt.id()?)?
+        .expect("spendability proof is cached");
+    assert!(!cached.is_empty());
+    let second = crate::proofs::spendable(&chain, &key, receipt.note()?, &control)?;
+    assert_eq!(second.data(), first.data());
+    assert!(
+        store
+            .bucket_proof(0, zcash_tachyon::QrProfile::ROOT)?
+            .is_some_and(|(pcd, _)| !pcd.is_empty())
+    );
+    store.put_spendable_proof(&receipt.id()?, &[0u8; 32])?;
+    let recovered = crate::proofs::spendable(&chain, &key, receipt.note()?, &control)?;
+    assert_eq!(recovered.data(), first.data());
+    assert_ne!(store.spendable_proof(&receipt.id()?)?, Some(vec![0u8; 32]));
+    while blocks.last().unwrap().epoch < 3 {
+        mine(&mut blocks, None)?;
+    }
+    for block in &blocks {
+        if store.block(block.height)?.is_none() {
+            store.put_block(block)?;
+        }
+    }
+    let third = crate::proofs::spendable(&chain, &key, receipt.note()?, &control)?;
+    assert!(third.data().1 > second.data().1);
+    Ok(())
+}
+
+#[test]
 fn spent_note_cannot_produce_closed_epoch_absence_evidence() -> Result<()> {
     let mut blocks = vec![genesis()];
     let receipt = own(1_000_000);
@@ -460,7 +537,7 @@ fn spent_note_cannot_produce_closed_epoch_absence_evidence() -> Result<()> {
     mine(&mut blocks, Some(&funded))?;
     let sent = build(Payment {
         seed: SEED,
-        blocks: &blocks,
+        blocks: (&blocks).into(),
         spend: Some(&receipt),
         funding: None,
         outputs: &[own(950_000)],
@@ -473,7 +550,7 @@ fn spent_note_cannot_produce_closed_epoch_absence_evidence() -> Result<()> {
     }
     assert!(
         crate::proofs::spendable(
-            &blocks,
+            &crate::store::ChainData::Blocks(&blocks),
             &SpendingKey::from(SEED),
             receipt.note()?,
             &Control::new(true)
@@ -491,7 +568,7 @@ fn spent_note_cannot_hide_in_another_routed_bucket() -> Result<()> {
     mine(&mut blocks, Some(&funded))?;
     let sent = build(Payment {
         seed: SEED,
-        blocks: &blocks,
+        blocks: (&blocks).into(),
         spend: Some(&receipt),
         funding: None,
         outputs: &[own(950_000)],
@@ -504,7 +581,7 @@ fn spent_note_cannot_hide_in_another_routed_bucket() -> Result<()> {
         mine(&mut blocks, None)?;
     }
     let error = crate::proofs::spendable(
-        &blocks,
+        &crate::store::ChainData::Blocks(&blocks),
         &SpendingKey::from(SEED),
         receipt.note()?,
         &Control::new(true),
