@@ -241,6 +241,7 @@ pub(super) fn sync(
         rpc.hash(last.height)? == last.hash,
         "chain reorganized during sync; retry"
     );
+    super::refresh_note_nullifiers(store, config, last.epoch)?;
     let mut unresolved = 0;
     for receipt in store.notes()? {
         if !store.has_tachygram(&receipt.id()?)? {

@@ -5,6 +5,7 @@ use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeSet,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -317,6 +318,12 @@ impl Store {
                 params![txid, block.height],
             )?;
         }
+        self.conn.execute(
+            "UPDATE note_nullifiers SET spent_height=?
+             WHERE spent_height IS NULL
+             AND nullifier IN (SELECT id FROM tachygrams WHERE height=?)",
+            params![block.height, block.height],
+        )?;
         Ok(())
     }
     /// Additive, one-time index migration for existing wallets. Steady-state
@@ -327,7 +334,11 @@ impl Store {
              CREATE TABLE IF NOT EXISTS tachygrams (id TEXT NOT NULL, height INTEGER NOT NULL, PRIMARY KEY(id, height));
              CREATE INDEX IF NOT EXISTS tachygrams_by_height ON tachygrams(height);
              CREATE TABLE IF NOT EXISTS block_transactions (txid TEXT NOT NULL, height INTEGER NOT NULL, PRIMARY KEY(txid, height));
-             CREATE INDEX IF NOT EXISTS transactions_by_height ON block_transactions(height);",
+             CREATE INDEX IF NOT EXISTS transactions_by_height ON block_transactions(height);
+             CREATE TABLE IF NOT EXISTS note_nullifiers (
+                note_id TEXT NOT NULL, epoch INTEGER NOT NULL, nullifier TEXT NOT NULL UNIQUE,
+                spent_height INTEGER, PRIMARY KEY(note_id, epoch));
+             CREATE INDEX IF NOT EXISTS note_nullifiers_by_spend ON note_nullifiers(spent_height);",
         )?;
         let version: Option<String> = self
             .conn
@@ -471,10 +482,70 @@ impl Store {
             self.conn.execute("DELETE FROM epoch_proofs", [])?;
             self.conn.execute("DELETE FROM spendable_proofs", [])?;
         }
+        if self.table_exists("note_nullifiers")? {
+            self.conn
+                .execute("UPDATE note_nullifiers SET spent_height=NULL", [])?;
+        }
         self.clear_funding_snapshot()
     }
     pub fn notes(&self) -> Result<Vec<Receipt>> {
         self.read_all("SELECT data FROM notes ORDER BY id")
+    }
+    pub fn notes_without_nullifier(&self, epoch: u32) -> Result<Vec<Receipt>> {
+        self.ensure_indexes()?;
+        self.conn
+            .prepare(
+                "SELECT notes.data FROM notes
+                 LEFT JOIN note_nullifiers nn ON nn.note_id=notes.id AND nn.epoch=?
+                 WHERE nn.note_id IS NULL
+                 AND NOT EXISTS (
+                    SELECT 1 FROM note_nullifiers spent
+                    WHERE spent.note_id=notes.id AND spent.spent_height IS NOT NULL
+                 ) ORDER BY notes.id",
+            )?
+            .query_map([epoch], |row| row.get::<_, String>(0))?
+            .map(|row| Ok(serde_json::from_str(&row?)?))
+            .collect()
+    }
+    pub fn note_nullifier_epochs(&self, note_id: &str) -> Result<BTreeSet<u32>> {
+        self.ensure_indexes()?;
+        Ok(self
+            .conn
+            .prepare("SELECT epoch FROM note_nullifiers WHERE note_id=?")?
+            .query_map([note_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+    pub fn put_note_nullifier(
+        &self,
+        note_id: &str,
+        epoch: u32,
+        nullifier: &str,
+        spent_height: Option<u32>,
+    ) -> Result<()> {
+        self.ensure_indexes()?;
+        self.conn.execute(
+            "INSERT INTO note_nullifiers VALUES(?, ?, ?, ?) ON CONFLICT DO NOTHING",
+            params![note_id, epoch, nullifier, spent_height],
+        )?;
+        Ok(())
+    }
+    pub fn spent_note_ids(&self) -> Result<BTreeSet<String>> {
+        self.ensure_indexes()?;
+        Ok(self
+            .conn
+            .prepare("SELECT DISTINCT note_id FROM note_nullifiers WHERE spent_height IS NOT NULL")?
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+    pub fn mined_note_ids(&self) -> Result<BTreeSet<String>> {
+        self.ensure_indexes()?;
+        Ok(self
+            .conn
+            .prepare(
+                "SELECT DISTINCT notes.id FROM notes JOIN tachygrams ON tachygrams.id=notes.id",
+            )?
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?)
     }
     pub fn pending(&self) -> Result<Vec<Pending>> {
         self.read_all("SELECT data FROM pending ORDER BY txid")
@@ -586,6 +657,12 @@ impl Store {
             .is_some_and(|snapshot| snapshot.height > height)
         {
             self.conn.execute("DELETE FROM funding_snapshot", [])?;
+        }
+        if self.table_exists("note_nullifiers")? {
+            self.conn.execute(
+                "UPDATE note_nullifiers SET spent_height=NULL WHERE spent_height > ?",
+                [height],
+            )?;
         }
         self.rewind_proofs(height)
     }

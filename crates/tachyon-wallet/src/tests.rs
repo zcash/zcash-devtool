@@ -503,6 +503,59 @@ fn store_indexes_new_blocks_and_rewinds_without_rescanning() -> Result<()> {
 }
 
 #[test]
+fn note_spend_tracking_updates_from_new_blocks_and_rewinds() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))?;
+    }
+    let store = crate::store::Store::open(directory.path(), true)?;
+    let config = crate::store::Config {
+        version: 1,
+        rpc_url: String::new(),
+        cookie_file: None,
+        activation: 8,
+        activation_hash: String::new(),
+        genesis: String::new(),
+        network_id: NETWORK.into(),
+        seed: SEED,
+        birthday_height: Some(8),
+    };
+    let mut blocks = vec![genesis()];
+    let receipt = own(1_000_000);
+    let funded = shield(&blocks, &receipt)?;
+    mine(&mut blocks, Some(&funded))?;
+    for block in &blocks {
+        store.put_block(block)?;
+    }
+    store.put_note(&receipt)?;
+    crate::wallet::refresh_note_nullifiers(&store, &config, 0)?;
+    assert!(store.notes_without_nullifier(0)?.is_empty());
+    assert!(store.spent_note_ids()?.is_empty());
+
+    let sent = build(Payment {
+        seed: SEED,
+        blocks: (&blocks).into(),
+        spend: Some(&receipt),
+        funding: None,
+        outputs: &[own(950_000)],
+        transparent_output: None,
+        expiry: 30,
+    })?;
+    mine(&mut blocks, Some(&sent))?;
+    let spend_height = blocks.last().unwrap().height;
+    store.put_block(blocks.last().unwrap())?;
+    assert!(store.spent_note_ids()?.contains(&receipt.id()?));
+
+    store.rewind(spend_height - 1)?;
+    assert!(store.spent_note_ids()?.is_empty());
+    store.put_block(blocks.last().unwrap())?;
+    assert!(store.spent_note_ids()?.contains(&receipt.id()?));
+    Ok(())
+}
+
+#[test]
 fn cached_spendability_advances_only_across_new_epochs() -> Result<()> {
     let directory = tempfile::tempdir()?;
     #[cfg(unix)]

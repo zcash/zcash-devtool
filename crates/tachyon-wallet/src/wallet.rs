@@ -428,6 +428,38 @@ fn find_pending(store: &Store, txid: &str) -> Result<Pending> {
         .context("unknown wallet transaction")
 }
 
+pub(crate) fn refresh_note_nullifiers(
+    store: &Store,
+    config: &Config,
+    current_epoch: u32,
+) -> Result<()> {
+    let key = SpendingKey::from(config.seed);
+    for receipt in store.notes_without_nullifier(current_epoch)? {
+        receipt.check_owner(&key, &config.network_id)?;
+        let id = receipt.id()?;
+        let Some(creation) = store.tachygram_height(&id)? else {
+            continue;
+        };
+        let note = receipt.note()?;
+        let master = key.derive_nullifier_private().derive_note_private(note.psi);
+        let existing = store.note_nullifier_epochs(&id)?;
+        let first_epoch = (creation - config.activation) / EPOCH_SIZE;
+        for epoch in first_epoch..=current_epoch {
+            if existing.contains(&epoch) {
+                continue;
+            }
+            let nullifier =
+                hex::encode(Fp::from(master.derive_nullifier(EpochIndex::new(epoch))).to_bytes());
+            let spent_height = store.tachygram_height(&nullifier)?;
+            store.put_note_nullifier(&id, epoch, &nullifier, spent_height)?;
+            if spent_height.is_some() {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn note_states(
     store: &Store,
     config: &Config,
@@ -435,6 +467,10 @@ fn note_states(
 ) -> Result<Vec<(Receipt, &'static str)>> {
     control.stage("Checking note states…")?;
     let key = SpendingKey::from(config.seed);
+    let current_epoch = store.tip()?.map(|block| block.epoch).unwrap_or(0);
+    refresh_note_nullifiers(store, config, current_epoch)?;
+    let spent = store.spent_note_ids()?;
+    let mined = store.mined_note_ids()?;
     let mut reserved = BTreeSet::new();
     for pending in store.pending()? {
         if pending_status(&pending, store)? != "expired" {
@@ -448,26 +484,9 @@ fn note_states(
             control.check()?;
             receipt.check_owner(&key, &config.network_id)?;
             let id = receipt.id()?;
-            let note = receipt.note()?;
-            let master = key.derive_nullifier_private().derive_note_private(note.psi);
-            let mined = store.has_tachygram(&id)?;
-            let mut spent = false;
-            if let Some(creation) = store.tachygram_height(&id)? {
-                let current = store.tip()?.map(|block| block.epoch).unwrap_or(0);
-                let first_epoch = (creation - config.activation) / EPOCH_SIZE;
-                for epoch in first_epoch..=current {
-                    let nf = hex::encode(
-                        Fp::from(master.derive_nullifier(EpochIndex::new(epoch))).to_bytes(),
-                    );
-                    if store.has_tachygram(&nf)? {
-                        spent = true;
-                        break;
-                    }
-                }
-            }
-            let status = if spent {
+            let status = if spent.contains(&id) {
                 "spent"
-            } else if !mined {
+            } else if !mined.contains(&id) {
                 "unconfirmed"
             } else if reserved.contains(&format!("note:{id}")) {
                 "reserved"
