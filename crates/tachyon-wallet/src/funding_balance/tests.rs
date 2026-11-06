@@ -124,6 +124,7 @@ fn accumulation_never_wraps() -> Result<()> {
         index: 0,
         value_zat: 1,
         immature_coinbase: false,
+        coinbase: Some(false),
     });
     assert!(snapshot.balance(&BTreeSet::new()).is_err());
     Ok(())

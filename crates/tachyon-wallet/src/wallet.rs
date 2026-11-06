@@ -137,6 +137,11 @@ enum Operation {
         #[arg(long)]
         txid: String,
     },
+    /// List status for selected operation IDs without loading full history.
+    TransactionStatus {
+        #[arg(long = "id")]
+        ids: Vec<String>,
+    },
     /// List mined, pending, or expired transactions (receipts and keys are not printed).
     Transactions,
 }
@@ -247,7 +252,17 @@ impl Command {
             return Ok(result);
         }
         control.stage("Opening wallet database…")?;
-        let store = Store::open(&self.wallet_dir, false)?;
+        let read_only = matches!(
+            self.command,
+            Operation::BalanceSummary
+                | Operation::Transactions
+                | Operation::TransactionStatus { .. }
+        );
+        let store = if read_only {
+            Store::open_readonly(&self.wallet_dir)?
+        } else {
+            Store::open(&self.wallet_dir, false)?
+        };
         let config = store.config()?;
         let key = SpendingKey::from(config.seed);
         let result = match self.command {
@@ -256,7 +271,7 @@ impl Command {
             operation @ (Operation::Balance | Operation::BalanceSummary) => {
                 let summary = matches!(operation, Operation::BalanceSummary);
                 let tip = store.tip()?;
-                let states = note_states(&store, &config, control)?;
+                let states = note_states(&store, &config, control, !summary)?;
                 let available = states
                     .iter()
                     .filter(|(_, s)| *s == "available")
@@ -291,6 +306,9 @@ impl Command {
                         .map(|(r, s)| Ok(json!({"id":r.id()?,"value_zat":r.value_zat,"status":s})))
                         .collect::<Result<Vec<_>>>()?
                 );
+                if summary {
+                    return Ok(result);
+                }
                 result
             }
             Operation::Sync {
@@ -354,6 +372,18 @@ impl Command {
                 write_private(&out, &serde_json::to_vec_pretty(&receipt)?)?;
                 json!({"txid":txid,"receipt":out})
             }
+            Operation::TransactionStatus { ids } => {
+                let mut transactions = Vec::new();
+                for id in ids {
+                    validate_operation_id(&id)?;
+                    if let Some(saved) = store.operation(&id)? {
+                        let pending = find_pending(&store, &saved.txid)?;
+                        transactions.push(json!({"txid":pending.txid,"operation_id":id,
+                            "expiry_height":pending.expiry,"status":pending_status(&pending,&store)?}));
+                    }
+                }
+                return Ok(json!({"transactions":transactions}));
+            }
             Operation::Transactions => {
                 let ids = store.operation_ids()?;
                 let transactions = store
@@ -364,7 +394,7 @@ impl Command {
                             "expiry_height":pending.expiry,"status":pending_status(&pending,&store)?}))
                     })
                     .collect::<Result<Vec<_>>>()?;
-                json!({"transactions":transactions})
+                return Ok(json!({"transactions":transactions}));
             }
             Operation::Lookup { id } => {
                 validate_operation_id(&id)?;
@@ -567,11 +597,19 @@ fn note_states(
     store: &Store,
     config: &Config,
     control: &Control,
+    allow_refresh: bool,
 ) -> Result<Vec<(Receipt, &'static str)>> {
     control.stage("Checking note states…")?;
     let key = SpendingKey::from(config.seed);
     let current_epoch = store.tip()?.map(|block| block.epoch).unwrap_or(0);
-    refresh_note_nullifiers(store, config, current_epoch)?;
+    if allow_refresh {
+        refresh_note_nullifiers(store, config, current_epoch)?;
+    } else {
+        ensure!(
+            store.notes_without_nullifier(current_epoch)?.is_empty(),
+            "run sync to update note spend state"
+        );
+    }
     let spent = store.spent_note_ids()?;
     let mined = store.mined_note_ids()?;
     let mut reserved = BTreeSet::new();
@@ -806,7 +844,7 @@ fn pay(
         Operation::Send { to, amount_zat } | Operation::Unshield { to, amount_zat } => {
             ensure!(amount_zat > 0, "amount must be positive");
             let needed = amount_zat.checked_add(FEE).context("amount overflow")?;
-            let selected = note_states(store, config, control)?.into_iter().filter(|(r,s)| *s == "available" && r.value_zat >= needed)
+            let selected = note_states(store, config, control, true)?.into_iter().filter(|(r,s)| *s == "available" && r.value_zat >= needed)
                 .min_by_key(|(r,_)| r.value_zat).map(|(r,_)| r).context("no single available note covers amount plus fee; this wallet does not consolidate notes")?;
             source = format!("note:{}", selected.id()?);
             // The command-specific address format was checked before accessing the node.

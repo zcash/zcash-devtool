@@ -28,7 +28,7 @@ struct AddressUtxo {
     height: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub height: u32,
     pub hash: String,
@@ -36,13 +36,25 @@ pub struct Snapshot {
     utxos: Vec<Utxo>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Utxo {
     txid: String,
     index: u32,
     value_zat: u64,
     /// Maturity is evaluated at the snapshot height, not the current wall-clock time.
     immature_coinbase: bool,
+    /// Unknown in snapshots written before candidates were exposed.
+    #[serde(default)]
+    coinbase: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FundingCandidate<'a> {
+    txid: &'a str,
+    #[serde(rename = "outputIndex")]
+    index: u32,
+    satoshis: u64,
+    coinbase: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,6 +67,7 @@ pub struct Balance<'a> {
     immature_zat: u64,
     reserved_zat: u64,
     utxo_count: usize,
+    funding_candidates: Vec<FundingCandidate<'a>>,
 }
 
 impl AddressUtxos {
@@ -77,6 +90,30 @@ impl AddressUtxos {
             tip.height == self.height && tip.hash == self.hash,
             "transparent snapshot does not match the synced chain; retry sync"
         );
+        if let Some(previous) = store.funding_snapshot()? {
+            let previous_set: std::collections::BTreeMap<_, _> = previous
+                .utxos
+                .iter()
+                .map(|output| ((output.txid.as_str(), output.index), output.value_zat))
+                .collect();
+            let incoming_set: std::collections::BTreeMap<_, _> = self
+                .utxos
+                .iter()
+                .map(|output| ((output.txid.as_str(), output.index), output.satoshis))
+                .collect();
+            if previous.address == address
+                && previous_set.len() == previous.utxos.len()
+                && incoming_set.len() == self.utxos.len()
+                && previous_set == incoming_set
+            {
+                return Ok(Snapshot {
+                    height: self.height,
+                    hash: self.hash,
+                    address: address.into(),
+                    utxos: previous.utxos,
+                });
+            }
+        }
         let expected_script = transaction::transparent_script(address)?;
         let mut seen = BTreeSet::new();
         let mut utxos = Vec::with_capacity(self.utxos.len());
@@ -97,37 +134,34 @@ impl AddressUtxos {
                 "funding output is above the snapshot tip"
             );
             let confirmations = u64::from(self.height - output.height) + 1;
-            let immature_coinbase = if confirmations < COINBASE_MATURITY {
-                let coinbase_txid = if let Some(block) = store.block(output.height)? {
-                    block.transactions.first().cloned()
-                } else {
-                    // Recent pre-activation funding is outside the Tachyon feed;
-                    // fetch only this missing block's transaction IDs.
-                    let response: Value =
-                        rpc.call("getblock", json!([output.height.to_string(), 1]))?;
-                    ensure!(
-                        response["height"].as_u64() == Some(u64::from(output.height)),
-                        "funding block height mismatch"
-                    );
-                    let hash = response["hash"]
-                        .as_str()
-                        .context("funding block has no hash")?;
-                    bytes32(hash)?;
-                    response["tx"]
-                        .as_array()
-                        .and_then(|transactions| transactions.first())
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                };
-                coinbase_txid.as_ref() == Some(&txid)
+            let coinbase_txid = if let Some(block) = store.block(output.height)? {
+                block.transactions.first().cloned()
             } else {
-                false
+                // Pre-activation funding can be outside the Tachyon feed.
+                let response: Value =
+                    rpc.call("getblock", json!([output.height.to_string(), 1]))?;
+                ensure!(
+                    response["height"].as_u64() == Some(u64::from(output.height)),
+                    "funding block height mismatch"
+                );
+                let hash = response["hash"]
+                    .as_str()
+                    .context("funding block has no hash")?;
+                bytes32(hash)?;
+                response["tx"]
+                    .as_array()
+                    .and_then(|transactions| transactions.first())
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
             };
+            let coinbase = coinbase_txid.as_ref() == Some(&txid);
+            let immature_coinbase = coinbase && confirmations < COINBASE_MATURITY;
             utxos.push(Utxo {
                 txid,
                 index: output.index,
                 value_zat: output.satoshis,
                 immature_coinbase,
+                coinbase: Some(coinbase),
             });
         }
         Ok(Snapshot {
@@ -157,6 +191,23 @@ impl Snapshot {
     }
 
     pub fn balance(&self, reserved: &BTreeSet<String>) -> Result<Balance<'_>> {
+        let funding_candidates = self
+            .utxos
+            .iter()
+            .filter(|output| {
+                !output.immature_coinbase
+                    && !reserved.contains(&format!("outpoint:{}:{}", output.txid, output.index))
+            })
+            .filter_map(|output| {
+                output.coinbase.map(|coinbase| FundingCandidate {
+                    txid: &output.txid,
+                    index: output.index,
+                    satoshis: output.value_zat,
+                    coinbase,
+                })
+            })
+            .take(64)
+            .collect();
         let mut balance = Balance {
             address: &self.address,
             synced_height: self.height,
@@ -166,6 +217,7 @@ impl Snapshot {
             immature_zat: 0,
             reserved_zat: 0,
             utxo_count: self.utxos.len(),
+            funding_candidates,
         };
         for output in &self.utxos {
             balance.total_zat = balance

@@ -192,6 +192,12 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
 
 impl Store {
     pub fn open(dir: &Path, initialize: bool) -> Result<Self> {
+        Self::open_with_mode(dir, initialize, false)
+    }
+    pub fn open_readonly(dir: &Path) -> Result<Self> {
+        Self::open_with_mode(dir, false, true)
+    }
+    fn open_with_mode(dir: &Path, initialize: bool, read_only: bool) -> Result<Self> {
         if initialize && !dir.exists() {
             #[cfg(unix)]
             {
@@ -225,9 +231,20 @@ impl Store {
             fs::symlink_metadata(&path)?.is_file(),
             "wallet database must be a regular file"
         );
-        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        let flags = if read_only {
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+        } else {
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+        };
+        let conn = Connection::open_with_flags(path, flags)?;
         conn.busy_timeout(Duration::from_secs(1))?;
-        conn.execute_batch("PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;")?;
+        if read_only {
+            conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+        } else {
+            conn.execute_batch(
+                "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;",
+            )?;
+        }
         if initialize {
             conn.execute_batch(
                 "CREATE TABLE config (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
@@ -255,6 +272,28 @@ impl Store {
         let config: Config = serde_json::from_str(&json)?;
         ensure!(config.version == 1, "unsupported wallet database version");
         Ok(config)
+    }
+    pub fn network_identity_valid(&self, config: &Config) -> Result<bool> {
+        self.ensure_indexes()?;
+        let expected = format!("{}:{}", config.genesis, config.activation_hash);
+        let cached: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key='network_identity_v1'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(cached.as_deref() == Some(expected.as_str()))
+    }
+    pub fn mark_network_identity_valid(&self, config: &Config) -> Result<()> {
+        self.ensure_indexes()?;
+        self.conn.execute(
+            "INSERT INTO metadata VALUES('network_identity_v1', ?)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [format!("{}:{}", config.genesis, config.activation_hash)],
+        )?;
+        Ok(())
     }
     pub fn blocks(&self) -> Result<Vec<Block>> {
         let mut blocks: Vec<Block> = self.read_all("SELECT data FROM blocks ORDER BY height")?;
@@ -626,6 +665,9 @@ impl Store {
             .transpose()
     }
     pub fn put_funding_snapshot(&self, snapshot: &Snapshot) -> Result<()> {
+        if self.funding_snapshot()?.as_ref() == Some(snapshot) {
+            return Ok(());
+        }
         // Additive, lazy migration: existing v1 wallets remain readable before their next sync.
         self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS funding_snapshot (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);"

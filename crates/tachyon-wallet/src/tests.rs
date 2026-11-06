@@ -558,6 +558,9 @@ fn note_spend_tracking_updates_from_new_blocks_and_rewinds() -> Result<()> {
     assert!(store.spent_note_ids()?.is_empty());
     store.put_block(blocks.last().unwrap())?;
     assert!(store.spent_note_ids()?.contains(&receipt.id()?));
+    store.commit()?;
+    let readonly = crate::store::Store::open_readonly(directory.path())?;
+    assert!(readonly.put_note(&own(3_000_000)).is_err());
     Ok(())
 }
 

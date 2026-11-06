@@ -191,10 +191,6 @@ pub(crate) fn sync_with_cache(
     cache: &std::sync::Arc<std::sync::Mutex<SyncCache>>,
 ) -> Result<Value> {
     let rpc = rpc(config, control)?;
-    ensure!(
-        rpc.hash(0)? == config.genesis && rpc.hash(config.activation)? == config.activation_hash,
-        "network identity changed (including possible regenesis); use a separate wallet directory"
-    );
     let funding_address = transaction::funding_address(config.seed)?;
     let funding = AddressUtxos::fetch(&rpc, &funding_address)?;
     let tip = funding.height;
@@ -205,11 +201,37 @@ pub(crate) fn sync_with_cache(
     control.stage("Loading saved chain inputs…")?;
     let initial_start = store.first_height()?.context("wallet has no checkpoint")?;
     let original_last = store.tip()?.context("wallet has no checkpoint")?;
+    let original_hash = if original_last.height <= tip {
+        Some(rpc.hash(original_last.height)?)
+    } else {
+        None
+    };
+    if !(store.network_identity_valid(config)?
+        && original_hash.as_deref() == Some(original_last.hash.as_str()))
+    {
+        ensure!(
+            rpc.hash(0)? == config.genesis
+                && rpc.hash(config.activation)? == config.activation_hash,
+            "network identity changed (including possible regenesis); use a separate wallet directory"
+        );
+        store.mark_network_identity_valid(config)?;
+    }
+    let mut reorg = false;
     let mut first = initial_start;
     let mut last = Some(original_last.clone());
     while let Some(candidate) = last.clone() {
         control.check()?;
-        if candidate.height <= tip && rpc.hash(candidate.height)? == candidate.hash {
+        let matches = if candidate.height > tip {
+            false
+        } else {
+            let hash = if candidate.height == original_last.height {
+                original_hash.clone().expect("original tip was hashed")
+            } else {
+                rpc.hash(candidate.height)?
+            };
+            hash == candidate.hash
+        };
+        if matches {
             break;
         }
         last = if candidate.height == initial_start {
@@ -221,10 +243,12 @@ pub(crate) fn sync_with_cache(
     if let Some(last) = last.clone() {
         if last.height != original_last.height {
             store.rewind(last.height)?;
+            reorg = true;
         }
     } else {
         // A checkpoint is pinned to a block, not an eternally trusted height.
         // Re-bootstrap on the configured node after a reorg crossing it.
+        reorg = true;
         let height = epoch_start(initial_start.min(tip), config.activation)?;
         let block = checkpoint(&rpc, height, config.activation)?;
         store.clear_chain()?;
@@ -276,6 +300,7 @@ pub(crate) fn sync_with_cache(
                 cached
             } else {
                 store.rewind(height - 1)?;
+                reorg = true;
                 cache.lock().unwrap().fetch(&rpc, height)?
             }
         } else {
@@ -303,6 +328,7 @@ pub(crate) fn sync_with_cache(
     let unresolved = store.unresolved_notes()?.len();
     Ok(
         json!({"height":last.height,"hash":last.hash,"epoch":last.epoch,"caught_up":last.height == tip,
+        "reorg":reorg,
         "birthday_height":config.birthday_height.unwrap_or(config.activation),
         "sync_start_height":if backfill { needed_start } else { first },
         "unresolved_receipts":unresolved,

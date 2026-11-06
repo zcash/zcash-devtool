@@ -42,6 +42,41 @@ fn downloaded(node: &Node) -> Vec<u32> {
 }
 
 #[test]
+fn network_identity_check_reuses_canonical_tip() -> Result<()> {
+    let node = Node::start()?;
+    let temp = tempfile::tempdir()?;
+    let dir = temp.path().join("wallet");
+    init_wallet(&node, &dir)?;
+    command(
+        &dir,
+        Operation::Sync {
+            max_blocks: 1000,
+            from_height: None,
+        },
+    )?;
+    node.data.lock().unwrap().requests.clear();
+    command(
+        &dir,
+        Operation::Sync {
+            max_blocks: 1000,
+            from_height: None,
+        },
+    )?;
+    let hashes: Vec<u64> = node
+        .data
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .filter(|(method, _)| method == "getblockhash")
+        .map(|(_, params)| params[0].as_u64().unwrap())
+        .collect();
+    assert!(!hashes.contains(&0));
+    assert_eq!(hashes.iter().filter(|height| **height == 8).count(), 2);
+    Ok(())
+}
+
+#[test]
 fn sync_many_command_returns_each_wallet_result() -> Result<()> {
     let node = Node::start()?;
     let temp = tempfile::tempdir()?;

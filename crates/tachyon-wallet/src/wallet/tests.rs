@@ -315,6 +315,40 @@ fn transparent_send(to: &str, amount_zat: u64) -> Operation {
 }
 
 #[test]
+fn balance_summary_exposes_validated_funding_candidates() -> Result<()> {
+    let node = Node::start()?;
+    let temp = tempfile::tempdir()?;
+    let dir = temp.path().join("wallet");
+    let address = init_wallet(&node, &dir)?;
+    let funding = install_funding(&node, &address, &[100_000, 200_000])?;
+    command(
+        &dir,
+        Operation::Sync {
+            max_blocks: 1000,
+            from_height: None,
+        },
+    )?;
+    let result = command(&dir, Operation::BalanceSummary)?;
+    let candidates = result["transparent"]["funding_candidates"]
+        .as_array()
+        .context("funding candidates must be an array")?;
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(candidates[0]["satoshis"], 100_000);
+    assert_eq!(candidates[1]["satoshis"], 200_000);
+    assert!(
+        candidates
+            .iter()
+            .all(|candidate| candidate["coinbase"] == false)
+    );
+    assert!(
+        candidates
+            .iter()
+            .all(|candidate| { candidate["txid"] == funding.txid().to_string() })
+    );
+    Ok(())
+}
+
+#[test]
 fn expected_tip_skips_redundant_sync_and_rejects_stale_tip() -> Result<()> {
     let node = Node::start()?;
     let temp = tempfile::tempdir()?;
@@ -501,6 +535,21 @@ fn operation_id_recovers_ambiguous_broadcast_and_replays_without_network() -> Re
         command(&dir, Operation::Transactions)?["transactions"][0]["operation_id"],
         "job:1"
     );
+    let selected = command(
+        &dir,
+        Operation::TransactionStatus {
+            ids: vec!["job:1".into()],
+        },
+    )?;
+    assert_eq!(selected["transactions"].as_array().unwrap().len(), 1);
+    assert_eq!(selected["transactions"][0]["operation_id"], "job:1");
+    let unknown = command(
+        &dir,
+        Operation::TransactionStatus {
+            ids: vec!["job:missing".into()],
+        },
+    )?;
+    assert!(unknown["transactions"].as_array().unwrap().is_empty());
     Ok(())
 }
 
@@ -1725,19 +1774,19 @@ fn reservations_survive_restarts_and_expire_only_after_expiry_height() -> Result
         birthday_height: None,
     };
     assert_eq!(
-        note_states(&store, &config, &Control::new(true))?[0].1,
+        note_states(&store, &config, &Control::new(true), true)?[0].1,
         "reserved"
     );
     crate::tests::mine(&mut blocks, None)?;
     store.put_block(blocks.last().unwrap())?;
     assert_eq!(
-        note_states(&store, &config, &Control::new(true))?[0].1,
+        note_states(&store, &config, &Control::new(true), true)?[0].1,
         "reserved"
     );
     crate::tests::mine(&mut blocks, None)?;
     store.put_block(blocks.last().unwrap())?;
     assert_eq!(
-        note_states(&store, &config, &Control::new(true))?[0].1,
+        note_states(&store, &config, &Control::new(true), true)?[0].1,
         "available"
     );
     Ok(())
