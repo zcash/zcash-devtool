@@ -43,6 +43,9 @@ pub(crate) enum Command {
     /// Experimental mock-proof Tachyon wallets for private development networks
     #[cfg(feature = "tachyon")]
     Tachyon(tachyon_wallet::Command),
+    /// Synchronize several Tachyon wallets with shared block work
+    #[cfg(feature = "tachyon")]
+    TachyonSyncMany(tachyon_wallet::SyncManyCommand),
     /// Inspect Zcash-related data
     Inspect(commands::inspect::Command),
 
@@ -131,6 +134,8 @@ fn main() -> Result<(), anyhow::Error> {
         #[cfg(feature = "tachyon")]
         let opts = match opts.command {
             Some(Command::Tachyon(command)) => return command.run_interruptible().await,
+            #[cfg(feature = "tachyon")]
+            Some(Command::TachyonSyncMany(command)) => return command.run_interruptible().await,
             command => MyOptions { command },
         };
 
@@ -145,7 +150,7 @@ fn main() -> Result<(), anyhow::Error> {
 
         match cmd {
             #[cfg(feature = "tachyon")]
-            Command::Tachyon(_) => {
+            Command::Tachyon(_) | Command::TachyonSyncMany(_) => {
                 unreachable!("Tachyon commands were handled before installing the wallet listener")
             }
             Command::Inspect(command) => command.run().await,

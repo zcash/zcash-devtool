@@ -14,7 +14,7 @@ mod transaction;
 mod wallet;
 
 pub use control::Interrupted;
-pub use wallet::Command;
+pub use wallet::{Command, SyncManyCommand};
 
 #[cfg(test)]
 mod tests;

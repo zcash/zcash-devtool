@@ -29,6 +29,52 @@ fn fetch_block(rpc: &Rpc, height: u32) -> Result<Block> {
     ))
 }
 
+#[derive(Default)]
+pub(crate) struct SyncCache {
+    blocks: std::collections::BTreeMap<u32, Block>,
+    validated: std::collections::BTreeSet<(u32, String, String)>,
+    fetches: usize,
+    validations: usize,
+}
+
+impl SyncCache {
+    fn fetch(&mut self, rpc: &Rpc, height: u32) -> Result<Block> {
+        let hash = rpc.hash(height)?;
+        if let Some(block) = self.blocks.get(&height)
+            && block.hash == hash
+        {
+            return Ok(block.clone());
+        }
+        let block = rpc.block(height).with_context(|| format!(
+            "cannot obtain Tachyon evidence at height {height}; if it has been pruned, use an archive node (proof-service recovery is not implemented)"
+        ))?;
+        ensure!(block.hash == hash, "Tachyon block changed during fetch");
+        self.blocks.insert(height, block.clone());
+        self.fetches += 1;
+        Ok(block)
+    }
+
+    fn validate(&mut self, block: &Block, previous: Option<&Block>, activation: u32) -> Result<()> {
+        let key = (
+            block.height,
+            block.hash.clone(),
+            previous.map(|block| block.hash.clone()).unwrap_or_default(),
+        );
+        if self.validated.contains(&key) {
+            return Ok(());
+        }
+        block.validate(previous, activation)?;
+        self.validated.insert(key);
+        self.validations += 1;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stats(&self) -> (usize, usize) {
+        (self.fetches, self.validations)
+    }
+}
+
 /// Hints only narrow the search. Aggregation can put a leaf transaction's
 /// commitment in another transaction's stamp in the same block.
 fn contains_receipt(block: &Block, receipt: &Receipt, locator: &Locator) -> Result<bool> {
@@ -132,6 +178,18 @@ pub(super) fn sync(
     from_height: Option<u32>,
     control: &Control,
 ) -> Result<Value> {
+    let cache = std::sync::Arc::new(std::sync::Mutex::new(SyncCache::default()));
+    sync_with_cache(store, config, max_blocks, from_height, control, &cache)
+}
+
+pub(crate) fn sync_with_cache(
+    store: &Store,
+    config: &Config,
+    max_blocks: u32,
+    from_height: Option<u32>,
+    control: &Control,
+    cache: &std::sync::Arc<std::sync::Mutex<SyncCache>>,
+) -> Result<Value> {
     let rpc = rpc(config, control)?;
     ensure!(
         rpc.hash(0)? == config.genesis && rpc.hash(config.activation)? == config.activation_hash,
@@ -218,13 +276,16 @@ pub(super) fn sync(
                 cached
             } else {
                 store.rewind(height - 1)?;
-                fetch_block(&rpc, height)?
+                cache.lock().unwrap().fetch(&rpc, height)?
             }
         } else {
-            fetch_block(&rpc, height)?
+            cache.lock().unwrap().fetch(&rpc, height)?
         };
         control.stage(format!("Validating block {height}…"))?;
-        block.validate(previous.as_ref(), config.activation)?;
+        cache
+            .lock()
+            .unwrap()
+            .validate(&block, previous.as_ref(), config.activation)?;
         control.check()?;
         store.put_block(&block)?;
         previous = Some(block);

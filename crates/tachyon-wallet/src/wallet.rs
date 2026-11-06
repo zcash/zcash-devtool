@@ -411,6 +411,95 @@ impl Command {
     }
 }
 
+#[derive(Debug, Args)]
+pub struct SyncManyCommand {
+    /// Wallet directories to advance against the same canonical block cache.
+    #[arg(long = "wallet-dir", required = true)]
+    wallet_dirs: Vec<PathBuf>,
+    #[arg(long, default_value_t = 1000, value_parser = clap::value_parser!(u32).range(1..=10000))]
+    max_blocks: u32,
+    /// Maximum concurrent wallet writers.
+    #[arg(long, default_value_t = 4, value_parser = clap::value_parser!(u32).range(1..=16))]
+    workers: u32,
+    /// Suppress progress on stderr.
+    #[arg(long, short = 'q', global = true)]
+    quiet: bool,
+}
+
+impl SyncManyCommand {
+    pub async fn run_interruptible(self) -> Result<()> {
+        control::run(self.quiet, move |control| self.run_with_control(&control)).await
+    }
+
+    fn run_with_control(&self, control: &Control) -> Result<()> {
+        let result = self.execute_with_control(control)?;
+        println!("{}", serde_json::to_string(&result)?);
+        Ok(())
+    }
+
+    fn execute_with_control(&self, control: &Control) -> Result<Value> {
+        let cache = std::sync::Arc::new(std::sync::Mutex::new(sync::SyncCache::default()));
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let wallets = std::sync::Mutex::new(serde_json::Map::new());
+        let errors = std::sync::Mutex::new(Vec::new());
+        let mut names = std::collections::BTreeSet::new();
+        for dir in &self.wallet_dirs {
+            let name = dir
+                .file_name()
+                .and_then(|name| name.to_str())
+                .context("wallet directory has no UTF-8 name")?;
+            ensure!(names.insert(name), "duplicate wallet name: {name}");
+        }
+        std::thread::scope(|scope| {
+            for _ in 0..(self.workers as usize).min(self.wallet_dirs.len()) {
+                scope.spawn(|| {
+                    loop {
+                        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(dir) = self.wallet_dirs.get(index) else {
+                            break;
+                        };
+                        let result = (|| -> Result<(String, Value)> {
+                            let name = dir
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .context("wallet directory has no UTF-8 name")?
+                                .to_string();
+                            let store = Store::open(dir, false)?;
+                            let config = store.config()?;
+                            let result = sync::sync_with_cache(
+                                &store,
+                                &config,
+                                self.max_blocks,
+                                None,
+                                control,
+                                &cache,
+                            )?;
+                            store.commit()?;
+                            Ok((name, result))
+                        })();
+                        match result {
+                            Ok((name, result)) => {
+                                wallets.lock().unwrap().insert(name, result);
+                            }
+                            Err(error) => errors.lock().unwrap().push(error),
+                        }
+                    }
+                });
+            }
+        });
+        let mut errors = errors.into_inner().unwrap();
+        if let Some(error) = errors.drain(..).next() {
+            return Err(error);
+        }
+        Ok(json!({"wallets":wallets.into_inner().unwrap()}))
+    }
+
+    #[cfg(test)]
+    fn execute(self) -> Result<Value> {
+        self.execute_with_control(&Control::new(true))
+    }
+}
+
 fn rpc(config: &Config, control: &Control) -> Result<Rpc> {
     Rpc::new(&config.rpc_url, config.cookie_file.clone(), control)
 }
