@@ -606,7 +606,7 @@ fn note_states(
         refresh_note_nullifiers(store, config, current_epoch)?;
     } else {
         ensure!(
-            store.notes_without_nullifier(current_epoch)?.is_empty(),
+            store.confirmed_notes_without_nullifier(current_epoch)?.is_empty(),
             "run sync to update note spend state"
         );
     }

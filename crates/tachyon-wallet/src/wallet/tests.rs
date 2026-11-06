@@ -315,6 +315,27 @@ fn transparent_send(to: &str, amount_zat: u64) -> Operation {
 }
 
 #[test]
+fn balance_summary_allows_unconfirmed_notes_without_nullifiers() -> Result<()> {
+    let node = Node::start()?;
+    let temp = tempfile::tempdir()?;
+    let dir = temp.path().join("wallet");
+    let address = init_wallet(&node, &dir)?;
+    install_funding(&node, &address, &[150_000])?;
+    command(
+        &dir,
+        Operation::Shield {
+            amount_zat: Some(100_000),
+            txid: None,
+            index: None,
+        },
+    )?;
+    let result = command(&dir, Operation::BalanceSummary)?;
+    assert_eq!(result["available_zat"], 0);
+    assert!(result["notes"].as_array().unwrap().is_empty());
+    Ok(())
+}
+
+#[test]
 fn balance_summary_exposes_validated_funding_candidates() -> Result<()> {
     let node = Node::start()?;
     let temp = tempfile::tempdir()?;

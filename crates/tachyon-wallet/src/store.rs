@@ -539,6 +539,23 @@ impl Store {
             .map(|row| Ok(serde_json::from_str(&row?)?))
             .collect()
     }
+    pub fn confirmed_notes_without_nullifier(&self, epoch: u32) -> Result<Vec<Receipt>> {
+        self.ensure_indexes()?;
+        self.conn
+            .prepare(
+                "SELECT notes.data FROM notes
+                 LEFT JOIN note_nullifiers nn ON nn.note_id=notes.id AND nn.epoch=?
+                 WHERE nn.note_id IS NULL
+                 AND EXISTS (SELECT 1 FROM tachygrams WHERE id=notes.id)
+                 AND NOT EXISTS (
+                    SELECT 1 FROM note_nullifiers spent
+                    WHERE spent.note_id=notes.id AND spent.spent_height IS NOT NULL
+                 ) ORDER BY notes.id",
+            )?
+            .query_map([epoch], |row| row.get::<_, String>(0))?
+            .map(|row| Ok(serde_json::from_str(&row?)?))
+            .collect()
+    }
     pub fn notes_without_nullifier(&self, epoch: u32) -> Result<Vec<Receipt>> {
         self.ensure_indexes()?;
         self.conn
