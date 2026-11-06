@@ -496,6 +496,12 @@ fn store_indexes_new_blocks_and_rewinds_without_rescanning() -> Result<()> {
     assert_eq!(store.tachygram_height(&receipt.id()?)?, Some(9));
     assert!(store.has_transaction(&funded.txid().to_string())?);
     assert_eq!(store.blocks_range(8, 8)?.len(), 1);
+    store.put_note(&receipt)?;
+    assert!(store.unresolved_notes()?.is_empty());
+    let unconfirmed = own(2_000_000);
+    store.put_note(&unconfirmed)?;
+    assert_eq!(store.unresolved_notes()?.len(), 1);
+    assert_eq!(store.unresolved_notes()?[0].id()?, unconfirmed.id()?);
     store.rewind(8)?;
     assert_eq!(store.tachygram_height(&receipt.id()?)?, None);
     assert!(!store.has_transaction(&funded.txid().to_string())?);

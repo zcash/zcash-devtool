@@ -369,9 +369,6 @@ impl Store {
             .optional()?
             .flatten())
     }
-    pub fn has_tachygram(&self, id: &str) -> Result<bool> {
-        Ok(self.tachygram_height(id)?.is_some())
-    }
     pub fn has_transaction(&self, txid: &str) -> Result<bool> {
         self.ensure_indexes()?;
         Ok(self.conn.query_row(
@@ -490,6 +487,18 @@ impl Store {
     }
     pub fn notes(&self) -> Result<Vec<Receipt>> {
         self.read_all("SELECT data FROM notes ORDER BY id")
+    }
+    pub fn unresolved_notes(&self) -> Result<Vec<Receipt>> {
+        self.ensure_indexes()?;
+        self.conn
+            .prepare(
+                "SELECT data FROM notes
+                 WHERE NOT EXISTS (SELECT 1 FROM tachygrams WHERE id=notes.id)
+                 ORDER BY id",
+            )?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .map(|row| Ok(serde_json::from_str(&row?)?))
+            .collect()
     }
     pub fn notes_without_nullifier(&self, epoch: u32) -> Result<Vec<Receipt>> {
         self.ensure_indexes()?;

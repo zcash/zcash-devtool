@@ -28,9 +28,12 @@ pub struct Command {
     /// Separate, private directory for this experimental wallet (not the ordinary wallet DB).
     #[arg(long)]
     wallet_dir: PathBuf,
-    /// Optional wallet-local idempotency key for shield/send/unshield/transparent-send.
+    /// Optional idempotency key for shield/send/unshield/transparent-send.
     #[arg(long, global = true)]
     operation_id: Option<String>,
+    /// Build a payment against an already-synced tip, without resyncing.
+    #[arg(long, global = true)]
+    expected_tip: Option<String>,
     /// Suppress progress on stderr (errors and interruption notices remain visible).
     #[arg(long, short = 'q', global = true)]
     quiet: bool,
@@ -397,6 +400,7 @@ impl Command {
                     &config,
                     operation,
                     self.operation_id.as_deref(),
+                    self.expected_tip.as_deref(),
                     control,
                 );
             }
@@ -581,6 +585,7 @@ fn pay(
     config: &Config,
     operation: Operation,
     operation_id: Option<&str>,
+    expected_tip: Option<&str>,
     control: &Control,
 ) -> Result<Value> {
     let request = payment_request(&operation)?;
@@ -597,11 +602,27 @@ fn pay(
         store.commit()?;
         return Ok(result); // Offline: never reselect inputs, rebuild proofs, or rebroadcast.
     }
-    ensure!(
-        sync(store, config, 1000, None, control)?["caught_up"] == true,
-        "run sync until caught up before creating transactions"
-    );
-    let tip = store.tip()?.context("wallet has not synced")?;
+    let tip = if let Some(expected) = expected_tip {
+        bytes32(expected)?;
+        let tip = store.tip()?.context("wallet has not synced")?;
+        ensure!(
+            tip.hash.eq_ignore_ascii_case(expected),
+            "wallet tip {} does not match expected tip {expected}",
+            tip.hash
+        );
+        let rpc = rpc(config, control)?;
+        ensure!(
+            rpc.height()? == tip.height && rpc.hash(tip.height)? == tip.hash,
+            "chain changed since expected tip; sync and retry"
+        );
+        tip
+    } else {
+        ensure!(
+            sync(store, config, 1000, None, control)?["caught_up"] == true,
+            "run sync until caught up before creating transactions"
+        );
+        store.tip()?.context("wallet has not synced")?
+    };
     let epoch_end = config
         .activation
         .checked_add(

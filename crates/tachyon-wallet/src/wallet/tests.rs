@@ -300,6 +300,7 @@ fn command_with_id(dir: &std::path::Path, command: Operation, id: Option<&str>) 
     Command {
         wallet_dir: dir.into(),
         operation_id: id.map(str::to_owned),
+        expected_tip: None,
         quiet: true,
         command,
     }
@@ -311,6 +312,72 @@ fn transparent_send(to: &str, amount_zat: u64) -> Operation {
         to: to.into(),
         amount_zat,
     }
+}
+
+#[test]
+fn expected_tip_skips_redundant_sync_and_rejects_stale_tip() -> Result<()> {
+    let node = Node::start()?;
+    let temp = tempfile::tempdir()?;
+    let dir = temp.path().join("wallet");
+    let address = init_wallet(&node, &dir)?;
+    install_funding(&node, &address, &[150_000])?;
+    command(
+        &dir,
+        Operation::Shield {
+            amount_zat: Some(100_000),
+            txid: None,
+            index: None,
+        },
+    )?;
+    node.mine()?;
+    let synced = command(
+        &dir,
+        Operation::Sync {
+            max_blocks: 1000,
+            from_height: None,
+        },
+    )?;
+    let tip = synced["hash"].as_str().unwrap().to_string();
+    node.data.lock().unwrap().requests.clear();
+    let result = Command {
+        wallet_dir: dir.clone(),
+        operation_id: None,
+        expected_tip: Some(tip.clone()),
+        quiet: true,
+        command: Operation::Send {
+            to: note::address(&SpendingKey::from([9; 32])),
+            amount_zat: 50_000,
+        },
+    }
+    .execute()?;
+    assert_eq!(result["status"], "submitted");
+    let requests = node.data.lock().unwrap().requests.clone();
+    assert!(
+        !requests
+            .iter()
+            .any(|(method, _)| method == "getaddressutxos")
+    );
+    assert!(
+        !requests
+            .iter()
+            .any(|(method, _)| method == "gettachyonblock")
+    );
+
+    node.data.lock().unwrap().requests.clear();
+    let error = Command {
+        wallet_dir: dir,
+        operation_id: None,
+        expected_tip: Some(hex::encode([0; 32])),
+        quiet: true,
+        command: Operation::Send {
+            to: note::address(&SpendingKey::from([9; 32])),
+            amount_zat: 50_000,
+        },
+    }
+    .execute()
+    .unwrap_err();
+    assert!(error.to_string().contains("does not match expected tip"));
+    Ok(())
 }
 
 #[test]
@@ -1199,6 +1266,7 @@ fn cancelled_sync_rolls_back_blocks_and_funding_snapshot_and_can_resume() -> Res
     let error = Command {
         wallet_dir: dir.clone(),
         operation_id: None,
+        expected_tip: None,
         quiet: true,
         command: Operation::Sync {
             max_blocks: 1000,
@@ -1227,6 +1295,7 @@ fn cancelled_broadcast_retains_signed_payment_and_reservation() -> Result<()> {
     let error = Command {
         wallet_dir: dir.clone(),
         operation_id: Some("cancelled-payment".into()),
+        expected_tip: None,
         quiet: true,
         command: transparent_send(&address, 100_000),
     }

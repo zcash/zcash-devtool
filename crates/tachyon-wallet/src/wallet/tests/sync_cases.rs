@@ -317,6 +317,7 @@ fn missing_history_and_cancelled_backfill_preserve_wallet_and_checkpoint() -> Re
             wallet_dir: dir.clone(),
             quiet: true,
             operation_id: None,
+            expected_tip: None,
             command: operation()
         }
         .execute_with_control(&control)

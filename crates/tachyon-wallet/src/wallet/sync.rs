@@ -180,12 +180,9 @@ pub(super) fn sync(
         ensure!(height <= tip, "search height is above the node tip");
         needed_start = needed_start.min(epoch_start(height, config.activation)?);
     }
-    for mut receipt in store.notes()? {
+    for mut receipt in store.unresolved_notes()? {
         control.check()?;
         receipt.check_owner(&SpendingKey::from(config.seed), &config.network_id)?;
-        if store.has_tachygram(&receipt.id()?)? {
-            continue;
-        }
         if let Some(block) = locate(&rpc, &receipt, config, tip)? {
             needed_start = needed_start.min(epoch_start(block.height, config.activation)?);
             let locator = receipt
@@ -242,12 +239,7 @@ pub(super) fn sync(
         "chain reorganized during sync; retry"
     );
     super::refresh_note_nullifiers(store, config, last.epoch)?;
-    let mut unresolved = 0;
-    for receipt in store.notes()? {
-        if !store.has_tachygram(&receipt.id()?)? {
-            unresolved += 1;
-        }
-    }
+    let unresolved = store.unresolved_notes()?.len();
     Ok(
         json!({"height":last.height,"hash":last.hash,"epoch":last.epoch,"caught_up":last.height == tip,
         "birthday_height":config.birthday_height.unwrap_or(config.activation),
