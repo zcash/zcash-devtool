@@ -62,6 +62,8 @@ enum Operation {
     Address,
     /// Show Tachyon notes and confirmed transparent funding from the last successful sync, offline.
     Balance,
+    /// Show only aggregate balances, without serializing historical notes.
+    BalanceSummary,
     /// Validate and persist chain inputs; repeat until caught_up is true.
     Sync {
         #[arg(long, default_value_t = 1000, value_parser = clap::value_parser!(u32).range(1..=10000))]
@@ -248,7 +250,8 @@ impl Command {
         let result = match self.command {
             Operation::Init { .. } => unreachable!("init returned above"),
             Operation::Address => addresses(&config)?,
-            Operation::Balance => {
+            operation @ (Operation::Balance | Operation::BalanceSummary) => {
+                let summary = matches!(operation, Operation::BalanceSummary);
                 let tip = store.tip()?;
                 let states = note_states(&store, &config, control)?;
                 let available = states
@@ -276,9 +279,19 @@ impl Command {
                         snapshot.balance(&reserved)
                     })
                     .transpose()?;
-                json!({"synced_height":tip.map(|block| block.height), "available_zat":available,
-                    "transparent":transparent,
-                    "notes":states.into_iter().map(|(r,s)| Ok(json!({"id":r.id()?,"value_zat":r.value_zat,"status":s}))).collect::<Result<Vec<_>>>()?})
+                let mut result = json!({"synced_height":tip.map(|block| block.height), "available_zat":available,
+                    "transparent":transparent});
+                if !summary {
+                    result["notes"] = json!(
+                        states
+                            .into_iter()
+                            .map(|(r, s)| Ok(
+                                json!({"id":r.id()?,"value_zat":r.value_zat,"status":s})
+                            ))
+                            .collect::<Result<Vec<_>>>()?
+                    );
+                }
+                result
             }
             Operation::Sync {
                 max_blocks,
