@@ -281,16 +281,13 @@ impl Command {
                     .transpose()?;
                 let mut result = json!({"synced_height":tip.map(|block| block.height), "available_zat":available,
                     "transparent":transparent});
-                if !summary {
-                    result["notes"] = json!(
-                        states
-                            .into_iter()
-                            .map(|(r, s)| Ok(
-                                json!({"id":r.id()?,"value_zat":r.value_zat,"status":s})
-                            ))
-                            .collect::<Result<Vec<_>>>()?
-                    );
-                }
+                result["notes"] = json!(
+                    states
+                        .into_iter()
+                        .filter(|(_, status)| !summary || *status == "available")
+                        .map(|(r, s)| Ok(json!({"id":r.id()?,"value_zat":r.value_zat,"status":s})))
+                        .collect::<Result<Vec<_>>>()?
+                );
                 result
             }
             Operation::Sync {

@@ -1095,7 +1095,7 @@ fn existing_wallet_upgrades_on_sync_and_balance_stays_offline() -> Result<()> {
     drop(node);
     assert_eq!(command(&dir, Operation::Balance)?, balance);
     let summary = command(&dir, Operation::BalanceSummary)?;
-    assert!(summary.get("notes").is_none());
+    assert_eq!(summary["notes"], serde_json::json!([]));
     assert_eq!(summary["available_zat"], balance["available_zat"]);
     assert_eq!(summary["transparent"], balance["transparent"]);
     Ok(())
