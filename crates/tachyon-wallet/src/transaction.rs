@@ -113,9 +113,12 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
         transparent_output.as_ref().map_or(0, |(_, n)| *n),
         |total, r| total.checked_add(r.value_zat).context("amount overflow"),
     )?;
+    let fee = incoming
+        .checked_sub(outgoing)
+        .context("transaction outputs exceed its inputs")?;
     ensure!(
-        incoming.checked_sub(outgoing) == Some(FEE),
-        "transaction must pay the configured fee"
+        (FEE..FEE + 54).contains(&fee),
+        "transaction must pay the configured fee plus at most dust change"
     );
     let key = SpendingKey::from(seed);
     let mut rng = rand::rng();
@@ -191,6 +194,12 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
     })
 }
 
+pub(crate) fn non_dust_change(change: u64) -> Option<u64> {
+    // P2PKH outputs are 34 serialized bytes; Zakura's threshold is
+    // 3 * (100 * (34 + 148) / 1000) = 54 zatoshis.
+    (change >= 54).then_some(change)
+}
+
 /// Create a V7 payment with no Tachyon bundle or proofs, using the wallet's funding key.
 pub fn build_transparent(
     seed: [u8; 32],
@@ -213,7 +222,7 @@ pub fn build_transparent(
         Zatoshis::from_u64(amount)?,
         transparent_script(to)?,
     )];
-    if change > 0 {
+    if let Some(change) = non_dust_change(change) {
         vout.push(TxOut::new(
             Zatoshis::from_u64(change)?,
             transparent_script(&funding_address(seed)?)?,

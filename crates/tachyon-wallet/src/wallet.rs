@@ -643,7 +643,7 @@ fn pay(
                 !coinbase || change == 0,
                 "coinbase outputs must be shielded in full minus the fee; omit the amount with --txid/--index, or use a non-coinbase UTXO"
             );
-            if change > 0 {
+            if let Some(change) = transaction::non_dust_change(change) {
                 transparent_output = Some((transaction::funding_address(config.seed)?, change));
             }
             outputs.push(Receipt::new(&config.network_id, &own_address, amount)?);

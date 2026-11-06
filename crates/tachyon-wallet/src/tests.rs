@@ -116,6 +116,30 @@ pub(crate) fn shield(blocks: &[Block], receipt: &Receipt) -> Result<Transaction>
 }
 
 #[test]
+fn transparent_payment_absorbs_dust_change_into_fee() -> Result<()> {
+    let output = TxOut::new(
+        Zatoshis::from_u64(150_005)?,
+        transaction::transparent_script(&transaction::funding_address(SEED)?)?,
+    );
+    let recipient = bs58::encode([&[0x1c, 0xba][..], &[9; 20]].concat())
+        .with_check()
+        .into_string();
+    let tx = transaction::build_transparent(
+        SEED,
+        Funding {
+            outpoint: OutPoint::new([2; 32], 0),
+            output: output.clone(),
+        },
+        &recipient,
+        100_000,
+        28,
+    )?;
+    assert_eq!(tx.transparent_bundle().unwrap().vout.len(), 1);
+    transaction::verify_for_test(&tx, Some(output))?;
+    Ok(())
+}
+
+#[test]
 fn transparent_payment_signatures_cover_recipient_and_change_and_reject_foreign_funding()
 -> Result<()> {
     let output = TxOut::new(

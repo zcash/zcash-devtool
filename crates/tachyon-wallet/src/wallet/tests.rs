@@ -898,6 +898,39 @@ fn automatic_shield_selects_smallest_eligible_output_and_returns_transparent_cha
 }
 
 #[test]
+fn automatic_shield_absorbs_dust_change_into_fee() -> Result<()> {
+    let node = Node::start()?;
+    let temp = tempfile::tempdir()?;
+    let dir = temp.path().join("wallet");
+    let address = init_wallet(&node, &dir)?;
+    let funding = install_funding(&node, &address, &[150_005])?;
+    node.data.lock().unwrap().fail_submission = true;
+    let error = command(
+        &dir,
+        Operation::Shield {
+            amount_zat: Some(100_000),
+            txid: None,
+            index: None,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("broadcast outcome may be ambiguous"),
+        "{error:#}"
+    );
+    let tx = Transaction::read(
+        &hex::decode(&node.data.lock().unwrap().mempool[0])?[..],
+        BranchId::NuTachyon,
+    )?;
+    assert!(tx.transparent_bundle().unwrap().vout.is_empty());
+    transaction::verify_for_test(
+        &tx,
+        Some(funding.transparent_bundle().unwrap().vout[0].clone()),
+    )?;
+    Ok(())
+}
+
+#[test]
 fn explicit_shield_amount_overrides_selection_and_legacy_sweeps_the_output() -> Result<()> {
     for (amount, index, expected_note, expected_change) in [
         (Some(100_000), 0, 100_000, Some(350_000)),
