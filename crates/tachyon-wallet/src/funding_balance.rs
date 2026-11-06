@@ -90,7 +90,8 @@ impl AddressUtxos {
             tip.height == self.height && tip.hash == self.hash,
             "transparent snapshot does not match the synced chain; retry sync"
         );
-        if let Some(previous) = store.funding_snapshot()? {
+        let previous = store.funding_snapshot()?;
+        if let Some(previous) = previous.as_ref() {
             let previous_set: std::collections::BTreeMap<_, _> = previous
                 .utxos
                 .iter()
@@ -110,10 +111,19 @@ impl AddressUtxos {
                     height: self.height,
                     hash: self.hash,
                     address: address.into(),
-                    utxos: previous.utxos,
+                    utxos: previous.utxos.clone(),
                 });
             }
         }
+        let previous_outputs: std::collections::BTreeMap<(String, u32), Utxo> = previous
+            .map(|snapshot| {
+                snapshot
+                    .utxos
+                    .into_iter()
+                    .map(|output| ((output.txid.clone(), output.index), output))
+                    .collect()
+            })
+            .unwrap_or_default();
         let expected_script = transaction::transparent_script(address)?;
         let mut seen = BTreeSet::new();
         let mut utxos = Vec::with_capacity(self.utxos.len());
@@ -134,27 +144,34 @@ impl AddressUtxos {
                 "funding output is above the snapshot tip"
             );
             let confirmations = u64::from(self.height - output.height) + 1;
-            let coinbase_txid = if let Some(block) = store.block(output.height)? {
-                block.transactions.first().cloned()
+            let coinbase = if let Some(coinbase) = previous_outputs
+                .get(&(txid.clone(), output.index))
+                .and_then(|output| output.coinbase)
+            {
+                coinbase
             } else {
-                // Pre-activation funding can be outside the Tachyon feed.
-                let response: Value =
-                    rpc.call("getblock", json!([output.height.to_string(), 1]))?;
-                ensure!(
-                    response["height"].as_u64() == Some(u64::from(output.height)),
-                    "funding block height mismatch"
-                );
-                let hash = response["hash"]
-                    .as_str()
-                    .context("funding block has no hash")?;
-                bytes32(hash)?;
-                response["tx"]
-                    .as_array()
-                    .and_then(|transactions| transactions.first())
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
+                let coinbase_txid = if let Some(block) = store.block(output.height)? {
+                    block.transactions.first().cloned()
+                } else {
+                    // Pre-activation funding can be outside the Tachyon feed.
+                    let response: Value =
+                        rpc.call("getblock", json!([output.height.to_string(), 1]))?;
+                    ensure!(
+                        response["height"].as_u64() == Some(u64::from(output.height)),
+                        "funding block height mismatch"
+                    );
+                    let hash = response["hash"]
+                        .as_str()
+                        .context("funding block has no hash")?;
+                    bytes32(hash)?;
+                    response["tx"]
+                        .as_array()
+                        .and_then(|transactions| transactions.first())
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                };
+                coinbase_txid.as_ref() == Some(&txid)
             };
-            let coinbase = coinbase_txid.as_ref() == Some(&txid);
             let immature_coinbase = coinbase && confirmations < COINBASE_MATURITY;
             utxos.push(Utxo {
                 txid,
