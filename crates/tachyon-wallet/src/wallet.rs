@@ -15,7 +15,11 @@ use primitives::transaction::Transaction;
 use protocol::consensus::BranchId;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, io::Read, path::PathBuf};
+use std::{
+    collections::BTreeSet,
+    io::Read,
+    path::{Path, PathBuf},
+};
 use udon::field::Field;
 use zcash_tachyon::pasta::Fp;
 use zcash_tachyon::{EpochIndex, constants::EPOCH_SIZE, keys::private::SpendingKey};
@@ -77,6 +81,7 @@ enum Operation {
     },
     /// Import a confidential payment receipt received out of band.
     Receive {
+        /// A file holding receipt JSON or a `tachyon-receipt:` string; `-` reads standard input.
         #[arg(long)]
         receipt: PathBuf,
         /// Supply or correct the originating transaction ID in a legacy receipt.
@@ -131,10 +136,15 @@ enum Operation {
     ExportReceipt {
         #[arg(long)]
         txid: String,
+        /// Write receipt JSON here, readable only by this user.
+        #[arg(long, required_unless_present = "string", conflicts_with = "string")]
+        out: Option<PathBuf>,
+        /// Print the receipt as one `tachyon-receipt:` string instead of writing a file.
+        /// It holds the same secrets as the file; share it as privately.
         #[arg(long)]
-        out: PathBuf,
+        string: bool,
         /// Omit location metadata for older receivers that reject extra JSON fields.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "string")]
         legacy: bool,
     },
     /// Retry broadcasting the exact stored transaction, without creating a replacement.
@@ -326,12 +336,21 @@ impl Command {
                 txid,
                 height,
             } => {
+                // Secrets stay out of argv: both forms come from a file or standard input.
                 let mut data = Vec::new();
-                std::fs::File::open(receipt)?
-                    .take(16_385)
-                    .read_to_end(&mut data)?;
+                let source: Box<dyn Read> = if receipt == Path::new("-") {
+                    Box::new(std::io::stdin())
+                } else {
+                    Box::new(std::fs::File::open(receipt)?)
+                };
+                source.take(16_385).read_to_end(&mut data)?;
                 ensure!(data.len() <= 16_384, "receipt exceeds 16 KiB");
-                let mut receipt: Receipt = serde_json::from_slice(&data)?;
+                let mut receipt = match std::str::from_utf8(&data) {
+                    Ok(text) if text.trim_start().starts_with(note::ENCODED_PREFIX) => {
+                        Receipt::decode(text)?
+                    }
+                    _ => serde_json::from_slice(&data)?,
+                };
                 if let Some(txid) = txid {
                     receipt.locator = Some(Locator {
                         txid: hex::encode(bytes32(&txid)?),
@@ -360,7 +379,12 @@ impl Command {
                     "locator":receipt.locator,
                     "hint":if receipt.locator.is_none() { Some("Legacy receipt: supply --txid/--height, or sync --from-height for notes older than the downloaded history") } else { None }})
             }
-            Operation::ExportReceipt { txid, out, legacy } => {
+            Operation::ExportReceipt {
+                txid,
+                out,
+                string: _,
+                legacy,
+            } => {
                 let pending = find_pending(&store, &txid)?;
                 let mut receipt = pending
                     .receipt
@@ -375,8 +399,13 @@ impl Command {
                         block_hash: block.map(|block| block.hash),
                     })
                 };
-                write_private(&out, &serde_json::to_vec_pretty(&receipt)?)?;
-                json!({"txid":txid,"receipt":out})
+                match out {
+                    Some(out) => {
+                        write_private(&out, &serde_json::to_vec_pretty(&receipt)?)?;
+                        json!({"txid":txid,"receipt":out})
+                    }
+                    None => json!({"txid":txid,"receipt":receipt.encode()?}),
+                }
             }
             Operation::TransactionStatus { ids } => {
                 let mut transactions = Vec::new();

@@ -1,6 +1,6 @@
 //! Explicit out-of-band receipts: Tachyon has no on-chain note ciphertext to scan.
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use udon::field::Field;
@@ -9,6 +9,14 @@ use zcash_tachyon::{
 };
 
 use crate::chain::bytes32;
+
+/// Prefix of a receipt encoded as one string by [`Receipt::encode`].
+pub const ENCODED_PREFIX: &str = "tachyon-receipt:";
+const ENCODED_VERSION: u8 = 1;
+/// Version, network, payment key, value, psi, rcm.
+const ENCODED_LEN: usize = 1 + 32 + 32 + 8 + 32 + 32;
+/// `ENCODED_LEN` plus the locator's txid and height.
+const ENCODED_LEN_WITH_LOCATOR: usize = ENCODED_LEN + 32 + 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -124,6 +132,84 @@ impl Receipt {
         );
         Ok(())
     }
+
+    /// One pasteable string: version, network, payment key, value, trapdoors,
+    /// then the locator's txid and height when known. The block hash is a
+    /// lookup hint that `sync` recovers from the txid. The string holds the
+    /// same secrets as the JSON form.
+    pub fn encode(&self) -> Result<String> {
+        self.note()?;
+        let mut bytes = vec![ENCODED_VERSION];
+        bytes.extend(bytes32(&self.network_id)?);
+        bytes.extend(bytes32(&self.payment_key)?);
+        bytes.extend(self.value_zat.to_le_bytes());
+        bytes.extend(bytes32(&self.psi)?);
+        bytes.extend(bytes32(&self.rcm)?);
+        if let Some(locator) = &self.locator {
+            bytes.extend(bytes32(&locator.txid)?);
+            // NuTachyon activates after genesis, so height 0 means unknown.
+            bytes.extend(locator.height.unwrap_or(0).to_le_bytes());
+        }
+        Ok(format!("{ENCODED_PREFIX}{}", hex::encode(bytes)))
+    }
+
+    /// Parses a string produced by [`Receipt::encode`], reading the fields in
+    /// the order it writes them, and validates the note.
+    pub fn decode(encoded: &str) -> Result<Self> {
+        let bytes = hex::decode(
+            encoded
+                .trim()
+                .strip_prefix(ENCODED_PREFIX)
+                .context("expected a tachyon-receipt: string")?,
+        )?;
+        ensure!(
+            bytes.first() == Some(&ENCODED_VERSION),
+            "unsupported receipt encoding version {:?}",
+            bytes.first()
+        );
+        ensure!(
+            bytes.len() == ENCODED_LEN || bytes.len() == ENCODED_LEN_WITH_LOCATOR,
+            "receipt encoding is {} bytes; expected {ENCODED_LEN} or {ENCODED_LEN_WITH_LOCATOR}",
+            bytes.len()
+        );
+        let mut rest = &bytes[1..];
+        let network_id = hex::encode(take::<32>(&mut rest)?);
+        let payment_key = hex::encode(take::<32>(&mut rest)?);
+        let value_zat = u64::from_le_bytes(take(&mut rest)?);
+        let psi = hex::encode(take::<32>(&mut rest)?);
+        let rcm = hex::encode(take::<32>(&mut rest)?);
+        let locator = if rest.is_empty() {
+            None
+        } else {
+            let txid = hex::encode(take::<32>(&mut rest)?);
+            let height = u32::from_le_bytes(take(&mut rest)?);
+            Some(Locator {
+                txid,
+                height: (height > 0).then_some(height),
+                block_hash: None,
+            })
+        };
+        let receipt = Self {
+            version: ENCODED_VERSION.into(),
+            network_id,
+            payment_key,
+            value_zat,
+            psi,
+            rcm,
+            locator,
+        };
+        receipt.note()?;
+        Ok(receipt)
+    }
+}
+
+/// Splits the next `N` bytes off `rest`.
+fn take<const N: usize>(rest: &mut &[u8]) -> Result<[u8; N]> {
+    let (head, tail) = rest
+        .split_first_chunk::<N>()
+        .context("truncated receipt encoding")?;
+    *rest = tail;
+    Ok(*head)
 }
 
 pub fn random_seed() -> [u8; 32] {

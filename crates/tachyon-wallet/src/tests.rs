@@ -235,6 +235,42 @@ fn receipts_are_canonical_and_bound_to_owner_and_network() -> Result<()> {
 }
 
 #[test]
+fn encoded_receipts_round_trip_with_and_without_a_locator() -> Result<()> {
+    let mut receipt = Receipt::new(
+        &"ef".repeat(32),
+        &note::address(&SpendingKey::from(SEED)),
+        123_456,
+    )?;
+    assert_eq!(Receipt::decode(&receipt.encode()?)?, receipt);
+    receipt.locator = Some(note::Locator {
+        txid: "ab".repeat(32),
+        height: Some(42),
+        block_hash: Some("cd".repeat(32)),
+    });
+    let decoded = Receipt::decode(&receipt.encode()?)?;
+    assert_eq!(decoded.locator.as_ref().unwrap().txid, "ab".repeat(32));
+    assert_eq!(decoded.locator.as_ref().unwrap().height, Some(42));
+    assert_eq!(decoded.locator.as_ref().unwrap().block_hash, None);
+    assert_eq!(decoded.id()?, receipt.id()?);
+    // Pasted strings may carry a trailing newline.
+    assert_eq!(
+        Receipt::decode(&format!("{}\n", receipt.encode()?))?,
+        decoded
+    );
+    let err = Receipt::decode("tachyon-receipt:02").unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "unsupported receipt encoding version Some(2)"
+    );
+    let err = Receipt::decode(&receipt.encode()?[..100]).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "receipt encoding is 42 bytes; expected 137 or 173"
+    );
+    Ok(())
+}
+
+#[test]
 fn chain_rejects_corrupt_inputs_and_discontinuities() -> Result<()> {
     let mut blocks = vec![genesis()];
     blocks[0].validate(None, 8)?;

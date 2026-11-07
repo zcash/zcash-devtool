@@ -1758,7 +1758,8 @@ fn two_wallet_rpc_flow_recovers_broadcast_failure_and_reorg() -> Result<()> {
         &alice,
         Operation::ExportReceipt {
             txid: txid.clone(),
-            out: receipt_file.clone(),
+            out: Some(receipt_file.clone()),
+            string: false,
             legacy: false,
         },
     )?;
@@ -1770,7 +1771,8 @@ fn two_wallet_rpc_flow_recovers_broadcast_failure_and_reorg() -> Result<()> {
         &alice,
         Operation::ExportReceipt {
             txid: txid.clone(),
-            out: legacy_file.clone(),
+            out: Some(legacy_file.clone()),
+            string: false,
             legacy: true,
         },
     )?;
@@ -1786,6 +1788,32 @@ fn two_wallet_rpc_flow_recovers_broadcast_failure_and_reorg() -> Result<()> {
             height: None,
         },
     )?;
+    // The same receipt as one string imports onto the note the file created.
+    let encoded = command(
+        &alice,
+        Operation::ExportReceipt {
+            txid: txid.clone(),
+            out: None,
+            string: true,
+            legacy: false,
+        },
+    )?["receipt"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(encoded.len(), "tachyon-receipt:".len() + 2 * 173);
+    let encoded_file = temp.path().join("payment.txt");
+    std::fs::write(&encoded_file, format!("{encoded}\n"))?;
+    let imported = command(
+        &bob,
+        Operation::Receive {
+            receipt: encoded_file,
+            txid: None,
+            height: None,
+        },
+    )?;
+    assert_eq!(imported["note_id"], exported.id()?);
+    assert_eq!(imported["locator"]["txid"], txid);
     assert_eq!(synced_balance(&bob)?["available_zat"], 0);
     node.data.lock().unwrap().fail_submission = false;
     command(&alice, Operation::Submit { txid: txid.clone() })?;
@@ -1818,7 +1846,8 @@ fn two_wallet_rpc_flow_recovers_broadcast_failure_and_reorg() -> Result<()> {
         &alice,
         Operation::ExportReceipt {
             txid: txid.clone(),
-            out: mined_file.clone(),
+            out: Some(mined_file.clone()),
+            string: false,
             legacy: false,
         },
     )?;

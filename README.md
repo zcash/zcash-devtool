@@ -62,7 +62,7 @@ New receipts include a transaction locator. For an older receipt, add `--txid PA
   --txid PAYMENT_TXID --out "$HOME/payment.json"
 ```
 
-Replace `PAYMENT_TXID` with the ID returned by `send`. Share `payment.json` privately with the recipient so they can import it with `receive`.
+Replace `PAYMENT_TXID` with the ID returned by `send`. Share `payment.json` privately with the recipient so they can import it with `receive`. `export-receipt --string` prints the receipt as one `tachyon-receipt:` string instead of writing a file; it holds the same secrets as `payment.json`, so share it the same way. `receive --receipt` reads either form from a file, or from standard input as `-`.
 
 `transactions` lists every payment with its kind, amount and status, and every note received from another wallet, ordered by block height with unconfirmed entries last.
 
