@@ -190,6 +190,7 @@ pub(crate) fn sync_with_cache(
     control: &Control,
     cache: &std::sync::Arc<std::sync::Mutex<SyncCache>>,
 ) -> Result<Value> {
+    store.check_evidence_identity(config)?;
     let rpc = rpc(config, control)?;
     let funding_address = transaction::funding_address(config.seed)?;
     let funding = AddressUtxos::fetch(&rpc, &funding_address)?;

@@ -509,6 +509,26 @@ fn store_indexes_new_blocks_and_rewinds_without_rescanning() -> Result<()> {
 }
 
 #[test]
+fn epoch_node_cache_roundtrip_and_reorg_invalidation() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    #[cfg(unix)]
+    std::fs::set_permissions(
+        directory.path(),
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )?;
+    let store = crate::store::Store::open(directory.path(), true)?;
+    let profile = zcash_tachyon::QrProfile::ROOT;
+    store.put_epoch_node(0, 0, 0, 0, profile, b"proof", b"members")?;
+    assert_eq!(
+        store.epoch_node(0, 0, 0, 0, profile)?,
+        Some((b"proof".to_vec(), b"members".to_vec()))
+    );
+    store.rewind(0)?;
+    assert_eq!(store.epoch_node(0, 0, 0, 0, profile)?, None);
+    Ok(())
+}
+
+#[test]
 fn note_spend_tracking_updates_from_new_blocks_and_rewinds() -> Result<()> {
     let directory = tempfile::tempdir()?;
     #[cfg(unix)]

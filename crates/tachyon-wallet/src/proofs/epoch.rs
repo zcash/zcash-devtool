@@ -6,13 +6,13 @@ use anyhow::{Context, Result, ensure};
 use ragu::Pcd;
 use zcash_tachyon::pasta::Fp;
 use zcash_tachyon::{
-    Anchor, EpochIndex, QrClassRoot, QrDiscriminant, QrProfile, Tachygram,
+    Anchor, EpochIndex, QrClassRoot, QrDiscriminant, QrProfile, Tachygram, TachygramSetPoly,
     stamp::proof::{PROOF_SYSTEM, qr},
     witness,
 };
 
 use super::trivial;
-use crate::chain::{MAX_EPOCH_MEMBERS, anchor, max_polynomial_members};
+use crate::chain::{anchor, max_polynomial_members};
 use crate::control::Control;
 use crate::store::ChainData;
 use udon::field::Field;
@@ -52,8 +52,9 @@ impl Intake {
         discriminant: QrDiscriminant,
         control: &Control,
     ) -> Result<Self> {
-        for (depth, &side) in path.iter().enumerate() {
+        for &side in path {
             control.check()?;
+            let depth = self.proof.data().4.depth;
             let (sides, ()) = PROOF_SYSTEM.fuse(
                 &mut rand::rng(),
                 qr::QrIntakeSplit,
@@ -73,7 +74,7 @@ impl Intake {
                     trivial(),
                 )?
                 .0;
-            let shift = discriminant.at(u32::try_from(depth)?);
+            let shift = discriminant.at(depth);
             self.members
                 .retain(|member| QrClassRoot::of((*member).into(), shift).0 == side);
         }
@@ -104,6 +105,112 @@ impl Intake {
     }
 }
 
+fn load_intake(
+    chain: &ChainData<'_>,
+    epoch: u32,
+    kind: u8,
+    first: u32,
+    last: u32,
+    profile: QrProfile,
+) -> Result<Option<Intake>> {
+    let Some((bytes, members)) = chain.epoch_node(epoch, kind, first, last, profile)? else {
+        return Ok(None);
+    };
+    let Some(members) = decode_members(&members) else {
+        return Ok(None);
+    };
+    let Ok(proof) = Pcd::<qr::QrIntake>::from_bytes(&bytes) else {
+        return Ok(None);
+    };
+    let commitment = members
+        .iter()
+        .copied()
+        .collect::<TachygramSetPoly>()
+        .commit();
+    if proof.data().0 != EpochIndex::new(epoch)
+        || proof.data().4 != profile
+        || proof.data().5 != commitment
+        || !PROOF_SYSTEM.verify(&proof, rand::rng())?
+    {
+        return Ok(None);
+    }
+    Ok(Some(Intake { proof, members }))
+}
+
+fn put_intake(
+    chain: &ChainData<'_>,
+    epoch: u32,
+    kind: u8,
+    first: u32,
+    last: u32,
+    intake: &Intake,
+) -> Result<()> {
+    let profile = intake.proof.data().4;
+    let pcd = intake
+        .proof
+        .to_bytes()
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    chain.put_epoch_node(
+        epoch,
+        kind,
+        first,
+        last,
+        profile,
+        &pcd,
+        &encode_members(&intake.members),
+    )
+}
+
+fn merge_cached(
+    chain: &ChainData<'_>,
+    epoch: u32,
+    first: u32,
+    left: Intake,
+    last: u32,
+    right: Intake,
+    control: &Control,
+) -> Result<Intake> {
+    let profile = left.proof.data().4;
+    if let Some(cached) = load_intake(chain, epoch, 1, first, last, profile)? {
+        return Ok(cached);
+    }
+    let merged = left.merge(right, control)?;
+    put_intake(chain, epoch, 1, first, last, &merged)?;
+    Ok(merged)
+}
+
+impl Intake {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "persistent cache identity and proof payload"
+    )]
+    fn cached_route(
+        mut self,
+        chain: &ChainData<'_>,
+        epoch: u32,
+        first: u32,
+        last: u32,
+        path: &[bool],
+        discriminant: QrDiscriminant,
+        control: &Control,
+    ) -> Result<Self> {
+        for &side in path {
+            let profile = self.proof.data().4.descend(side);
+            control.stage(format!(
+                "Routing epoch {epoch} stamps {first}..={last} to depth {}…",
+                profile.depth
+            ))?;
+            if let Some(cached) = load_intake(chain, epoch, 0, first, last, profile)? {
+                self = cached;
+                continue;
+            }
+            self = self.route(&[side], discriminant, control)?;
+            put_intake(chain, epoch, 0, first, last, &self)?;
+        }
+        Ok(self)
+    }
+}
+
 pub(super) fn bucket(
     chain: &ChainData<'_>,
     epoch: u32,
@@ -129,11 +236,6 @@ pub(super) fn bucket(
         for stamp in &block.stamps {
             control.check()?;
             let members = stamp.members()?;
-            ensure!(
-                all_members.len() + members.len() <= MAX_EPOCH_MEMBERS
-                    && stamps.len() < MAX_EPOCH_MEMBERS,
-                "epoch exceeds wallet's experimental evidence budget"
-            );
             for member in &members {
                 ensure!(
                     all_members.insert(*member),
@@ -175,18 +277,31 @@ pub(super) fn bucket(
     let mut intakes = Vec::new();
     let total = stamps.len();
     for (index, (before, members)) in stamps.into_iter().enumerate() {
-        control.stage(format!(
-            "Proving epoch {epoch} stamp intake {}/{total}…",
-            index + 1
-        ))?;
-        let (proof, ()) = PROOF_SYSTEM.seed(
-            &mut rand::rng(),
-            qr::QrStampIntakeSeed,
-            witness::qr_stamp_intake_seed(((), ()), before, epoch_index, discriminant, &members),
-        )?;
-        // Keep even empty routed intakes: each still covers its original stamp's
-        // anchor transition. Dropping one would leave a gap in epoch evidence.
-        intakes.push(Intake { proof, members }.route(&path, discriminant, control)?);
+        let index = u32::try_from(index)?;
+        let intake =
+            if let Some(cached) = load_intake(chain, epoch, 0, index, index, QrProfile::ROOT)? {
+                cached
+            } else {
+                control.stage(format!(
+                    "Proving epoch {epoch} stamp intake {}/{total}…",
+                    index + 1
+                ))?;
+                let (proof, ()) = PROOF_SYSTEM.seed(
+                    &mut rand::rng(),
+                    qr::QrStampIntakeSeed,
+                    witness::qr_stamp_intake_seed(
+                        ((), ()),
+                        before,
+                        epoch_index,
+                        discriminant,
+                        &members,
+                    ),
+                )?;
+                let intake = Intake { proof, members };
+                put_intake(chain, epoch, 0, index, index, &intake)?;
+                intake
+            };
+        intakes.push((index, index, intake));
     }
     if intakes.is_empty() {
         control.stage(format!("Proving empty epoch {epoch}…"))?;
@@ -195,10 +310,45 @@ pub(super) fn bucket(
             qr::QrEmptyIntakeSeed,
             witness::qr_empty_intake_seed(((), ()), first.entry()?, epoch_index, discriminant),
         )?;
-        intakes.push(Intake {
-            proof,
-            members: Vec::new(),
-        });
+        intakes.push((
+            0,
+            0,
+            Intake {
+                proof,
+                members: Vec::new(),
+            },
+        ));
+    }
+    // Keep every polynomial within capacity throughout routing. A single stamp
+    // is bounded by block validation; adjacent stamps are merged into bounded
+    // chunks before any descent, then the routed chunks are merged again.
+    let mut chunks = Vec::new();
+    let mut current: Option<(u32, u32, Intake)> = None;
+    for (index, _, right) in intakes {
+        current = match current.take() {
+            None => Some((index, index, right)),
+            Some((first, _last, left))
+                if left.members.len() + right.members.len() <= max_polynomial_members() =>
+            {
+                let merged = merge_cached(chain, epoch, first, left, index, right, control)?;
+                Some((first, index, merged))
+            }
+            Some((first, last, left)) => {
+                chunks.push((first, last, left));
+                Some((index, index, right))
+            }
+        };
+    }
+    if let Some(chunk) = current {
+        chunks.push(chunk);
+    }
+    let mut intakes = Vec::with_capacity(chunks.len());
+    for (first, last, intake) in chunks {
+        intakes.push((
+            first,
+            last,
+            intake.cached_route(chain, epoch, first, last, &path, discriminant, control)?,
+        ));
     }
     // Balanced, adjacent merges avoid rebuilding an ever-growing prefix for
     // every stamp, while preserving the original anchor order.
@@ -206,15 +356,18 @@ pub(super) fn bucket(
         control.stage(format!("Merging {} epoch {epoch} intakes…", intakes.len()))?;
         let mut merged = Vec::new();
         let mut pairs = intakes.into_iter();
-        while let Some(left) = pairs.next() {
+        while let Some((first, left_last, left)) = pairs.next() {
             merged.push(match pairs.next() {
-                Some(right) => left.merge(right, control)?,
-                None => left,
+                Some((_, last, right)) => {
+                    let intake = merge_cached(chain, epoch, first, left, last, right, control)?;
+                    (first, last, intake)
+                }
+                None => (first, left_last, left),
             });
         }
         intakes = merged;
     }
-    let Intake { proof, members } = intakes.pop().context("missing epoch intake")?;
+    let (_, _, Intake { proof, members }) = intakes.pop().context("missing epoch intake")?;
     let predecessor = if epoch == 0 {
         Anchor(Fp::from(0))
     } else {
@@ -329,6 +482,65 @@ mod tests {
             trivial(),
         );
         assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn persistent_intake_round_trip_and_corruption_fallback() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        #[cfg(unix)]
+        std::fs::set_permissions(
+            temp.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )?;
+        let store = crate::store::Store::open(temp.path(), true)?;
+        let chain = ChainData::from(&store);
+        let epoch = EpochIndex::new(0);
+        let discriminant = QrDiscriminant(Fp::from(1));
+        let query = Tachygram::from(Fp::from(7));
+        let side = QrClassRoot::of(query.into(), discriminant.at(0)).0;
+        let excluded = (1u64..)
+            .map(Fp::from)
+            .map(Tachygram::from)
+            .find(|value| QrClassRoot::of((*value).into(), discriminant.at(0)).0 != side)
+            .unwrap();
+        let second = QrClassRoot::of(query.into(), discriminant.at(1)).0;
+        let other = (8u64..)
+            .map(Fp::from)
+            .map(Tachygram::from)
+            .find(|value| {
+                QrClassRoot::of((*value).into(), discriminant.at(0)).0 == side
+                    && QrClassRoot::of((*value).into(), discriminant.at(1)).0 != second
+            })
+            .unwrap();
+        let members = vec![query, other, excluded];
+        let (proof, ()) = PROOF_SYSTEM.seed(
+            &mut rand::rng(),
+            qr::QrStampIntakeSeed,
+            witness::qr_stamp_intake_seed(
+                ((), ()),
+                Anchor::default(),
+                epoch,
+                discriminant,
+                &members,
+            ),
+        )?;
+        let intake = Intake { proof, members };
+        put_intake(&chain, 0, 0, 0, 0, &intake)?;
+        let cached = load_intake(&chain, 0, 0, 0, 0, QrProfile::ROOT)?.unwrap();
+        assert_eq!(cached.proof.data(), intake.proof.data());
+        assert_eq!(cached.members, intake.members);
+        cached.cached_route(
+            &chain,
+            0,
+            0,
+            0,
+            &[side, second],
+            discriminant,
+            &Control::new(true),
+        )?;
+        store.put_epoch_node(0, 0, 0, 0, QrProfile::ROOT, b"corrupt", b"members")?;
+        assert!(load_intake(&chain, 0, 0, 0, 0, QrProfile::ROOT)?.is_none());
         Ok(())
     }
 
