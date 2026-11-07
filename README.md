@@ -64,6 +64,8 @@ New receipts include a transaction locator. For an older receipt, add `--txid PA
 
 Replace `PAYMENT_TXID` with the ID returned by `send`. Share `payment.json` privately with the recipient so they can import it with `receive`.
 
+`transactions` lists every payment with its kind, amount and status, and every note received from another wallet, ordered by block height with unconfirmed entries last.
+
 Exports include the transaction ID, plus its block height and hash when known to the wallet. Add `--legacy` for older receivers that reject location metadata.
 
 ## License

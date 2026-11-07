@@ -37,6 +37,9 @@ pub struct Pending {
     pub expiry: u32,
     pub source: String,
     pub receipt: Option<Receipt>,
+    /// The payment request, as `lookup` prints it; null for rows written before this field.
+    #[serde(default)]
+    pub request: serde_json::Value,
 }
 
 pub struct StoredOperation {
@@ -561,9 +564,9 @@ impl Store {
             |row| row.get(0),
         )?)
     }
-    pub fn block_by_txid(&self, txid: &str) -> Result<Option<Block>> {
+    pub fn transaction_height(&self, txid: &str) -> Result<Option<u32>> {
         self.ensure_indexes()?;
-        let height: Option<u32> = self
+        Ok(self
             .conn
             .query_row(
                 "SELECT MIN(height) FROM block_transactions WHERE txid=?",
@@ -571,8 +574,10 @@ impl Store {
                 |row| row.get(0),
             )
             .optional()?
-            .flatten();
-        height
+            .flatten())
+    }
+    pub fn block_by_txid(&self, txid: &str) -> Result<Option<Block>> {
+        self.transaction_height(txid)?
             .map(|height| self.block(height))
             .transpose()
             .map(Option::flatten)
@@ -911,6 +916,25 @@ impl Store {
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
             .collect::<rusqlite::Result<_>>()?)
     }
+    /// The payment request saved with each pending transaction, keyed by txid.
+    ///
+    /// SQLite extracts the field, so the raw transaction payloads are never deserialized;
+    /// rows written before the field existed are absent.
+    pub fn pending_requests(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, serde_json::Value>> {
+        let mut requests = std::collections::BTreeMap::new();
+        let mut statement = self.conn.prepare(
+            "SELECT txid, json_extract(data, '$.request') FROM pending
+             WHERE json_type(data, '$.request') = 'object'",
+        )?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let request: String = row.get(1)?;
+            requests.insert(row.get(0)?, serde_json::from_str(&request)?);
+        }
+        Ok(requests)
+    }
     pub fn pending_by_txid(&self, txid: &str) -> Result<Option<Pending>> {
         let data: Option<String> = self
             .conn
@@ -1125,6 +1149,7 @@ mod tests {
             expiry: 10,
             source: "notes:legacy-note".into(),
             receipt: None,
+            request: serde_json::Value::Null,
         };
         store.conn.execute(
             "INSERT INTO pending VALUES(?, ?)",

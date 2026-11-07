@@ -151,7 +151,7 @@ enum Operation {
         #[arg(long = "id")]
         ids: Vec<String>,
     },
-    /// List mined, pending, or expired transactions (receipts and keys are not printed).
+    /// List payments and received notes with kind, amount and status (receipts and keys are not printed).
     Transactions,
 }
 
@@ -403,21 +403,7 @@ impl Command {
                 }
                 return Ok(json!({"transactions":transactions}));
             }
-            Operation::Transactions => {
-                let ids = store.operation_ids()?;
-                let tip_height = store.tip()?.map(|block| block.height);
-                let mined = store.mined_txids()?;
-                let transactions = store
-                    .pending_summaries()?
-                    .into_iter()
-                    .map(|(txid, expiry, _)| {
-                        let status = pending_status_values(&txid, expiry, tip_height, &mined);
-                        json!({"txid":txid,"operation_id":ids.get(&txid),
-                            "expiry_height":expiry,"status":status})
-                    })
-                    .collect::<Vec<_>>();
-                return Ok(json!({"transactions":transactions}));
-            }
+            Operation::Transactions => return history(&store),
             Operation::Lookup { id } => {
                 validate_operation_id(&id)?;
                 let saved = store.operation(&id)?.context("unknown operation ID")?;
@@ -755,6 +741,64 @@ fn note_states(
         .collect()
 }
 
+/// Outgoing payments, then notes this wallet did not create, ordered by height.
+///
+/// Reads only the store, so it works on a read-only connection and before a sync.
+fn history(store: &Store) -> Result<Value> {
+    let ids = store.operation_ids()?;
+    let notes = store.notes()?;
+    let mined = store.mined_note_ids()?;
+    let mut entries = Vec::new();
+    let mut own = BTreeSet::new();
+    let tip_height = store.tip()?.map(|block| block.height);
+    let mined_txids = store.mined_txids()?;
+    let requests = store.pending_requests()?;
+    for (txid, expiry, _) in store.pending_summaries()? {
+        let request = requests.get(&txid).unwrap_or(&Value::Null);
+        // Shielding a whole output and consolidating each create exactly one note to this
+        // wallet, and only learn the amount from it.
+        let amount = request["amount_zat"].as_u64().or_else(|| {
+            notes
+                .iter()
+                .find(|r| r.locator.as_ref().is_some_and(|l| l.txid == txid))
+                .map(|r| r.value_zat)
+        });
+        let status = pending_status_values(&txid, expiry, tip_height, &mined_txids);
+        entries.push((
+            store.transaction_height(&txid)?,
+            json!({"txid":txid,"kind":request["kind"],"to":request["to"],
+                "amount_zat":amount,"fee_zat":FEE,"operation_id":ids.get(&txid),
+                "expiry_height":expiry,"status":status}),
+        ));
+        own.insert(txid);
+    }
+    for receipt in &notes {
+        let txid = receipt.locator.as_ref().map(|l| &l.txid);
+        if txid.is_some_and(|txid| own.contains(txid)) {
+            continue;
+        }
+        let id = receipt.id()?;
+        entries.push((
+            store.tachygram_height(&id)?,
+            json!({"txid":txid,"kind":"receive","note_id":id,"amount_zat":receipt.value_zat,
+                "status":if mined.contains(&id) { "mined" } else { "unconfirmed" }}),
+        ));
+    }
+    // Mined entries by height, then unconfirmed ones; ties by txid.
+    entries.sort_by(|(a, x), (b, y)| {
+        a.is_none()
+            .cmp(&b.is_none())
+            .then(a.cmp(b))
+            .then(x["txid"].as_str().cmp(&y["txid"].as_str()))
+    });
+    Ok(
+        json!({"transactions":entries.into_iter().map(|(height, mut entry)| {
+        entry["height"] = json!(height);
+        entry
+    }).collect::<Vec<_>>()}),
+    )
+}
+
 fn validate_operation_id(id: &str) -> Result<()> {
     ensure!(
         !id.is_empty()
@@ -1079,6 +1123,7 @@ fn pay(
         expiry,
         source,
         receipt: recipient,
+        request: request.clone(),
     };
     store.reserve(&pending)?;
     if let Some(id) = operation_id {
