@@ -89,7 +89,11 @@ impl Command {
             let identity = age::x25519::Identity::generate();
             let recipient = identity.to_public();
 
-            // Write it to the provided path so we have it for next time.
+            // Write it to the provided path so we have it for next time. The path may
+            // be inside the wallet directory, which is not created until later.
+            if let Some(parent) = std::path::Path::new(&opts.identity).parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
             let mut f = tokio::fs::File::create_new(opts.identity).await?;
             f.write_all(
                 format!(
