@@ -37,6 +37,9 @@ pub struct Pending {
     pub expiry: u32,
     pub source: String,
     pub receipt: Option<Receipt>,
+    /// The payment request, as `lookup` prints it; null for rows written before this field.
+    #[serde(default)]
+    pub request: serde_json::Value,
 }
 
 pub struct StoredOperation {
@@ -416,9 +419,9 @@ impl Store {
             |row| row.get(0),
         )?)
     }
-    pub fn block_by_txid(&self, txid: &str) -> Result<Option<Block>> {
+    pub fn transaction_height(&self, txid: &str) -> Result<Option<u32>> {
         self.ensure_indexes()?;
-        let height: Option<u32> = self
+        Ok(self
             .conn
             .query_row(
                 "SELECT MIN(height) FROM block_transactions WHERE txid=?",
@@ -426,8 +429,10 @@ impl Store {
                 |row| row.get(0),
             )
             .optional()?
-            .flatten();
-        height
+            .flatten())
+    }
+    pub fn block_by_txid(&self, txid: &str) -> Result<Option<Block>> {
+        self.transaction_height(txid)?
             .map(|height| self.block(height))
             .transpose()
             .map(Option::flatten)

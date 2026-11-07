@@ -684,6 +684,7 @@ fn operation_id_and_reserved_transaction_commit_or_roll_back_together() -> Resul
         expiry: 20,
         source: "outpoint:test:0".into(),
         receipt: None,
+        request: Value::Null,
     };
     let operation = StoredOperation {
         id: "atomic".into(),
@@ -1056,6 +1057,7 @@ fn automatic_shield_selects_smallest_eligible_output_and_returns_transparent_cha
             expiry: 20,
             source: format!("outpoint:{txid}:1"),
             receipt: None,
+            request: Value::Null,
         })?;
         store.commit()?;
         let mut data = node.data.lock().unwrap();
@@ -1584,6 +1586,7 @@ fn transparent_reservations_survive_restart_until_after_expiry() -> Result<()> {
             expiry: 9,
             source: format!("outpoint:{}:0", "11".repeat(32)),
             receipt: None,
+            request: Value::Null,
         })?;
         store.commit()?;
     }
@@ -1734,7 +1737,7 @@ fn two_wallet_rpc_flow_recovers_broadcast_failure_and_reorg() -> Result<()> {
         command(
             &alice,
             Operation::Send {
-                to: bob_address,
+                to: bob_address.clone(),
                 amount_zat: 300_000
             }
         )
@@ -1790,6 +1793,26 @@ fn two_wallet_rpc_flow_recovers_broadcast_failure_and_reorg() -> Result<()> {
     node.mine()?;
     assert_eq!(synced_balance(&bob)?["available_zat"], 300_000);
     assert_eq!(synced_balance(&alice)?["available_zat"], 650_000);
+    let received = command(&bob, Operation::Transactions)?;
+    let received = received["transactions"].as_array().unwrap();
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0]["kind"], "receive");
+    assert_eq!(received[0]["txid"], txid);
+    assert_eq!(received[0]["note_id"], exported.id()?);
+    assert_eq!(received[0]["amount_zat"], 300_000);
+    assert_eq!(received[0]["status"], "mined");
+    assert_eq!(received[0]["height"], 10);
+    let sent = command(&alice, Operation::Transactions)?;
+    let sent = sent["transactions"].as_array().unwrap();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[0]["kind"], "shield");
+    assert_eq!(sent[0]["amount_zat"], 1_000_000);
+    assert_eq!(sent[0]["height"], 9);
+    assert_eq!(sent[1]["kind"], "send");
+    assert_eq!(sent[1]["to"], bob_address);
+    assert_eq!(sent[1]["amount_zat"], 300_000);
+    assert_eq!(sent[1]["operation_id"], "alice-to-bob");
+    assert_eq!(sent[1]["status"], "mined");
     let mined_file = temp.path().join("mined-payment.json");
     command(
         &alice,
@@ -1879,6 +1902,7 @@ fn reservations_survive_restarts_and_expire_only_after_expiry_height() -> Result
         expiry: 10,
         source: format!("note:{}", receipt.id()?),
         receipt: None,
+        request: Value::Null,
     })?;
     store.commit()?;
     drop(store);
