@@ -4,7 +4,7 @@
 use anyhow::{Context, Result, ensure};
 use ragu::{Pcd, Proof};
 use zcash_tachyon::{
-    EpochIndex, Note, Tachygram,
+    AnchorSetPoly, EpochIndex, Note, Tachygram,
     keys::private::SpendingKey,
     nullifier::NF_DERIVATION_WIDTH,
     stamp::proof::{PROOF_SYSTEM, delegation, pool, qr, spendable},
@@ -241,28 +241,28 @@ fn lift_closed_epoch(
         .0)
 }
 
-pub fn lift_stamp(
+pub fn anchor_spans(
     chain: &ChainData<'_>,
-    stamp: zcash_tachyon::ProofStamp,
-    descriptors: &std::collections::BTreeSet<zcash_tachyon::action::Descriptor>,
-    fee_descriptors: &std::collections::BTreeSet<zcash_tachyon::fee::Descriptor>,
+    start: zcash_tachyon::Anchor,
+    target: zcash_tachyon::Anchor,
     control: &Control,
-) -> Result<zcash_tachyon::ProofStamp> {
-    control.stage("Lifting stamp to the synced anchor…")?;
-    let tip = chain.tip()?;
-    let target = anchor(&tip.anchor_after)?;
-    if stamp.anchor == target {
-        return Ok(stamp);
+) -> Result<Vec<(Pcd<pool::AnchorSpan>, AnchorSetPoly)>> {
+    if start == target {
+        return Ok(Vec::new());
     }
-    let mut cursor = stamp.anchor;
+    let tip = chain.tip()?;
+    let mut cursor = start;
     let mut span: Option<Pcd<pool::AnchorSpan>> = None;
     let mut span_members = Vec::new();
     let current_blocks = chain.epoch_blocks(tip.epoch)?;
-    for block in current_blocks.iter().filter(|b| b.epoch == tip.epoch) {
+    'blocks: for block in current_blocks.iter().filter(|b| b.epoch == tip.epoch) {
         control.check()?;
         let mut before = block.entry()?;
         for published in &block.stamps {
             control.check()?;
+            if cursor == target {
+                break 'blocks;
+            }
             let members = published.members()?;
             let commitment = published.commitment()?;
             let after = before.next_stamp(EpochIndex::new(tip.epoch), &commitment)?;
@@ -302,14 +302,24 @@ pub fn lift_stamp(
             before = after;
         }
     }
-    ensure!(cursor == target, "cannot lift the stamp to the synced tip");
-    let span = span.context("no anchor span reaches the synced tip")?;
+    ensure!(cursor == target, "cannot reach the requested anchor");
+    let span = span.context("no anchor span reaches the requested anchor")?;
     control.check()?;
-    let members = span_members.into_iter().collect();
-    Ok(stamp.lift(
-        &mut rand::rng(),
-        descriptors,
-        fee_descriptors,
-        vec![(span, members)],
-    )?)
+    Ok(vec![(span, span_members.into_iter().collect())])
+}
+
+pub fn lift_stamp(
+    chain: &ChainData<'_>,
+    stamp: zcash_tachyon::ProofStamp,
+    descriptors: &std::collections::BTreeSet<zcash_tachyon::action::Descriptor>,
+    fee_descriptors: &std::collections::BTreeSet<zcash_tachyon::fee::Descriptor>,
+    control: &Control,
+) -> Result<zcash_tachyon::ProofStamp> {
+    control.stage("Lifting stamp to the synced anchor…")?;
+    let target = anchor(&chain.tip()?.anchor_after)?;
+    let spans = anchor_spans(chain, stamp.anchor, target, control)?;
+    if spans.is_empty() {
+        return Ok(stamp);
+    }
+    Ok(stamp.lift(&mut rand::rng(), descriptors, fee_descriptors, spans)?)
 }

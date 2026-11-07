@@ -320,7 +320,7 @@ fn old_receipt_backfills_its_epoch_resumes_a_gap_and_reuses_cached_suffix() -> R
         Payment {
             seed: SEED,
             blocks: (&blocks).into(),
-            spend: Some(&receipt),
+            spends: vec![&receipt],
             funding: None,
             outputs: &[Receipt::new(
                 &receipt.network_id,

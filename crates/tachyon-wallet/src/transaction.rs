@@ -81,7 +81,7 @@ pub struct Funding {
 pub struct Payment<'a> {
     pub seed: [u8; 32],
     pub blocks: ChainData<'a>,
-    pub spend: Option<&'a Receipt>,
+    pub spends: Vec<&'a Receipt>,
     pub funding: Option<Funding>,
     pub outputs: &'a [Receipt],
     /// An unshielded payment, or transparent change from shielding a non-coinbase UTXO.
@@ -94,7 +94,7 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
     let Payment {
         seed,
         blocks,
-        spend,
+        spends,
         funding,
         outputs,
         transparent_output,
@@ -102,13 +102,22 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
     } = payment;
     let tip = blocks.tip()?;
     ensure!(
-        spend.is_some() != funding.is_some(),
+        spends.is_empty() != funding.is_none(),
         "exactly one funding source is required"
     );
-    let incoming = spend
-        .map(|r| r.value_zat)
-        .or_else(|| funding.as_ref().map(|f| f.output.value().into_u64()))
-        .unwrap_or(0);
+    let incoming = spends.iter().try_fold(0u64, |total, receipt| {
+        total
+            .checked_add(receipt.value_zat)
+            .context("amount overflow")
+    })?;
+    let incoming = if spends.is_empty() {
+        funding
+            .as_ref()
+            .map(|f| f.output.value().into_u64())
+            .unwrap_or(0)
+    } else {
+        incoming
+    };
     let outgoing = outputs.iter().try_fold(
         transparent_output.as_ref().map_or(0, |(_, n)| *n),
         |total, r| total.checked_add(r.value_zat).context("amount overflow"),
@@ -124,18 +133,33 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
     let mut rng = rand::rng();
     let mut evidence = Vec::new();
     let mut plan_anchor = anchor(&tip.anchor_after)?;
-    let mut spends = Vec::new();
-    if let Some(receipt) = spend {
+    let multiple_spends = spends.len() > 1;
+    let mut prepared = Vec::with_capacity(spends.len());
+    for receipt in spends {
         let note = receipt.note()?;
         let spendable = proofs::spendable(&blocks, &key, note, control)?;
-        plan_anchor = spendable.data().2;
+        let secret = proofs::secret(&key, note, control)?;
+        prepared.push((note, secret, spendable));
+    }
+    if prepared.len() == 1 {
+        plan_anchor = prepared[0].2.data().2;
+    } else if multiple_spends {
+        plan_anchor = anchor(&tip.anchor_after)?;
+    }
+    let mut spends = Vec::with_capacity(prepared.len());
+    for (note, secret, spendable) in prepared {
+        let spans = if multiple_spends {
+            proofs::anchor_spans(&blocks, spendable.data().2, plan_anchor, control)?
+        } else {
+            Vec::new()
+        };
         spends.push(action::Plan::spend(
             note,
             ActionEntropy::random(&mut rng),
             value::Trapdoor::random(&mut rng),
             |alpha| key.derive_proof_private().ak.derive_action_public(&alpha),
         ));
-        evidence.push((proofs::secret(&key, note, control)?, spendable, Vec::new()));
+        evidence.push((secret, spendable, spans));
     }
     let outputs = outputs
         .iter()

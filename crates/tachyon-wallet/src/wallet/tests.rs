@@ -315,6 +315,106 @@ fn transparent_send(to: &str, amount_zat: u64) -> Operation {
 }
 
 #[test]
+fn consolidate_combines_multiple_notes_into_one() -> Result<()> {
+    let node = Node::start()?;
+    let temp = tempfile::tempdir()?;
+    let dir = temp.path().join("wallet");
+    let address = init_wallet(&node, &dir)?;
+    install_funding(&node, &address, &[200_000, 300_000])?;
+    for _ in 0..2 {
+        command(
+            &dir,
+            Operation::Shield {
+                amount_zat: Some(100_000),
+                txid: None,
+                index: None,
+            },
+        )?;
+        node.mine()?;
+    }
+    command(
+        &dir,
+        Operation::Sync {
+            max_blocks: 1000,
+            from_height: None,
+        },
+    )?;
+    assert_eq!(
+        command(&dir, Operation::BalanceSummary)?["notes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    command(&dir, Operation::Consolidate { max_inputs: 16 })?;
+    node.mine()?;
+    command(
+        &dir,
+        Operation::Sync {
+            max_blocks: 1000,
+            from_height: None,
+        },
+    )?;
+    let balance = command(&dir, Operation::BalanceSummary)?;
+    assert_eq!(balance["available_zat"], 150_000);
+    assert_eq!(balance["notes"].as_array().unwrap().len(), 1);
+    Ok(())
+}
+
+#[test]
+fn send_combines_notes_when_no_single_note_is_sufficient() -> Result<()> {
+    let node = Node::start()?;
+    let temp = tempfile::tempdir()?;
+    let dir = temp.path().join("wallet");
+    let funding_address = init_wallet(&node, &dir)?;
+    install_funding(&node, &funding_address, &[200_000, 300_000])?;
+    for _ in 0..2 {
+        command(
+            &dir,
+            Operation::Shield {
+                amount_zat: Some(100_000),
+                txid: None,
+                index: None,
+            },
+        )?;
+        node.mine()?;
+    }
+    command(
+        &dir,
+        Operation::Sync {
+            max_blocks: 1000,
+            from_height: None,
+        },
+    )?;
+    let own = command(&dir, Operation::Address)?["tachyon_address"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    command(
+        &dir,
+        Operation::Send {
+            to: own,
+            amount_zat: 150_000,
+        },
+    )?;
+    assert_eq!(
+        command(&dir, Operation::BalanceSummary)?["available_zat"],
+        0
+    );
+    node.mine()?;
+    command(
+        &dir,
+        Operation::Sync {
+            max_blocks: 1000,
+            from_height: None,
+        },
+    )?;
+    let balance = command(&dir, Operation::BalanceSummary)?;
+    assert_eq!(balance["available_zat"], 150_000, "{balance}");
+    Ok(())
+}
+
+#[test]
 fn balance_summary_allows_unconfirmed_notes_without_nullifiers() -> Result<()> {
     let node = Node::start()?;
     let temp = tempfile::tempdir()?;

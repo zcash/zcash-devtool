@@ -101,7 +101,7 @@ pub(crate) fn shield(blocks: &[Block], receipt: &Receipt) -> Result<Transaction>
     build(Payment {
         seed: SEED,
         blocks: blocks.into(),
-        spend: None,
+        spends: vec![],
         funding: Some(Funding {
             outpoint: OutPoint::new([2; 32], 0),
             output: TxOut::new(
@@ -289,7 +289,7 @@ fn shield_transfer_change_and_unshield_roundtrip_with_valid_authorization() -> R
     let sent = build(Payment {
         seed: SEED,
         blocks: (&blocks).into(),
-        spend: Some(&funded),
+        spends: vec![&funded],
         funding: None,
         outputs: &[recipient, change.clone()],
         transparent_output: None,
@@ -308,7 +308,7 @@ fn shield_transfer_change_and_unshield_roundtrip_with_valid_authorization() -> R
     let unshield = build(Payment {
         seed: SEED,
         blocks: (&blocks).into(),
-        spend: Some(&change),
+        spends: vec![&change],
         funding: None,
         outputs: &[],
         transparent_output: Some((transaction::funding_address(SEED)?, 600_000)),
@@ -342,7 +342,7 @@ fn old_note_spends_after_populated_and_empty_closed_epochs() -> Result<()> {
     let sent = build(Payment {
         seed: SEED,
         blocks: (&blocks).into(),
-        spend: Some(&receipt),
+        spends: vec![&receipt],
         funding: None,
         outputs: &[own(950_000)],
         transparent_output: None,
@@ -372,7 +372,7 @@ fn checkpoint_history_supports_spends_before_and_after_creation_epoch_closes() -
         let sent = build(Payment {
             seed: SEED,
             blocks: (&blocks).into(),
-            spend: Some(&receipt),
+            spends: vec![&receipt],
             funding: None,
             outputs: &[own(950_000)],
             transparent_output: None,
@@ -465,7 +465,7 @@ fn spends_after_epoch_with_more_tachygrams_than_polynomial_capacity() -> Result<
         let sent = build(Payment {
             seed: SEED,
             blocks: (&blocks).into(),
-            spend: Some(receipt),
+            spends: vec![receipt],
             funding: None,
             outputs: &[own(950_000)],
             transparent_output: None,
@@ -543,7 +543,7 @@ fn note_spend_tracking_updates_from_new_blocks_and_rewinds() -> Result<()> {
     let sent = build(Payment {
         seed: SEED,
         blocks: (&blocks).into(),
-        spend: Some(&receipt),
+        spends: vec![&receipt],
         funding: None,
         outputs: &[own(950_000)],
         transparent_output: None,
@@ -624,7 +624,7 @@ fn spent_note_cannot_produce_closed_epoch_absence_evidence() -> Result<()> {
     let sent = build(Payment {
         seed: SEED,
         blocks: (&blocks).into(),
-        spend: Some(&receipt),
+        spends: vec![&receipt],
         funding: None,
         outputs: &[own(950_000)],
         transparent_output: None,
@@ -655,7 +655,7 @@ fn spent_note_cannot_hide_in_another_routed_bucket() -> Result<()> {
     let sent = build(Payment {
         seed: SEED,
         blocks: (&blocks).into(),
-        spend: Some(&receipt),
+        spends: vec![&receipt],
         funding: None,
         outputs: &[own(950_000)],
         transparent_output: None,

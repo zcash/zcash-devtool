@@ -98,7 +98,12 @@ enum Operation {
         #[arg(long, requires = "txid")]
         index: Option<u32>,
     },
-    /// Spend one sufficiently large Tachyon note, returning change to this wallet.
+    /// Combine multiple available notes into one fresh note owned by this wallet.
+    Consolidate {
+        #[arg(long, default_value_t = 16)]
+        max_inputs: usize,
+    },
+    /// Spend one or more Tachyon notes, returning change to this wallet.
     Send {
         #[arg(long)]
         to: String,
@@ -178,6 +183,7 @@ impl Command {
                 matches!(
                     self.command,
                     Operation::Shield { .. }
+                        | Operation::Consolidate { .. }
                         | Operation::Send { .. }
                         | Operation::Unshield { .. }
                         | Operation::TransparentSend { .. }
@@ -422,6 +428,7 @@ impl Command {
                 );
             }
             operation @ (Operation::Shield { .. }
+            | Operation::Consolidate { .. }
             | Operation::Send { .. }
             | Operation::Unshield { .. }
             | Operation::TransparentSend { .. }) => {
@@ -606,7 +613,9 @@ fn note_states(
         refresh_note_nullifiers(store, config, current_epoch)?;
     } else {
         ensure!(
-            store.confirmed_notes_without_nullifier(current_epoch)?.is_empty(),
+            store
+                .confirmed_notes_without_nullifier(current_epoch)?
+                .is_empty(),
             "run sync to update note spend state"
         );
     }
@@ -615,7 +624,13 @@ fn note_states(
     let mut reserved = BTreeSet::new();
     for pending in store.pending()? {
         if pending_status(&pending, store)? != "expired" {
-            reserved.insert(pending.source);
+            if let Some(ids) = pending.source.strip_prefix("notes:") {
+                for id in ids.split(',') {
+                    reserved.insert(format!("note:{id}"));
+                }
+            } else {
+                reserved.insert(pending.source);
+            }
         }
     }
     store
@@ -679,6 +694,13 @@ fn payment_request(operation: &Operation) -> Result<Value> {
                 bytes32(txid)?;
             }
             json!({"kind":"shield","amount_zat":amount_zat,"txid":txid.as_ref().map(|id| id.to_ascii_lowercase()),"index":index})
+        }
+        Operation::Consolidate { max_inputs } => {
+            ensure!(
+                (2..=64).contains(max_inputs),
+                "max-inputs must be between 2 and 64"
+            );
+            json!({"kind":"consolidate","max_inputs":max_inputs})
         }
         Operation::Send { to, amount_zat } => {
             note::decode_address(to)?;
@@ -772,7 +794,7 @@ fn pay(
     };
     let own_address = note::address(&SpendingKey::from(config.seed));
     let mut outputs = Vec::new();
-    let mut spend = None;
+    let mut spends = Vec::new();
     let mut funding = None;
     let mut transparent_output = None;
     let mut recipient = None;
@@ -841,12 +863,72 @@ fn pay(
             funding = Some(selected);
             transparent_output = Some((to, amount_zat));
         }
+        Operation::Consolidate { max_inputs } => {
+            let mut selected: Vec<_> = note_states(store, config, control, true)?
+                .into_iter()
+                .filter(|(_, status)| *status == "available")
+                .map(|(receipt, _)| receipt)
+                .collect();
+            selected.sort_by_key(|receipt| receipt.value_zat);
+            selected.truncate(max_inputs);
+            ensure!(
+                selected.len() >= 2,
+                "need at least two available notes to consolidate"
+            );
+            let total = selected.iter().try_fold(0u64, |sum, receipt| {
+                sum.checked_add(receipt.value_zat)
+                    .context("note total overflow")
+            })?;
+            let amount = total
+                .checked_sub(FEE)
+                .context("notes cannot pay the consolidation fee")?;
+            ensure!(amount > 0, "consolidated note must be positive");
+            let ids = selected
+                .iter()
+                .map(|receipt| receipt.id())
+                .collect::<Result<Vec<_>>>()?;
+            source = format!("notes:{}", ids.join(","));
+            outputs.push(Receipt::new(&config.network_id, &own_address, amount)?);
+            spends = selected;
+        }
         Operation::Send { to, amount_zat } | Operation::Unshield { to, amount_zat } => {
             ensure!(amount_zat > 0, "amount must be positive");
             let needed = amount_zat.checked_add(FEE).context("amount overflow")?;
-            let selected = note_states(store, config, control, true)?.into_iter().filter(|(r,s)| *s == "available" && r.value_zat >= needed)
-                .min_by_key(|(r,_)| r.value_zat).map(|(r,_)| r).context("no single available note covers amount plus fee; this wallet does not consolidate notes")?;
-            source = format!("note:{}", selected.id()?);
+            let mut available: Vec<_> = note_states(store, config, control, true)?
+                .into_iter()
+                .filter(|(_, status)| *status == "available")
+                .map(|(receipt, _)| receipt)
+                .collect();
+            available.sort_by_key(|receipt| receipt.value_zat);
+            let mut selected = Vec::new();
+            let mut total = 0u64;
+            if let Some(single) = available.iter().find(|receipt| receipt.value_zat >= needed) {
+                total = single.value_zat;
+                selected.push(single.clone());
+            } else {
+                for receipt in available.into_iter().take(64) {
+                    total = total
+                        .checked_add(receipt.value_zat)
+                        .context("note total overflow")?;
+                    selected.push(receipt);
+                    if total >= needed {
+                        break;
+                    }
+                }
+            }
+            ensure!(
+                total >= needed,
+                "available notes do not cover amount plus fee"
+            );
+            let ids = selected
+                .iter()
+                .map(|receipt| receipt.id())
+                .collect::<Result<Vec<_>>>()?;
+            source = if ids.len() == 1 {
+                format!("note:{}", ids[0])
+            } else {
+                format!("notes:{}", ids.join(","))
+            };
             // The command-specific address format was checked before accessing the node.
             if to.starts_with("tachyon-test:") {
                 let receipt = Receipt::new(&config.network_id, &to, amount_zat)?;
@@ -856,11 +938,11 @@ fn pay(
                 transaction::transparent_script(&to)?;
                 transparent_output = Some((to, amount_zat));
             }
-            let change = selected.value_zat - needed;
+            let change = total - needed;
             if change > 0 {
                 outputs.push(Receipt::new(&config.network_id, &own_address, change)?);
             }
-            spend = Some(selected);
+            spends = selected;
         }
         _ => anyhow::bail!("not a payment operation"),
     }
@@ -879,7 +961,7 @@ fn pay(
             Payment {
                 seed: config.seed,
                 blocks: store.into(),
-                spend: spend.as_ref(),
+                spends: spends.iter().collect(),
                 funding,
                 outputs: &outputs,
                 transparent_output,
