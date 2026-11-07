@@ -112,14 +112,26 @@ fn load_intake(
     first: u32,
     last: u32,
     profile: QrProfile,
+    control: &Control,
 ) -> Result<Option<Intake>> {
+    let cache_kind = if kind == 1 {
+        "intake-merge"
+    } else if profile.depth == 0 {
+        "intake-root"
+    } else {
+        "intake-route"
+    };
     let Some((bytes, members)) = chain.epoch_node(epoch, kind, first, last, profile)? else {
+        control.record_cache(cache_kind, false, 0);
         return Ok(None);
     };
+    let read = u64::try_from(bytes.len() + members.len()).unwrap_or(u64::MAX);
     let Some(members) = decode_members(&members) else {
+        control.record_cache(cache_kind, false, read);
         return Ok(None);
     };
     let Ok(proof) = Pcd::<qr::QrIntake>::from_bytes(&bytes) else {
+        control.record_cache(cache_kind, false, read);
         return Ok(None);
     };
     let commitment = members
@@ -132,8 +144,10 @@ fn load_intake(
         || proof.data().5 != commitment
         || !PROOF_SYSTEM.verify(&proof, rand::rng())?
     {
+        control.record_cache(cache_kind, false, read);
         return Ok(None);
     }
+    control.record_cache(cache_kind, true, read);
     Ok(Some(Intake { proof, members }))
 }
 
@@ -171,7 +185,7 @@ fn merge_cached(
     control: &Control,
 ) -> Result<Intake> {
     let profile = left.proof.data().4;
-    if let Some(cached) = load_intake(chain, epoch, 1, first, last, profile)? {
+    if let Some(cached) = load_intake(chain, epoch, 1, first, last, profile, control)? {
         return Ok(cached);
     }
     let merged = left.merge(right, control)?;
@@ -200,7 +214,7 @@ impl Intake {
                 "Routing epoch {epoch} stamps {first}..={last} to depth {}…",
                 profile.depth
             ))?;
-            if let Some(cached) = load_intake(chain, epoch, 0, first, last, profile)? {
+            if let Some(cached) = load_intake(chain, epoch, 0, first, last, profile, control)? {
                 self = cached;
                 continue;
             }
@@ -270,37 +284,44 @@ pub(super) fn bucket(
         if let Some(bucket) = cached
             && let Some(members) = decode_members(&members)
         {
+            control.record_cache(
+                "bucket",
+                true,
+                u64::try_from(pcd.len() + members.len() * 32).unwrap_or(u64::MAX),
+            );
             control.stage(format!("Reusing cached epoch {epoch} bucket…"))?;
             return Ok((bucket, members));
         }
     }
+    control.record_cache("bucket", false, 0);
     let mut intakes = Vec::new();
     let total = stamps.len();
     for (index, (before, members)) in stamps.into_iter().enumerate() {
         let index = u32::try_from(index)?;
-        let intake =
-            if let Some(cached) = load_intake(chain, epoch, 0, index, index, QrProfile::ROOT)? {
-                cached
-            } else {
-                control.stage(format!(
-                    "Proving epoch {epoch} stamp intake {}/{total}…",
-                    index + 1
-                ))?;
-                let (proof, ()) = PROOF_SYSTEM.seed(
-                    &mut rand::rng(),
-                    qr::QrStampIntakeSeed,
-                    witness::qr_stamp_intake_seed(
-                        ((), ()),
-                        before,
-                        epoch_index,
-                        discriminant,
-                        &members,
-                    ),
-                )?;
-                let intake = Intake { proof, members };
-                put_intake(chain, epoch, 0, index, index, &intake)?;
-                intake
-            };
+        let intake = if let Some(cached) =
+            load_intake(chain, epoch, 0, index, index, QrProfile::ROOT, control)?
+        {
+            cached
+        } else {
+            control.stage(format!(
+                "Proving epoch {epoch} stamp intake {}/{total}…",
+                index + 1
+            ))?;
+            let (proof, ()) = PROOF_SYSTEM.seed(
+                &mut rand::rng(),
+                qr::QrStampIntakeSeed,
+                witness::qr_stamp_intake_seed(
+                    ((), ()),
+                    before,
+                    epoch_index,
+                    discriminant,
+                    &members,
+                ),
+            )?;
+            let intake = Intake { proof, members };
+            put_intake(chain, epoch, 0, index, index, &intake)?;
+            intake
+        };
         intakes.push((index, index, intake));
     }
     if intakes.is_empty() {
@@ -527,7 +548,8 @@ mod tests {
         )?;
         let intake = Intake { proof, members };
         put_intake(&chain, 0, 0, 0, 0, &intake)?;
-        let cached = load_intake(&chain, 0, 0, 0, 0, QrProfile::ROOT)?.unwrap();
+        let cached =
+            load_intake(&chain, 0, 0, 0, 0, QrProfile::ROOT, &Control::new(true))?.unwrap();
         assert_eq!(cached.proof.data(), intake.proof.data());
         assert_eq!(cached.members, intake.members);
         cached.cached_route(
@@ -540,7 +562,7 @@ mod tests {
             &Control::new(true),
         )?;
         store.put_epoch_node(0, 0, 0, 0, QrProfile::ROOT, b"corrupt", b"members")?;
-        assert!(load_intake(&chain, 0, 0, 0, 0, QrProfile::ROOT)?.is_none());
+        assert!(load_intake(&chain, 0, 0, 0, 0, QrProfile::ROOT, &Control::new(true))?.is_none());
         Ok(())
     }
 

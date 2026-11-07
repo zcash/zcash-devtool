@@ -69,6 +69,20 @@ impl Rpc {
     }
 
     pub fn call<T: DeserializeOwned>(&self, method: &str, params: Value) -> Result<T> {
+        let started = std::time::Instant::now();
+        let mut bytes_read = 0u64;
+        let result = self.call_inner(method, params, &mut bytes_read);
+        self.control
+            .record_rpc(method, started.elapsed(), bytes_read);
+        result
+    }
+
+    fn call_inner<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: Value,
+        bytes_read: &mut u64,
+    ) -> Result<T> {
         // Never log params: they can include addresses, raw payments or secrets.
         self.control.stage(format!("Requesting {method}…"))?;
         let mut request = self
@@ -106,6 +120,7 @@ impl Rpc {
             }
         })?;
         self.control.check()?;
+        *bytes_read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let envelope: Value = serde_json::from_slice(&bytes).context("invalid RPC JSON")?;
         if !envelope["error"].is_null() {
             return Err(RpcError {
