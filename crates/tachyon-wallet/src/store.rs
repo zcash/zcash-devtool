@@ -711,6 +711,30 @@ impl Store {
             .map(|row| Ok(serde_json::from_str(&row?)?))
             .collect()
     }
+    pub fn confirmed_unspent_note_rows(&self) -> Result<Vec<(String, String)>> {
+        self.ensure_indexes()?;
+        self.conn
+            .prepare(
+                "SELECT notes.id, notes.data FROM notes
+                 WHERE EXISTS (SELECT 1 FROM tachygrams WHERE tachygrams.id=notes.id)
+                 AND NOT EXISTS (
+                    SELECT 1 FROM note_nullifiers
+                    WHERE note_nullifiers.note_id=notes.id
+                    AND note_nullifiers.spent_height IS NOT NULL
+                 ) ORDER BY notes.id",
+            )?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+    pub fn note(&self, id: &str) -> Result<Option<Receipt>> {
+        let data: Option<String> = self
+            .conn
+            .query_row("SELECT data FROM notes WHERE id=?", [id], |row| row.get(0))
+            .optional()?;
+        data.map(|data| serde_json::from_str(&data).map_err(Into::into))
+            .transpose()
+    }
     pub fn confirmed_notes_without_nullifier(&self, epoch: u32) -> Result<Vec<Receipt>> {
         self.ensure_indexes()?;
         self.conn

@@ -277,12 +277,22 @@ impl Command {
             operation @ (Operation::Balance | Operation::BalanceSummary) => {
                 let summary = matches!(operation, Operation::BalanceSummary);
                 let tip = store.tip()?;
-                let states = note_states(&store, &config, control, !summary)?;
+                let states: Vec<(String, u64, &str)> = if summary {
+                    available_note_summaries(&store, &config, control, false)?
+                        .into_iter()
+                        .map(|(id, value)| (id, value, "available"))
+                        .collect()
+                } else {
+                    note_states(&store, &config, control, false)?
+                        .into_iter()
+                        .map(|(receipt, status)| Ok((receipt.id()?, receipt.value_zat, status)))
+                        .collect::<Result<Vec<_>>>()?
+                };
                 let available = states
                     .iter()
-                    .filter(|(_, s)| *s == "available")
-                    .try_fold(0u64, |total, (r, _)| {
-                        total.checked_add(r.value_zat).context("balance overflow")
+                    .filter(|(_, _, status)| *status == "available")
+                    .try_fold(0u64, |total, (_, value, _)| {
+                        total.checked_add(*value).context("balance overflow")
                     })?;
                 let snapshot = store.funding_snapshot()?;
                 let mut reserved = BTreeSet::new();
@@ -308,9 +318,11 @@ impl Command {
                 result["notes"] = json!(
                     states
                         .into_iter()
-                        .filter(|(_, status)| !summary || *status == "available")
-                        .map(|(r, s)| Ok(json!({"id":r.id()?,"value_zat":r.value_zat,"status":s})))
-                        .collect::<Result<Vec<_>>>()?
+                        .filter(|(_, _, status)| !summary || *status == "available")
+                        .map(
+                            |(id, value, status)| json!({"id":id,"value_zat":value,"status":status})
+                        )
+                        .collect::<Vec<_>>()
                 );
                 if summary {
                     return Ok(result);
@@ -600,27 +612,7 @@ pub(crate) fn refresh_note_nullifiers(
     Ok(())
 }
 
-fn note_states(
-    store: &Store,
-    config: &Config,
-    control: &Control,
-    allow_refresh: bool,
-) -> Result<Vec<(Receipt, &'static str)>> {
-    control.stage("Checking note states…")?;
-    let key = SpendingKey::from(config.seed);
-    let current_epoch = store.tip()?.map(|block| block.epoch).unwrap_or(0);
-    if allow_refresh {
-        refresh_note_nullifiers(store, config, current_epoch)?;
-    } else {
-        ensure!(
-            store
-                .confirmed_notes_without_nullifier(current_epoch)?
-                .is_empty(),
-            "run sync to update note spend state"
-        );
-    }
-    let spent = store.spent_note_ids()?;
-    let mined = store.mined_note_ids()?;
+fn reserved_note_ids(store: &Store) -> Result<BTreeSet<String>> {
     let mut reserved = BTreeSet::new();
     for pending in store.pending()? {
         if pending_status(&pending, store)? != "expired" {
@@ -633,6 +625,89 @@ fn note_states(
             }
         }
     }
+    Ok(reserved)
+}
+
+fn ensure_note_states(store: &Store, config: &Config, allow_refresh: bool) -> Result<()> {
+    let current_epoch = store.tip()?.map(|block| block.epoch).unwrap_or(0);
+    if allow_refresh {
+        refresh_note_nullifiers(store, config, current_epoch)
+    } else {
+        ensure!(
+            store
+                .confirmed_notes_without_nullifier(current_epoch)?
+                .is_empty(),
+            "run sync to update note spend state"
+        );
+        Ok(())
+    }
+}
+
+fn available_note_summaries(
+    store: &Store,
+    config: &Config,
+    control: &Control,
+    allow_refresh: bool,
+) -> Result<Vec<(String, u64)>> {
+    control.stage("Checking available notes…")?;
+    let key = SpendingKey::from(config.seed);
+    let payment_key = note::payment_key(&key);
+    ensure_note_states(store, config, allow_refresh)?;
+    let reserved = reserved_note_ids(store)?;
+    let mut notes = Vec::new();
+    for (id, data) in store.confirmed_unspent_note_rows()? {
+        control.check()?;
+        let receipt: Receipt = serde_json::from_str(&data)?;
+        ensure!(
+            receipt.version == 1,
+            "unsupported receipt version in wallet database"
+        );
+        ensure!(
+            receipt.network_id == config.network_id && receipt.payment_key == payment_key,
+            "stored receipt belongs to another wallet or network"
+        );
+        ensure!(
+            receipt.value_zat > 0,
+            "stored receipt has a non-positive value"
+        );
+        if !reserved.contains(&format!("note:{id}")) {
+            notes.push((id, receipt.value_zat));
+        }
+    }
+    Ok(notes)
+}
+
+fn load_validated_notes(
+    store: &Store,
+    config: &Config,
+    ids: &[String],
+    control: &Control,
+) -> Result<Vec<Receipt>> {
+    let key = SpendingKey::from(config.seed);
+    ids.iter()
+        .map(|id| {
+            control.check()?;
+            let receipt = store
+                .note(id)?
+                .with_context(|| format!("note {id} disappeared during payment"))?;
+            receipt.check_owner(&key, &config.network_id)?;
+            Ok(receipt)
+        })
+        .collect()
+}
+
+fn note_states(
+    store: &Store,
+    config: &Config,
+    control: &Control,
+    allow_refresh: bool,
+) -> Result<Vec<(Receipt, &'static str)>> {
+    control.stage("Checking note states…")?;
+    let key = SpendingKey::from(config.seed);
+    ensure_note_states(store, config, allow_refresh)?;
+    let spent = store.spent_note_ids()?;
+    let mined = store.mined_note_ids()?;
+    let reserved = reserved_note_ids(store)?;
     store
         .notes()?
         .into_iter()
@@ -864,53 +939,39 @@ fn pay(
             transparent_output = Some((to, amount_zat));
         }
         Operation::Consolidate { max_inputs } => {
-            let mut selected: Vec<_> = note_states(store, config, control, true)?
-                .into_iter()
-                .filter(|(_, status)| *status == "available")
-                .map(|(receipt, _)| receipt)
-                .collect();
-            selected.sort_by_key(|receipt| receipt.value_zat);
+            let mut selected = available_note_summaries(store, config, control, true)?;
+            selected.sort_by_key(|(_, value)| *value);
             selected.truncate(max_inputs);
             ensure!(
                 selected.len() >= 2,
                 "need at least two available notes to consolidate"
             );
-            let total = selected.iter().try_fold(0u64, |sum, receipt| {
-                sum.checked_add(receipt.value_zat)
-                    .context("note total overflow")
+            let total = selected.iter().try_fold(0u64, |sum, (_, value)| {
+                sum.checked_add(*value).context("note total overflow")
             })?;
             let amount = total
                 .checked_sub(FEE)
                 .context("notes cannot pay the consolidation fee")?;
             ensure!(amount > 0, "consolidated note must be positive");
-            let ids = selected
-                .iter()
-                .map(|receipt| receipt.id())
-                .collect::<Result<Vec<_>>>()?;
+            let ids: Vec<_> = selected.into_iter().map(|(id, _)| id).collect();
             source = format!("notes:{}", ids.join(","));
             outputs.push(Receipt::new(&config.network_id, &own_address, amount)?);
-            spends = selected;
+            spends = load_validated_notes(store, config, &ids, control)?;
         }
         Operation::Send { to, amount_zat } | Operation::Unshield { to, amount_zat } => {
             ensure!(amount_zat > 0, "amount must be positive");
             let needed = amount_zat.checked_add(FEE).context("amount overflow")?;
-            let mut available: Vec<_> = note_states(store, config, control, true)?
-                .into_iter()
-                .filter(|(_, status)| *status == "available")
-                .map(|(receipt, _)| receipt)
-                .collect();
-            available.sort_by_key(|receipt| receipt.value_zat);
+            let mut available = available_note_summaries(store, config, control, true)?;
+            available.sort_by_key(|(_, value)| *value);
             let mut selected = Vec::new();
             let mut total = 0u64;
-            if let Some(single) = available.iter().find(|receipt| receipt.value_zat >= needed) {
-                total = single.value_zat;
-                selected.push(single.clone());
+            if let Some((id, value)) = available.iter().find(|(_, value)| *value >= needed) {
+                total = *value;
+                selected.push(id.clone());
             } else {
-                for receipt in available.into_iter().take(64) {
-                    total = total
-                        .checked_add(receipt.value_zat)
-                        .context("note total overflow")?;
-                    selected.push(receipt);
+                for (id, value) in available.into_iter().take(64) {
+                    total = total.checked_add(value).context("note total overflow")?;
+                    selected.push(id);
                     if total >= needed {
                         break;
                     }
@@ -920,14 +981,10 @@ fn pay(
                 total >= needed,
                 "available notes do not cover amount plus fee"
             );
-            let ids = selected
-                .iter()
-                .map(|receipt| receipt.id())
-                .collect::<Result<Vec<_>>>()?;
-            source = if ids.len() == 1 {
-                format!("note:{}", ids[0])
+            source = if selected.len() == 1 {
+                format!("note:{}", selected[0])
             } else {
-                format!("notes:{}", ids.join(","))
+                format!("notes:{}", selected.join(","))
             };
             // The command-specific address format was checked before accessing the node.
             if to.starts_with("tachyon-test:") {
@@ -942,7 +999,7 @@ fn pay(
             if change > 0 {
                 outputs.push(Receipt::new(&config.network_id, &own_address, change)?);
             }
-            spends = selected;
+            spends = load_validated_notes(store, config, &selected, control)?;
         }
         _ => anyhow::bail!("not a payment operation"),
     }

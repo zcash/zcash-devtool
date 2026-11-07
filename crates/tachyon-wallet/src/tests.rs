@@ -556,8 +556,13 @@ fn note_spend_tracking_updates_from_new_blocks_and_rewinds() -> Result<()> {
         store.put_block(block)?;
     }
     store.put_note(&receipt)?;
+    let unconfirmed = own(2_000_000);
+    store.put_note(&unconfirmed)?;
+    let available = store.confirmed_unspent_note_rows()?;
+    assert_eq!(available.len(), 1);
+    assert_eq!(available[0].0, receipt.id()?);
     crate::wallet::refresh_note_nullifiers(&store, &config, 0)?;
-    assert!(store.notes_without_nullifier(0)?.is_empty());
+    assert!(store.confirmed_notes_without_nullifier(0)?.is_empty());
     assert!(store.spent_note_ids()?.is_empty());
 
     let sent = build(Payment {
@@ -573,6 +578,7 @@ fn note_spend_tracking_updates_from_new_blocks_and_rewinds() -> Result<()> {
     let spend_height = blocks.last().unwrap().height;
     store.put_block(blocks.last().unwrap())?;
     assert!(store.spent_note_ids()?.contains(&receipt.id()?));
+    assert!(store.confirmed_unspent_note_rows()?.is_empty());
 
     store.rewind(spend_height - 1)?;
     assert!(store.spent_note_ids()?.is_empty());
