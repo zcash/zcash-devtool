@@ -5,7 +5,7 @@ use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashSet},
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -810,6 +810,27 @@ impl Store {
     }
     pub fn pending(&self) -> Result<Vec<Pending>> {
         self.read_all("SELECT data FROM pending ORDER BY txid")
+    }
+    pub fn pending_by_txid(&self, txid: &str) -> Result<Option<Pending>> {
+        let data: Option<String> = self
+            .conn
+            .query_row("SELECT data FROM pending WHERE txid=?", [txid], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        data.map(|data| serde_json::from_str(&data).map_err(Into::into))
+            .transpose()
+    }
+    /// All mined transaction IDs in the wallet's canonical synced chain.
+    ///
+    /// Loading this set once avoids re-running `tip()` and a transaction lookup
+    /// for every historical pending row during balance snapshots.
+    pub fn mined_txids(&self) -> Result<HashSet<String>> {
+        self.conn
+            .prepare("SELECT txid FROM block_transactions")?
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<HashSet<_>>>()
+            .map_err(Into::into)
     }
     pub fn operation(&self, id: &str) -> Result<Option<StoredOperation>> {
         if !self.table_exists("operations")? {

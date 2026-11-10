@@ -15,7 +15,11 @@ use primitives::transaction::Transaction;
 use protocol::consensus::BranchId;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, io::Read, path::PathBuf};
+use std::{
+    collections::{BTreeSet, HashSet},
+    io::Read,
+    path::PathBuf,
+};
 use udon::field::Field;
 use zcash_tachyon::pasta::Fp;
 use zcash_tachyon::{EpochIndex, constants::EPOCH_SIZE, keys::private::SpendingKey};
@@ -295,9 +299,15 @@ impl Command {
                         total.checked_add(*value).context("balance overflow")
                     })?;
                 let snapshot = store.funding_snapshot()?;
+                let mined_txids = store.mined_txids()?;
                 let mut reserved = BTreeSet::new();
                 for pending in store.pending()? {
-                    if pending_status(&pending, &store)? != "expired" {
+                    if pending_status_at(
+                        &pending,
+                        tip.as_ref().map(|block| block.height),
+                        &mined_txids,
+                    ) != "expired"
+                    {
                         reserved.insert(pending.source);
                     }
                 }
@@ -392,24 +402,28 @@ impl Command {
             }
             Operation::TransactionStatus { ids } => {
                 let mut transactions = Vec::new();
+                let tip_height = store.tip()?.map(|block| block.height);
+                let mined = store.mined_txids()?;
                 for id in ids {
                     validate_operation_id(&id)?;
                     if let Some(saved) = store.operation(&id)? {
                         let pending = find_pending(&store, &saved.txid)?;
                         transactions.push(json!({"txid":pending.txid,"operation_id":id,
-                            "expiry_height":pending.expiry,"status":pending_status(&pending,&store)?}));
+                            "expiry_height":pending.expiry,"status":pending_status_at(&pending, tip_height, &mined)}));
                     }
                 }
                 return Ok(json!({"transactions":transactions}));
             }
             Operation::Transactions => {
                 let ids = store.operation_ids()?;
+                let tip_height = store.tip()?.map(|block| block.height);
+                let mined = store.mined_txids()?;
                 let transactions = store
                     .pending()?
                     .into_iter()
                     .map(|pending| {
                         Ok(json!({"txid":pending.txid,"operation_id":ids.get(&pending.txid),
-                            "expiry_height":pending.expiry,"status":pending_status(&pending,&store)?}))
+                            "expiry_height":pending.expiry,"status":pending_status_at(&pending, tip_height, &mined)}))
                     })
                     .collect::<Result<Vec<_>>>()?;
                 return Ok(json!({"transactions":transactions}));
@@ -572,12 +586,27 @@ fn pending_status(pending: &Pending, store: &Store) -> Result<&'static str> {
     })
 }
 
+/// Classify a pending row using a tip and mined-transaction set loaded once
+/// for a whole wallet operation. Historical transaction rows are common, so
+/// per-row `tip()` recursive queries are prohibitively expensive.
+fn pending_status_at(
+    pending: &Pending,
+    tip_height: Option<u32>,
+    mined: &HashSet<String>,
+) -> &'static str {
+    if mined.contains(&pending.txid) {
+        "mined"
+    } else if tip_height.is_some_and(|height| height > pending.expiry) {
+        "expired"
+    } else {
+        "pending"
+    }
+}
+
 fn find_pending(store: &Store, txid: &str) -> Result<Pending> {
     store
-        .pending()?
-        .into_iter()
-        .find(|p| p.txid == txid)
-        .context("unknown wallet transaction")
+        .pending_by_txid(txid)?
+        .with_context(|| format!("unknown wallet transaction {txid}"))
 }
 
 pub(crate) fn refresh_note_nullifiers(
@@ -613,9 +642,11 @@ pub(crate) fn refresh_note_nullifiers(
 }
 
 fn reserved_note_ids(store: &Store) -> Result<BTreeSet<String>> {
+    let tip_height = store.tip()?.map(|block| block.height);
+    let mined = store.mined_txids()?;
     let mut reserved = BTreeSet::new();
     for pending in store.pending()? {
-        if pending_status(&pending, store)? != "expired" {
+        if pending_status_at(&pending, tip_height, &mined) != "expired" {
             if let Some(ids) = pending.source.strip_prefix("notes:") {
                 for id in ids.split(',') {
                     reserved.insert(format!("note:{id}"));
@@ -895,9 +926,12 @@ fn pay(
                 _ => anyhow::bail!("--txid and --index must be provided together"),
             };
             source = format!("outpoint:{txid}:{index}");
+            let tip_height = store.tip()?.map(|block| block.height);
+            let mined = store.mined_txids()?;
             for pending in store.pending()? {
                 ensure!(
-                    pending.source != source || pending_status(&pending, store)? == "expired",
+                    pending.source != source
+                        || pending_status_at(&pending, tip_height, &mined) == "expired",
                     "funding output is already reserved"
                 );
             }
@@ -1132,8 +1166,10 @@ fn select_funding_outpoint(
         .funding_snapshot()?
         .context("run sync until caught up before selecting funding")?;
     let mut reserved = BTreeSet::new();
+    let tip_height = store.tip()?.map(|block| block.height);
+    let mined = store.mined_txids()?;
     for pending in store.pending()? {
-        if pending_status(&pending, store)? != "expired" {
+        if pending_status_at(&pending, tip_height, &mined) != "expired" {
             reserved.insert(pending.source);
         }
     }
