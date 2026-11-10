@@ -299,18 +299,7 @@ impl Command {
                         total.checked_add(*value).context("balance overflow")
                     })?;
                 let snapshot = store.funding_snapshot()?;
-                let mined_txids = store.mined_txids()?;
-                let mut reserved = BTreeSet::new();
-                for pending in store.pending()? {
-                    if pending_status_at(
-                        &pending,
-                        tip.as_ref().map(|block| block.height),
-                        &mined_txids,
-                    ) != "expired"
-                    {
-                        reserved.insert(pending.source);
-                    }
-                }
+                let reserved = store.reserved_sources(tip.as_ref().map(|block| block.height))?;
                 let transparent = snapshot
                     .as_ref()
                     .map(|snapshot| {
@@ -419,13 +408,14 @@ impl Command {
                 let tip_height = store.tip()?.map(|block| block.height);
                 let mined = store.mined_txids()?;
                 let transactions = store
-                    .pending()?
+                    .pending_summaries()?
                     .into_iter()
-                    .map(|pending| {
-                        Ok(json!({"txid":pending.txid,"operation_id":ids.get(&pending.txid),
-                            "expiry_height":pending.expiry,"status":pending_status_at(&pending, tip_height, &mined)}))
+                    .map(|(txid, expiry, _)| {
+                        let status = pending_status_values(&txid, expiry, tip_height, &mined);
+                        json!({"txid":txid,"operation_id":ids.get(&txid),
+                            "expiry_height":expiry,"status":status})
                     })
-                    .collect::<Result<Vec<_>>>()?;
+                    .collect::<Vec<_>>();
                 return Ok(json!({"transactions":transactions}));
             }
             Operation::Lookup { id } => {
@@ -594,9 +584,18 @@ fn pending_status_at(
     tip_height: Option<u32>,
     mined: &HashSet<String>,
 ) -> &'static str {
-    if mined.contains(&pending.txid) {
+    pending_status_values(&pending.txid, pending.expiry, tip_height, mined)
+}
+
+fn pending_status_values(
+    txid: &str,
+    expiry: u32,
+    tip_height: Option<u32>,
+    mined: &HashSet<String>,
+) -> &'static str {
+    if mined.contains(txid) {
         "mined"
-    } else if tip_height.is_some_and(|height| height > pending.expiry) {
+    } else if tip_height.is_some_and(|height| height > expiry) {
         "expired"
     } else {
         "pending"
@@ -642,18 +641,14 @@ pub(crate) fn refresh_note_nullifiers(
 }
 
 fn reserved_note_ids(store: &Store) -> Result<BTreeSet<String>> {
-    let tip_height = store.tip()?.map(|block| block.height);
-    let mined = store.mined_txids()?;
     let mut reserved = BTreeSet::new();
-    for pending in store.pending()? {
-        if pending_status_at(&pending, tip_height, &mined) != "expired" {
-            if let Some(ids) = pending.source.strip_prefix("notes:") {
-                for id in ids.split(',') {
-                    reserved.insert(format!("note:{id}"));
-                }
-            } else {
-                reserved.insert(pending.source);
+    for source in store.reserved_sources(store.tip()?.map(|block| block.height))? {
+        if let Some(ids) = source.strip_prefix("notes:") {
+            for id in ids.split(',') {
+                reserved.insert(format!("note:{id}"));
             }
+        } else {
+            reserved.insert(source);
         }
     }
     Ok(reserved)
@@ -926,15 +921,11 @@ fn pay(
                 _ => anyhow::bail!("--txid and --index must be provided together"),
             };
             source = format!("outpoint:{txid}:{index}");
-            let tip_height = store.tip()?.map(|block| block.height);
-            let mined = store.mined_txids()?;
-            for pending in store.pending()? {
-                ensure!(
-                    pending.source != source
-                        || pending_status_at(&pending, tip_height, &mined) == "expired",
-                    "funding output is already reserved"
-                );
-            }
+            let reserved = store.reserved_sources(store.tip()?.map(|block| block.height))?;
+            ensure!(
+                !reserved.contains(&source),
+                "funding output is already reserved"
+            );
             let (selected, coinbase) = load_funding(&rpc, config.seed, &txid, index)?;
             let after_fee = selected
                 .output
@@ -1165,14 +1156,7 @@ fn select_funding_outpoint(
     let snapshot = store
         .funding_snapshot()?
         .context("run sync until caught up before selecting funding")?;
-    let mut reserved = BTreeSet::new();
-    let tip_height = store.tip()?.map(|block| block.height);
-    let mined = store.mined_txids()?;
-    for pending in store.pending()? {
-        if pending_status_at(&pending, tip_height, &mined) != "expired" {
-            reserved.insert(pending.source);
-        }
-    }
+    let reserved = store.reserved_sources(store.tip()?.map(|block| block.height))?;
     for (txid, index, value) in snapshot.candidates(needed, &reserved) {
         let allow_coinbase = matches!(purpose, FundingPurpose::Shield) && value == needed;
         let available: Value = rpc.call("gettxout", json!([txid, index, true]))?;

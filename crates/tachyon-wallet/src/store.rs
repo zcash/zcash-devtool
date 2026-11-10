@@ -311,7 +311,52 @@ impl Store {
         } else {
             None
         };
-        Ok(Self { conn, evidence })
+        let store = Self { conn, evidence };
+        if !read_only {
+            store.ensure_pending_meta()?;
+        }
+        Ok(store)
+    }
+    /// Keep the transaction payloads in `pending` for recovery and rebroadcast,
+    /// while maintaining a small metadata index for hot-path status and
+    /// reservation checks. Existing wallets are migrated once.
+    fn ensure_pending_meta(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS pending_meta (
+                txid TEXT PRIMARY KEY,
+                expiry INTEGER NOT NULL,
+                source TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS pending_meta_by_expiry ON pending_meta(expiry, source);",
+        )?;
+        let migrated: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key='pending_meta_v1'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if migrated.is_some() {
+            return Ok(());
+        }
+        let mut rows = self.conn.prepare("SELECT data FROM pending")?;
+        let mut pending = rows.query([])?;
+        let mut insert = self
+            .conn
+            .prepare("INSERT OR IGNORE INTO pending_meta(txid, expiry, source) VALUES(?, ?, ?)")?;
+        while let Some(row) = pending.next()? {
+            let data: String = row.get(0)?;
+            let entry: Pending = serde_json::from_str(&data)?;
+            insert.execute(params![entry.txid, entry.expiry, entry.source])?;
+        }
+        self.conn.execute(
+            "INSERT INTO metadata(key, value) VALUES('pending_meta_v1', '1')
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [],
+        )?;
+        Ok(())
     }
     pub fn commit(&self) -> Result<()> {
         Ok(self.conn.execute_batch("COMMIT")?)
@@ -811,6 +856,47 @@ impl Store {
     pub fn pending(&self) -> Result<Vec<Pending>> {
         self.read_all("SELECT data FROM pending ORDER BY txid")
     }
+    /// Sources of pending operations that have not expired at `tip_height`.
+    /// This reads the small metadata index, never the raw transaction blobs.
+    pub fn reserved_sources(&self, tip_height: Option<u32>) -> Result<BTreeSet<String>> {
+        let mut sources = BTreeSet::new();
+        if !self.table_exists("pending_meta")? {
+            for pending in self.pending()? {
+                if tip_height.is_none_or(|height| height <= pending.expiry) {
+                    sources.insert(pending.source);
+                }
+            }
+            return Ok(sources);
+        }
+        if let Some(height) = tip_height {
+            let mut statement = self
+                .conn
+                .prepare("SELECT source FROM pending_meta WHERE expiry >= ?")?;
+            for source in statement.query_map([height], |row| row.get(0))? {
+                sources.insert(source?);
+            }
+        } else {
+            let mut statement = self.conn.prepare("SELECT source FROM pending_meta")?;
+            for source in statement.query_map([], |row| row.get(0))? {
+                sources.insert(source?);
+            }
+        }
+        Ok(sources)
+    }
+    pub fn pending_summaries(&self) -> Result<Vec<(String, u32, String)>> {
+        if !self.table_exists("pending_meta")? {
+            return Ok(self
+                .pending()?
+                .into_iter()
+                .map(|pending| (pending.txid, pending.expiry, pending.source))
+                .collect());
+        }
+        Ok(self
+            .conn
+            .prepare("SELECT txid, expiry, source FROM pending_meta ORDER BY txid")?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?)
+    }
     pub fn pending_by_txid(&self, txid: &str) -> Result<Option<Pending>> {
         let data: Option<String> = self
             .conn
@@ -997,6 +1083,51 @@ impl Store {
             "INSERT INTO pending VALUES(?, ?)",
             params![pending.txid, serde_json::to_string(pending)?],
         )?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO pending_meta(txid, expiry, source) VALUES(?, ?, ?)",
+            params![pending.txid, pending.expiry, pending.source],
+        )?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pending_metadata_migrates_without_touching_payloads() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))?;
+        }
+        let store = Store::open(directory.path(), true)?;
+        store.commit()?;
+        let pending = Pending {
+            txid: "legacy-tx".into(),
+            raw: "large transaction payload".into(),
+            expiry: 10,
+            source: "notes:legacy-note".into(),
+            receipt: None,
+        };
+        store.conn.execute(
+            "INSERT INTO pending VALUES(?, ?)",
+            params![pending.txid, serde_json::to_string(&pending)?],
+        )?;
+        store.conn.execute("DROP TABLE pending_meta", [])?;
+        store
+            .conn
+            .execute("DELETE FROM metadata WHERE key='pending_meta_v1'", [])?;
+        drop(store);
+
+        let store = Store::open(directory.path(), false)?;
+        assert_eq!(
+            store.reserved_sources(Some(10))?,
+            BTreeSet::from(["notes:legacy-note".to_string()])
+        );
+        assert!(store.reserved_sources(Some(11))?.is_empty());
         Ok(())
     }
 }
