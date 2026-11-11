@@ -184,8 +184,8 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
         .stamp_plan(plan_anchor, value::Positive::try_from(FEE)?)
         .prove(&mut rng, &key.derive_proof_private(), evidence)?;
     let fee_descriptors = std::collections::BTreeSet::from([fee::Descriptor {
-        max_commitment: max_fee_note.fee_blind().commit(-max_fee_note.value),
-        value: value::Positive::try_from(FEE)?,
+        cv_feemax: max_fee_note.cv_feemax(),
+        v_fee: value::Positive::try_from(FEE)?,
     }]);
     let stamp = proofs::lift_stamp(
         &blocks,
@@ -196,9 +196,21 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
     )?;
     control.stage("Signing transaction…")?;
     let placeholder = TachyonBundle::Proven(
-        plan.clone()
-            .sign(&mut rng, &[0; 32], &key.derive_auth_private())?
-            .stamp(stamp.clone()),
+        {
+            let bundle = plan
+                .clone()
+                .sign(&mut rng, &[0; 32], &key.derive_auth_private())?
+                .stamp(stamp.clone());
+            let stamp = bundle.stamp.compress(&mut rng)?;
+            zcash_tachyon::Bundle {
+                actions: bundle.actions,
+                value_balance: bundle.value_balance,
+                cv_feemax: bundle.cv_feemax,
+                binding_sig: bundle.binding_sig,
+                memo: bundle.memo,
+                stamp,
+            }
+        },
     );
     let vout = transparent_output
         .map(|(address, amount)| -> Result<_> {
@@ -211,10 +223,18 @@ pub fn build(payment: Payment<'_>, control: &Control) -> Result<Transaction> {
         .into_iter()
         .collect();
     authorize(seed, funding, vout, expiry, placeholder, |hash| {
-        Ok(TachyonBundle::Proven(
-            plan.sign(&mut rng, hash, &key.derive_auth_private())?
-                .stamp(stamp),
-        ))
+        let bundle = plan
+            .sign(&mut rng, hash, &key.derive_auth_private())?
+            .stamp(stamp);
+        let stamp = bundle.stamp.compress(&mut rng)?;
+        Ok(TachyonBundle::Proven(zcash_tachyon::Bundle {
+            actions: bundle.actions,
+            value_balance: bundle.value_balance,
+            cv_feemax: bundle.cv_feemax,
+            binding_sig: bundle.binding_sig,
+            memo: bundle.memo,
+            stamp,
+        }))
     })
 }
 

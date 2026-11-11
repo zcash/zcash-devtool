@@ -25,17 +25,17 @@ serde_json = "1"
 sha2 = "0.10"
 ripemd = "0.1"
 zcash_script = "0.4.3"
-# TEMPORARY: integration branch containing ragu main, #929, and the mock
-# wire format. Return to tachyon-zcash/ragu after those changes land upstream.
-ragu = { git = "https://github.com/cnode-agent/ragu", branch = "c/mock-wire+driver", features = ["mock"] }
-# TEMPORARY: same integration branch as ragu above.
-ragu_circuits = { git = "https://github.com/cnode-agent/ragu", branch = "c/mock-wire+driver" }
-# TEMPORARY: tachyon main plus #259/#260 and WireHeader support for cached
-# epoch-bucket and spendability proofs. Return upstream after those land.
-zcash_tachyon = { git = "https://github.com/cnode-agent/tachyon", branch = "c/mock-wire+driver" }
-primitives = { package = "zakura-primitives", git = "https://github.com/cnode-agent/common.git", branch = "c/devtool-tachyon", default-features = false, features = ["std"] }
-protocol = { package = "zakura-protocol", git = "https://github.com/cnode-agent/common.git", branch = "c/devtool-tachyon" }
-transparent = { package = "zakura-transparent", git = "https://github.com/cnode-agent/common.git", branch = "c/devtool-tachyon" }
+# TEMPORARY: tachyon fork pinned to upstream ragu main, including the proof
+# wire decoder used by cached epoch and spendability proofs.
+zcash_tachyon = { git = "https://github.com/cnode-agent/tachyon", rev = "c9140f5e373b5d24f8c7894a63c82f43cb7b0761" }
+# Ragu is pinned to upstream main; the mock driver (#929) and wire (#949)
+# changes are both merged there.
+ragu = { git = "https://github.com/tachyon-zcash/ragu", rev = "bdf8112ec5e279e6d851b58145e84a1be79a4942", features = ["mock"] }
+ragu_circuits = { git = "https://github.com/tachyon-zcash/ragu", rev = "bdf8112ec5e279e6d851b58145e84a1be79a4942" }
+ragu_core = { git = "https://github.com/tachyon-zcash/ragu", rev = "bdf8112ec5e279e6d851b58145e84a1be79a4942", package = "ragu_core", default-features = false }
+primitives = { package = "zakura-primitives", git = "https://github.com/cnode-agent/common.git", rev = "f21c6d99f20a58545d2eb222d5f2ef4654385bbf", default-features = false, features = ["std"] }
+protocol = { package = "zakura-protocol", git = "https://github.com/cnode-agent/common.git", rev = "f21c6d99f20a58545d2eb222d5f2ef4654385bbf" }
+transparent = { package = "zakura-transparent", git = "https://github.com/cnode-agent/common.git", rev = "f21c6d99f20a58545d2eb222d5f2ef4654385bbf" }
 
 [dev-dependencies]
 tempfile = "3"

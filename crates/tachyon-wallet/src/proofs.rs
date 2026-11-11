@@ -2,9 +2,11 @@
 //! Proofs are deliberately ephemeral; restarting never depends on serializing mock PCDs.
 
 use anyhow::{Context, Result, ensure};
-use ragu::{Pcd, Proof};
+use ragu::Pcd as RaguPcd;
+use ragu_circuits::polynomials::ProductionRank;
+use ragu_core::pasta::Pasta;
 use zcash_tachyon::{
-    AnchorSetPoly, EpochIndex, Note, Tachygram,
+    EpochIndex, Note, Tachygram,
     keys::private::SpendingKey,
     nullifier::NF_DERIVATION_WIDTH,
     stamp::proof::{PROOF_SYSTEM, delegation, pool, qr, spendable},
@@ -15,11 +17,19 @@ use crate::{chain::anchor, control::Control, store::ChainData};
 use udon::field::Field;
 use zcash_tachyon::pasta::Fp;
 
+type Pcd<H> = RaguPcd<Pasta, ProductionRank, H>;
+type ProofStamp = zcash_tachyon::ProofStamp<zcash_tachyon::stamp::Uncompressed>;
+
 mod epoch;
 use epoch::bucket;
 
 fn trivial() -> Pcd<()> {
-    Proof::bootstrap::<{ zcash_tachyon::stamp::proof::HEADER_SIZE }>().carry(())
+    PROOF_SYSTEM.bootstrap_proof().clone().carry(())
+}
+
+fn verify_proof<H: ragu::header::Header<Fp>>(proof: &Pcd<H>) -> Result<bool> {
+    let compressed = PROOF_SYSTEM.compress(proof, &mut rand::rng())?;
+    Ok(PROOF_SYSTEM.verify_compressed(&compressed)?)
 }
 
 pub fn secret(
@@ -69,7 +79,7 @@ pub fn spendable(
         && let Ok(cached) = Pcd::<spendable::NoteSpendable>::from_bytes(&bytes)
         && Tachygram::from(cached.data().0) == cm
         && u32::from(cached.data().1) <= current
-        && PROOF_SYSTEM.verify(&cached, rand::rng())?
+        && verify_proof(&cached)?
     {
         if cached.data().1 == EpochIndex::new(current) {
             control.stage("Reusing cached spendability proof…")?;
@@ -123,12 +133,12 @@ pub fn spendable(
         let (arbitrary, ()) = PROOF_SYSTEM.fuse(
             &mut rand::rng(),
             qr::QrUnspentInit,
-            witness::qr_unspent_init((*absence_bucket.data(), ()), nf.into(), &members),
+            witness::qr_unspent_init((*absence_bucket.data(), ()), nf.into()),
             absence_bucket.clone(),
             trivial(),
         )?;
         let derived = derivation(&secret, epoch, control)?;
-        let (_, first, _, last) = *derived.data();
+        let (_, first, last) = *derived.data();
         let window: Vec<_> = (u32::from(first)..=u32::from(last))
             .map(|e| master.derive_nullifier(EpochIndex::new(e)))
             .collect();
@@ -144,7 +154,7 @@ pub fn spendable(
             None => {
                 // The note commitment need not route to its nullifier's bucket.
                 // Both proofs cover the same complete epoch and anchor bounds.
-                let (creation_bucket, members) = if members.contains(&cm) {
+                let (creation_bucket, _) = if members.contains(&cm) {
                     (absence_bucket, members)
                 } else {
                     bucket(chain, epoch, cm, control)?
@@ -154,10 +164,7 @@ pub fn spendable(
                     .fuse(
                         &mut rand::rng(),
                         spendable::QrSpendableInit,
-                        witness::qr_spendable_init(
-                            (*unspent.data(), *creation_bucket.data()),
-                            &members,
-                        ),
+                        (),
                         unspent,
                         creation_bucket,
                     )?
@@ -208,17 +215,17 @@ fn lift_closed_epoch(
     let secret = secret(key, note, control)?;
     let master = key.derive_nullifier_private().derive_note_private(note.psi);
     let nf = master.derive_nullifier(EpochIndex::new(epoch));
-    let (absence_bucket, members) = bucket(chain, epoch, nf.into(), control)?;
+    let (absence_bucket, _members) = bucket(chain, epoch, nf.into(), control)?;
     control.stage("Proving unspent evidence…")?;
     let (arbitrary, ()) = PROOF_SYSTEM.fuse(
         &mut rand::rng(),
         qr::QrUnspentInit,
-        witness::qr_unspent_init((*absence_bucket.data(), ()), nf.into(), &members),
+        witness::qr_unspent_init((*absence_bucket.data(), ()), nf.into()),
         absence_bucket,
         trivial(),
     )?;
     let derived = derivation(&secret, epoch, control)?;
-    let (_, first, _, last) = *derived.data();
+    let (_, first, last) = *derived.data();
     let window: Vec<_> = (u32::from(first)..=u32::from(last))
         .map(|e| master.derive_nullifier(EpochIndex::new(e)))
         .collect();
@@ -246,7 +253,7 @@ pub fn anchor_spans(
     start: zcash_tachyon::Anchor,
     target: zcash_tachyon::Anchor,
     control: &Control,
-) -> Result<Vec<(Pcd<pool::AnchorSpan>, AnchorSetPoly)>> {
+) -> Result<Vec<Pcd<pool::AnchorSpan>>> {
     if start == target {
         return Ok(Vec::new());
     }
@@ -305,16 +312,16 @@ pub fn anchor_spans(
     ensure!(cursor == target, "cannot reach the requested anchor");
     let span = span.context("no anchor span reaches the requested anchor")?;
     control.check()?;
-    Ok(vec![(span, span_members.into_iter().collect())])
+    Ok(vec![span])
 }
 
 pub fn lift_stamp(
     chain: &ChainData<'_>,
-    stamp: zcash_tachyon::ProofStamp,
+    stamp: ProofStamp,
     descriptors: &std::collections::BTreeSet<zcash_tachyon::action::Descriptor>,
     fee_descriptors: &std::collections::BTreeSet<zcash_tachyon::fee::Descriptor>,
     control: &Control,
-) -> Result<zcash_tachyon::ProofStamp> {
+) -> Result<ProofStamp> {
     control.stage("Lifting stamp to the synced anchor…")?;
     let target = anchor(&chain.tip()?.anchor_after)?;
     let spans = anchor_spans(chain, stamp.anchor, target, control)?;

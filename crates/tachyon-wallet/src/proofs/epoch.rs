@@ -3,15 +3,14 @@
 use std::collections::BTreeSet;
 
 use anyhow::{Context, Result, ensure};
-use ragu::Pcd;
 use zcash_tachyon::pasta::Fp;
 use zcash_tachyon::{
-    Anchor, EpochIndex, QrClassRoot, QrDiscriminant, QrProfile, Tachygram, TachygramSetPoly,
+    Anchor, EpochIndex, QrClassRoot, QrDiscriminant, QrProfile, Tachygram,
     stamp::proof::{PROOF_SYSTEM, qr},
     witness,
 };
 
-use super::trivial;
+use super::{Pcd, trivial, verify_proof};
 use crate::chain::{anchor, max_polynomial_members};
 use crate::control::Control;
 use crate::store::ChainData;
@@ -63,15 +62,20 @@ impl Intake {
                 trivial(),
             )?;
             control.check()?;
+            let (selection, ()) = PROOF_SYSTEM.fuse(
+                &mut rand::rng(),
+                qr::QrSideSelect,
+                witness::qr_side_select((*sides.data(), ()), &self.members, side),
+                sides.clone(),
+                trivial(),
+            )?;
             self.proof = PROOF_SYSTEM
                 .fuse(
                     &mut rand::rng(),
                     qr::QrSideDescend,
-                    // The witness needs the entire pre-split set, including the
-                    // sibling whose exclusion from this path it certifies.
-                    witness::qr_side_descend((*sides.data(), ()), &self.members, side),
+                    witness::qr_side_descend((*sides.data(), *selection.data()), side),
                     sides,
-                    trivial(),
+                    selection,
                 )?
                 .0;
             let shift = discriminant.at(depth);
@@ -134,15 +138,9 @@ fn load_intake(
         control.record_cache(cache_kind, false, read);
         return Ok(None);
     };
-    let commitment = members
-        .iter()
-        .copied()
-        .collect::<TachygramSetPoly>()
-        .commit();
     if proof.data().0 != EpochIndex::new(epoch)
         || proof.data().4 != profile
-        || proof.data().5 != commitment
-        || !PROOF_SYSTEM.verify(&proof, rand::rng())?
+        || !verify_proof(&proof)?
     {
         control.record_cache(cache_kind, false, read);
         return Ok(None);
@@ -277,8 +275,7 @@ pub(super) fn bucket(
                     .then_some(bucket)
             })
             .filter(|bucket| {
-                PROOF_SYSTEM
-                    .verify(bucket, rand::rng())
+                verify_proof(bucket)
                     .is_ok_and(|valid| valid)
             });
         if let Some(bucket) = cached
@@ -498,7 +495,7 @@ mod tests {
         let result = PROOF_SYSTEM.fuse(
             &mut rand::rng(),
             qr::QrUnspentInit,
-            witness::qr_unspent_init((*bucket.data(), ()), excluded[0], &intake.members),
+            witness::qr_unspent_init((*bucket.data(), ()), excluded[0]),
             bucket,
             trivial(),
         );
