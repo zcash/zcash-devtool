@@ -112,6 +112,20 @@ impl ChainData<'_> {
         }
     }
 
+    /// The entry anchor of `epoch` (`sntl_epoch`).
+    ///
+    /// This is the boundary anchor that `SpendableLift` reaches after the
+    /// preceding epoch closes. It is distinct from an ordinary anchor in the
+    /// same epoch, and anchor spans must never cross it.
+    pub fn epoch_sentinel(&self, epoch: u32) -> Result<Anchor> {
+        let blocks = self.epoch_blocks(epoch)?;
+        let first = blocks
+            .iter()
+            .find(|block| block.epoch == epoch)
+            .context("missing epoch start block")?;
+        first.entry()
+    }
+
     /// The stamp that created `cm`, its epoch and its preceding anchor.
     pub fn creation(&self, cm: Tachygram) -> Result<Option<(u32, Anchor, Vec<Tachygram>)>> {
         let id = hex::encode(Fp::from(cm).to_bytes());

@@ -75,28 +75,51 @@ pub fn spendable(
     let cm = Tachygram::from(note.commitment());
     let note_id = hex::encode(Fp::from(cm).to_bytes());
     let current = chain.tip()?.epoch;
+    let (created, before, members) = chain
+        .creation(cm)?
+        .context("note commitment has not been mined")?;
+    ensure!(created <= current, "note creation epoch is above the tip");
+
     if let Some(bytes) = chain.spendable_proof_bytes(&note_id)?
         && let Ok(cached) = Pcd::<spendable::NoteSpendable>::from_bytes(&bytes)
         && Tachygram::from(cached.data().0) == cm
         && u32::from(cached.data().1) <= current
         && verify_proof(&cached)?
     {
-        if cached.data().1 == EpochIndex::new(current) {
-            control.stage("Reusing cached spendability proof…")?;
-            return Ok(cached);
+        let cached_epoch = u32::from(cached.data().1);
+        if cached_epoch == current {
+            // A same-epoch SpendableInit may sit on an ordinary creation
+            // anchor. A closed-epoch lineage must sit exactly on the current
+            // sentinel; anything else would ask StampLift to cross a sentinel.
+            if created == current || cached.data().2 == chain.epoch_sentinel(current)? {
+                control.stage("Reusing cached spendability proof…")?;
+                return Ok(cached);
+            }
+        } else {
+            let mut lineage = cached;
+            let mut valid = true;
+            for epoch in cached_epoch..current {
+                let next = epoch.checked_add(1).context("epoch overflow")?;
+                let sentinel = chain.epoch_sentinel(next)?;
+                let Ok(next_lineage) =
+                    lift_closed_epoch(chain, key, note, epoch, lineage.clone(), control)
+                else {
+                    valid = false;
+                    break;
+                };
+                lineage = next_lineage;
+                if u32::from(lineage.data().1) != next || lineage.data().2 != sentinel {
+                    valid = false;
+                    break;
+                }
+                cache_spendable(chain, &note_id, &lineage)?;
+            }
+            if valid {
+                return Ok(lineage);
+            }
         }
-        let mut lineage = cached;
-        for epoch in u32::from(lineage.data().1)..current {
-            lineage = lift_closed_epoch(chain, key, note, epoch, lineage, control)?;
-            cache_spendable(chain, &note_id, &lineage)?;
-        }
-        return Ok(lineage);
     }
 
-    let (created, before, members) = chain
-        .creation(cm)?
-        .context("note commitment has not been mined")?;
-    ensure!(created <= current, "note creation epoch is above the tip");
     let secret = secret(key, note, control)?;
     if created == current {
         let derived = derivation(&secret, current, control)?;
@@ -184,6 +207,15 @@ pub fn spendable(
             }
         });
         if let Some(proof) = lineage.as_ref() {
+            let next = epoch.checked_add(1).context("epoch overflow")?;
+            ensure!(
+                u32::from(proof.data().1) == next,
+                "closed-epoch spendability did not advance to the next epoch"
+            );
+            ensure!(
+                proof.data().2 == chain.epoch_sentinel(next)?,
+                "closed-epoch spendability did not land on the epoch sentinel"
+            );
             cache_spendable(chain, &note_id, proof)?;
         }
     }
@@ -237,7 +269,7 @@ fn lift_closed_epoch(
         arbitrary,
         derived,
     )?;
-    Ok(PROOF_SYSTEM
+    let lifted = PROOF_SYSTEM
         .fuse(
             &mut rand::rng(),
             spendable::SpendableLift,
@@ -245,7 +277,17 @@ fn lift_closed_epoch(
             left,
             unspent,
         )?
-        .0)
+        .0;
+    let next = epoch.checked_add(1).context("epoch overflow")?;
+    ensure!(
+        u32::from(lifted.data().1) == next,
+        "cached spendability lift did not advance to the next epoch"
+    );
+    ensure!(
+        lifted.data().2 == chain.epoch_sentinel(next)?,
+        "cached spendability lift did not land on the epoch sentinel"
+    );
+    Ok(lifted)
 }
 
 pub fn anchor_spans(
@@ -258,6 +300,7 @@ pub fn anchor_spans(
         return Ok(Vec::new());
     }
     let tip = chain.tip()?;
+    let sentinel = chain.epoch_sentinel(tip.epoch)?;
     let mut cursor = start;
     let mut span: Option<Pcd<pool::AnchorSpan>> = None;
     let mut span_members = Vec::new();
@@ -309,7 +352,10 @@ pub fn anchor_spans(
             before = after;
         }
     }
-    ensure!(cursor == target, "cannot reach the requested anchor");
+    ensure!(
+        cursor == target,
+        "cannot reach the requested anchor: start {start:?}, target {target:?}, current sentinel {sentinel:?}; the spendability proof is not in the active epoch"
+    );
     let span = span.context("no anchor span reaches the requested anchor")?;
     control.check()?;
     Ok(vec![span])

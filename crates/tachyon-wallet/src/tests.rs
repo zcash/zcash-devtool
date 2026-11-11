@@ -638,6 +638,11 @@ fn cached_spendability_advances_only_across_new_epochs() -> Result<()> {
     }
     let third = crate::proofs::spendable(&chain, &key, receipt.note()?, &control)?;
     assert!(third.data().1 > second.data().1);
+    assert_eq!(
+        third.data().2,
+        chain.epoch_sentinel(third.data().1.into())?,
+        "closed-epoch spendability must land on the active epoch sentinel"
+    );
     Ok(())
 }
 
