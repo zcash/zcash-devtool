@@ -27,15 +27,15 @@ ripemd = "0.1"
 zcash_script = "0.4.3"
 # TEMPORARY: tachyon fork pinned to upstream ragu main, including the proof
 # wire decoder used by cached epoch and spendability proofs.
-zcash_tachyon = { git = "https://github.com/cnode-agent/tachyon", rev = "c9140f5e373b5d24f8c7894a63c82f43cb7b0761" }
+zcash_tachyon = { git = "https://github.com/cnode-agent/tachyon", rev = "088f4e1df789fc507742a9a08d27a07604c6a247" }
 # Ragu is pinned to upstream main; the mock driver (#929) and wire (#949)
 # changes are both merged there.
-ragu = { git = "https://github.com/tachyon-zcash/ragu", rev = "bdf8112ec5e279e6d851b58145e84a1be79a4942", features = ["mock"] }
-ragu_circuits = { git = "https://github.com/tachyon-zcash/ragu", rev = "bdf8112ec5e279e6d851b58145e84a1be79a4942" }
-ragu_core = { git = "https://github.com/tachyon-zcash/ragu", rev = "bdf8112ec5e279e6d851b58145e84a1be79a4942", package = "ragu_core", default-features = false }
-primitives = { package = "zakura-primitives", git = "https://github.com/cnode-agent/common.git", rev = "f21c6d99f20a58545d2eb222d5f2ef4654385bbf", default-features = false, features = ["std"] }
-protocol = { package = "zakura-protocol", git = "https://github.com/cnode-agent/common.git", rev = "f21c6d99f20a58545d2eb222d5f2ef4654385bbf" }
-transparent = { package = "zakura-transparent", git = "https://github.com/cnode-agent/common.git", rev = "f21c6d99f20a58545d2eb222d5f2ef4654385bbf" }
+ragu = { git = "https://github.com/tachyon-zcash/ragu", rev = "839cf50d1ff31c1d8b89c1f90f808f76422cec17", features = ["mock"] }
+ragu_circuits = { git = "https://github.com/tachyon-zcash/ragu", rev = "839cf50d1ff31c1d8b89c1f90f808f76422cec17" }
+ragu_core = { git = "https://github.com/tachyon-zcash/ragu", rev = "839cf50d1ff31c1d8b89c1f90f808f76422cec17", package = "ragu_core", default-features = false }
+primitives = { package = "zakura-primitives", git = "https://github.com/cnode-agent/common.git", rev = "b20577b61e92d9b081790e7eb8f54bbc20047f97", default-features = false, features = ["std"] }
+protocol = { package = "zakura-protocol", git = "https://github.com/cnode-agent/common.git", rev = "b20577b61e92d9b081790e7eb8f54bbc20047f97" }
+transparent = { package = "zakura-transparent", git = "https://github.com/cnode-agent/common.git", rev = "b20577b61e92d9b081790e7eb8f54bbc20047f97" }
 
 [dev-dependencies]
 tempfile = "3"

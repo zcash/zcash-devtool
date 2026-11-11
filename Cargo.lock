@@ -5656,7 +5656,7 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 [[package]]
 name = "ragu"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=bdf8112ec5e279e6d851b58145e84a1be79a4942#bdf8112ec5e279e6d851b58145e84a1be79a4942"
+source = "git+https://github.com/tachyon-zcash/ragu?rev=839cf50d1ff31c1d8b89c1f90f808f76422cec17#839cf50d1ff31c1d8b89c1f90f808f76422cec17"
 dependencies = [
  "blake2b_simd",
  "ragu_backend",
@@ -5671,7 +5671,7 @@ dependencies = [
 [[package]]
 name = "ragu_acceleration"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=bdf8112ec5e279e6d851b58145e84a1be79a4942#bdf8112ec5e279e6d851b58145e84a1be79a4942"
+source = "git+https://github.com/tachyon-zcash/ragu?rev=839cf50d1ff31c1d8b89c1f90f808f76422cec17#839cf50d1ff31c1d8b89c1f90f808f76422cec17"
 dependencies = [
  "ragu_backend",
  "ragu_core",
@@ -5681,7 +5681,7 @@ dependencies = [
 [[package]]
 name = "ragu_backend"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=bdf8112ec5e279e6d851b58145e84a1be79a4942#bdf8112ec5e279e6d851b58145e84a1be79a4942"
+source = "git+https://github.com/tachyon-zcash/ragu?rev=839cf50d1ff31c1d8b89c1f90f808f76422cec17#839cf50d1ff31c1d8b89c1f90f808f76422cec17"
 dependencies = [
  "ragu_circuits",
  "ragu_core",
@@ -5691,7 +5691,7 @@ dependencies = [
 [[package]]
 name = "ragu_circuits"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=bdf8112ec5e279e6d851b58145e84a1be79a4942#bdf8112ec5e279e6d851b58145e84a1be79a4942"
+source = "git+https://github.com/tachyon-zcash/ragu?rev=839cf50d1ff31c1d8b89c1f90f808f76422cec17#839cf50d1ff31c1d8b89c1f90f808f76422cec17"
 dependencies = [
  "blake2b_simd",
  "ragu_core",
@@ -5704,7 +5704,7 @@ dependencies = [
 [[package]]
 name = "ragu_core"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=bdf8112ec5e279e6d851b58145e84a1be79a4942#bdf8112ec5e279e6d851b58145e84a1be79a4942"
+source = "git+https://github.com/tachyon-zcash/ragu?rev=839cf50d1ff31c1d8b89c1f90f808f76422cec17#839cf50d1ff31c1d8b89c1f90f808f76422cec17"
 dependencies = [
  "ragu_macros",
  "tachyon-maybe-rayon",
@@ -5715,7 +5715,7 @@ dependencies = [
 [[package]]
 name = "ragu_macros"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=bdf8112ec5e279e6d851b58145e84a1be79a4942#bdf8112ec5e279e6d851b58145e84a1be79a4942"
+source = "git+https://github.com/tachyon-zcash/ragu?rev=839cf50d1ff31c1d8b89c1f90f808f76422cec17#839cf50d1ff31c1d8b89c1f90f808f76422cec17"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -5728,7 +5728,7 @@ dependencies = [
 [[package]]
 name = "ragu_pcd"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=bdf8112ec5e279e6d851b58145e84a1be79a4942#bdf8112ec5e279e6d851b58145e84a1be79a4942"
+source = "git+https://github.com/tachyon-zcash/ragu?rev=839cf50d1ff31c1d8b89c1f90f808f76422cec17#839cf50d1ff31c1d8b89c1f90f808f76422cec17"
 dependencies = [
  "lazy_static",
  "ragu_acceleration",
@@ -5746,7 +5746,7 @@ dependencies = [
 [[package]]
 name = "ragu_primitives"
 version = "0.0.0"
-source = "git+https://github.com/tachyon-zcash/ragu?rev=bdf8112ec5e279e6d851b58145e84a1be79a4942#bdf8112ec5e279e6d851b58145e84a1be79a4942"
+source = "git+https://github.com/tachyon-zcash/ragu?rev=839cf50d1ff31c1d8b89c1f90f808f76422cec17#839cf50d1ff31c1d8b89c1f90f808f76422cec17"
 dependencies = [
  "ragu_core",
  "ragu_macros",
@@ -10035,7 +10035,7 @@ dependencies = [
 [[package]]
 name = "zakura-address"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "bech32",
  "blake2b_simd",
@@ -10088,7 +10088,7 @@ dependencies = [
 [[package]]
 name = "zakura-bls12-381"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "ff 0.14.0",
  "group 0.14.0",
@@ -10099,7 +10099,7 @@ dependencies = [
 [[package]]
 name = "zakura-equihash"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "blake2b_simd",
  "corez",
@@ -10108,7 +10108,7 @@ dependencies = [
 [[package]]
 name = "zakura-halo2-poseidon"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "bitvec",
  "ff 0.14.0",
@@ -10133,7 +10133,7 @@ dependencies = [
 [[package]]
 name = "zakura-jubjub"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "bitvec",
  "ff 0.14.0",
@@ -10146,7 +10146,7 @@ dependencies = [
 [[package]]
 name = "zakura-orchard"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "aes",
  "bitvec",
@@ -10193,7 +10193,7 @@ dependencies = [
 [[package]]
 name = "zakura-pasta-curves"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "blake2b_simd",
  "ff 0.14.0",
@@ -10207,7 +10207,7 @@ dependencies = [
 [[package]]
 name = "zakura-primitives"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "blake2b_simd",
  "block-buffer 0.11.0-rc.3",
@@ -10236,7 +10236,7 @@ dependencies = [
 [[package]]
 name = "zakura-protocol"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "corez",
  "memuse",
@@ -10264,7 +10264,7 @@ dependencies = [
 [[package]]
 name = "zakura-reddsa"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "blake2b_simd",
  "frost-rerandomized",
@@ -10279,7 +10279,7 @@ dependencies = [
 [[package]]
 name = "zakura-redjubjub"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "rand_core 0.10.1",
  "thiserror 2.0.19",
@@ -10289,7 +10289,7 @@ dependencies = [
 [[package]]
 name = "zakura-sapling-crypto"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "aes",
  "bitvec",
@@ -10320,7 +10320,7 @@ dependencies = [
 [[package]]
 name = "zakura-sinsemilla"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "group 0.14.0",
  "once_cell",
@@ -10331,7 +10331,7 @@ dependencies = [
 [[package]]
 name = "zakura-transparent"
 version = "2.2.0"
-source = "git+https://github.com/cnode-agent/common.git?rev=f21c6d99f20a58545d2eb222d5f2ef4654385bbf#f21c6d99f20a58545d2eb222d5f2ef4654385bbf"
+source = "git+https://github.com/cnode-agent/common.git?rev=b20577b61e92d9b081790e7eb8f54bbc20047f97#b20577b61e92d9b081790e7eb8f54bbc20047f97"
 dependencies = [
  "bip32",
  "bs58",
@@ -10762,7 +10762,7 @@ dependencies = [
 [[package]]
 name = "zcash_tachyon"
 version = "0.0.0"
-source = "git+https://github.com/cnode-agent/tachyon?rev=c9140f5e373b5d24f8c7894a63c82f43cb7b0761#c9140f5e373b5d24f8c7894a63c82f43cb7b0761"
+source = "git+https://github.com/cnode-agent/tachyon?rev=088f4e1df789fc507742a9a08d27a07604c6a247#088f4e1df789fc507742a9a08d27a07604c6a247"
 dependencies = [
  "blake2b_simd",
  "corez",
