@@ -18,10 +18,13 @@ use ::transparent::{
     zip48,
 };
 use zcash_keys::keys::UnifiedSpendingKey;
-use zcash_protocol::consensus::{NetworkConstants, Parameters};
+use zcash_protocol::{
+    PoolType,
+    consensus::{NetworkConstants, Parameters},
+};
 use zip32::fingerprint::SeedFingerprint;
 
-use crate::config::WalletConfig;
+use crate::{config::WalletConfig, error::Error};
 
 // Options accepted for the `pczt sign` command
 #[derive(Debug, Args)]
@@ -169,7 +172,10 @@ impl Command {
                             .sign_orchard(
                                 UnwrapErr(SysRng),
                                 index,
-                                &orchard::keys::SpendAuthorizingKey::from(usk.orchard()),
+                                &orchard::keys::SpendAuthorizingKey::from(
+                                    usk.orchard()
+                                        .ok_or(Error::MissingSpendingKey(PoolType::ORCHARD))?,
+                                ),
                             )
                             .map_err(|e| {
                                 anyhow!("Failed to sign Orchard spend {index}: {:?}", e)
@@ -177,7 +183,14 @@ impl Command {
                     }
                     KeyRef::Sapling { index } => {
                         signer
-                            .sign_sapling(UnwrapErr(SysRng), index, usk.sapling().expsk().ask())
+                            .sign_sapling(
+                                UnwrapErr(SysRng),
+                                index,
+                                usk.sapling()
+                                    .ok_or(Error::MissingSpendingKey(PoolType::SAPLING))?
+                                    .expsk()
+                                    .ask(),
+                            )
                             .map_err(|e| {
                                 anyhow!("Failed to sign Sapling spend {index}: {:?}", e)
                             })?;
@@ -190,6 +203,7 @@ impl Command {
                         .sign_transparent(
                             index,
                             &usk.transparent()
+                                .ok_or(Error::MissingSpendingKey(PoolType::Transparent))?
                                 .derive_secret_key(scope, address_index)
                                 .map_err(|e| {
                                     anyhow!(

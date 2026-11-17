@@ -28,6 +28,7 @@ use zcash_primitives::transaction::{
 use zcash_protocol::{
     PoolType, ShieldedPool,
     consensus::{self, Parameters as _},
+    zip318::BlockSpacing,
 };
 use zip321::TransactionRequest;
 
@@ -234,7 +235,10 @@ impl Command {
                 &params,
                 target_height.into(),
                 target_height,
-                &PoolMigrationParams::new(AnchorRetentionInterval::ZIP_318),
+                &PoolMigrationParams::new(
+                    BlockSpacing::for_network(&params),
+                    AnchorRetentionInterval::ZIP_318,
+                ),
                 &transparent_inputs[..],
                 &transparent_outputs,
                 &(

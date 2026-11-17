@@ -306,6 +306,7 @@ impl App {
                             ScanPriority::OpenAdjacent => Some(Color::LightBlue),
                             ScanPriority::FoundNote => Some(Color::Yellow),
                             ScanPriority::ChainTip => Some(Color::Blue),
+                            ScanPriority::Anchor => Some(Color::Cyan),
                             ScanPriority::Verify => Some(Color::Red),
                         }
                         .map(|color| (" ", color))

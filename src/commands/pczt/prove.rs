@@ -15,10 +15,13 @@ use tokio::{
 };
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_proofs::prover::LocalTxProver;
-use zcash_protocol::consensus::{NetworkConstants, Parameters};
+use zcash_protocol::{
+    PoolType,
+    consensus::{NetworkConstants, Parameters},
+};
 use zip32::fingerprint::SeedFingerprint;
 
-use crate::{config::WalletConfig, parse_hex};
+use crate::{config::WalletConfig, error::Error, parse_hex};
 
 // Options accepted for the `pczt prove` command
 #[derive(Debug, Args)]
@@ -96,7 +99,11 @@ impl Command {
                                         account_index,
                                     )?;
 
-                                    Ok(usk.sapling().expsk().proof_generation_key())
+                                    Ok(usk
+                                        .sapling()
+                                        .ok_or(Error::MissingSpendingKey(PoolType::SAPLING))?
+                                        .expsk()
+                                        .proof_generation_key())
                                 } else {
                                     Err(anyhow!(
                                         "Invalid ZIP 32 derivation path for PCZT Sapling spend"

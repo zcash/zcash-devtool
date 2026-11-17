@@ -21,8 +21,7 @@ use zcash_note_encryption::try_output_recovery_with_ovk;
 use zcash_primitives::transaction::{
     Authorization, Transaction, TransactionData, TxId, TxVersion,
     components::sapling as sapling_serialization,
-    sighash::{SignableInput, signature_hash},
-    txid::TxIdDigester,
+    sighash::{PrecomputedSighashData, SignableInput},
 };
 use zcash_protocol::{
     consensus::BlockHeight,
@@ -166,7 +165,7 @@ pub(crate) fn inspect(
         (false, None) => Some(vec![]),
     };
 
-    let sighash_params = transparent_coins.as_ref().map(|coins| {
+    let sighash_data = transparent_coins.as_ref().map(|coins| {
         let f_transparent = MapTransparent {
             auth: TransparentAuth {
                 all_prev_outputs: coins.clone(),
@@ -180,13 +179,12 @@ pub(crate) fn inspect(
 
         let tx: TransactionData<PrecomputedAuth> =
             tx.into_data().map_authorization(f_transparent, (), ());
-        let txid_parts = tx.digest(TxIdDigester);
-        (tx, txid_parts)
+        PrecomputedSighashData::new(tx)
     });
 
-    let common_sighash = sighash_params
+    let common_sighash = sighash_data
         .as_ref()
-        .map(|(tx, txid_parts)| signature_hash(tx, &SignableInput::Shielded, txid_parts));
+        .map(|sighash_data| sighash_data.signature_hash(&SignableInput::Shielded));
     if let Some(sighash) = &common_sighash
         && (tx.sprout_bundle().is_some()
             || tx.sapling_bundle().is_some()
@@ -207,7 +205,7 @@ pub(crate) fn inspect(
                     eprintln!("  ⚠️  \"transparentcoins\" has length {}", coins.len());
                 }
 
-                let (tx, txid_parts) = sighash_params.as_ref().unwrap();
+                let sighash_data = sighash_data.as_ref().unwrap();
                 for (i, (txin, coin)) in bundle.vin.iter().zip(coins).enumerate() {
                     eprintln!(
                         "   - prevout: txid {}, index {}",
@@ -263,9 +261,8 @@ pub(crate) fn inspect(
                                         );
                                     }
 
-                                    let sighash = signature_hash(
-                                        tx,
-                                        &SignableInput::Transparent(
+                                    let sighash =
+                                        sighash_data.signature_hash(&SignableInput::Transparent(
                                             ::transparent::sighash::SignableInput::from_parts(
                                                 bundle,
                                                 hash_type,
@@ -276,9 +273,7 @@ pub(crate) fn inspect(
                                                 coin.value(),
                                             )
                                             .expect("input index is within bundle bounds"),
-                                        ),
-                                        txid_parts,
-                                    );
+                                        ));
                                     let msg = secp256k1::Message::from_digest(*sighash.as_ref());
 
                                     if let Err(e) = secp256k1::ecdsa::verify(&sig, msg, &pubkey) {
