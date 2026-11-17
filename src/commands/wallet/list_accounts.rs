@@ -2,7 +2,8 @@ use clap::Args;
 use zcash_client_backend::data_api::{
     Account, AccountPurpose, AccountSource, WalletRead, Zip32Derivation,
 };
-use zcash_client_sqlite::WalletDb;
+use zcash_client_sqlite::{AccountUuid, WalletDb};
+use zcash_protocol::consensus;
 
 use crate::{config::get_wallet_network, data::get_db_paths};
 
@@ -18,28 +19,42 @@ impl Command {
 
         for account_id in db_data.get_account_ids()?.iter() {
             let account = db_data.get_account(*account_id)?.unwrap();
-
-            println!(
-                "Account {} (birthday height {})",
-                account_id.expose_uuid(),
-                u32::from(account.birthday_height())
-            );
-            if let Some(name) = account.name() {
-                println!("     Name: {name}");
-            }
-            println!("     UIVK: {}", account.uivk().encode(&params)?);
-            println!(
-                "     UFVK: {}",
-                account
-                    .ufvk()
-                    .map(|k| k.encode(&params))
-                    .transpose()?
-                    .unwrap_or_else(|| "None".to_owned())
-            );
-            print_source(account.source());
+            print_account(&params, &account)?;
         }
         Ok(())
     }
+}
+
+/// Prints the details of an account.
+///
+/// - Preconditions: `params` describes the network of the account.
+/// - Inputs: the parameters of the network, and the account.
+/// - Outputs: an error if a viewing key of the account cannot be encoded.
+/// - Side effects: writes the identifier, birthday height, name, viewing keys and source
+///   of the account to standard output.
+pub(crate) fn print_account<P: consensus::Parameters>(
+    params: &P,
+    account: &impl Account<AccountId = AccountUuid>,
+) -> anyhow::Result<()> {
+    println!(
+        "Account {} (birthday height {})",
+        account.id().expose_uuid(),
+        u32::from(account.birthday_height())
+    );
+    if let Some(name) = account.name() {
+        println!("     Name: {name}");
+    }
+    println!("     UIVK: {}", account.uivk().encode(params)?);
+    println!(
+        "     UFVK: {}",
+        account
+            .ufvk()
+            .map(|k| k.encode(params))
+            .transpose()?
+            .unwrap_or_else(|| "None".to_owned())
+    );
+    print_source(account.source());
+    Ok(())
 }
 
 fn print_source(source: &AccountSource) {

@@ -7,6 +7,7 @@ pub(crate) mod derive_path;
 pub(crate) mod display_mnemonic;
 pub(crate) mod enhance;
 pub(crate) mod fan_out;
+pub(crate) mod find_account;
 pub(crate) mod gen_account;
 pub(crate) mod gen_addr;
 pub(crate) mod get_info;
@@ -70,6 +71,9 @@ pub(crate) enum Command {
 
     /// List the accounts in the wallet
     ListAccounts(list_accounts::Command),
+
+    /// Find the account in the wallet that controls an address
+    FindAccount(find_account::Command),
 
     /// Generate a new address for an account in the wallet
     GenerateAddress(gen_addr::Command),
