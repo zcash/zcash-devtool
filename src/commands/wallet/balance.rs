@@ -15,8 +15,8 @@ use zcash_protocol::consensus::{NetworkType, Parameters};
 use zcash_protocol::value::{COIN, Zatoshis};
 
 use crate::{
-    commands::select_account, config::get_wallet_network, data::get_db_paths, parse_currency,
-    remote::tor_client, ui::format_zec,
+    commands::select_account, config::get_wallet_network, data::get_db_paths,
+    helpers::progress::percent, parse_currency, remote::tor_client, ui::format_zec,
 };
 
 // Options accepted for the `balance` command
@@ -112,16 +112,9 @@ impl Command {
             println!("{:?}", address.map(|a| a.encode(&params)));
             println!("     Height: {}", wallet_summary.chain_tip_height());
             let scan_progress = wallet_summary.progress().scan();
-            println!(
-                "     Synced: {:0.3}%",
-                (*scan_progress.numerator() as f64) * 100f64
-                    / (*scan_progress.denominator() as f64)
-            );
+            println!("     Synced: {:0.3}%", percent(&scan_progress));
             if let Some(progress) = wallet_summary.progress().recovery() {
-                println!(
-                    "     Recovered: {:0.3}%",
-                    (*progress.numerator() as f64) * 100f64 / (*progress.denominator() as f64)
-                );
+                println!("     Recovered: {:0.3}%", percent(&progress));
             }
             let net = params.network_type();
             println!("    Balance: {}", printer.format(balance.total(), net));
