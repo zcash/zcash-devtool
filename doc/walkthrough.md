@@ -202,6 +202,73 @@ You can explore more of the wallet commands available using:
 λ cargo run --release --all-features -- wallet --help
 ```
 
+Sending and Reading Memos
+-------------------------
+
+Once the wallet has a spendable balance, `wallet send` creates, proves and
+broadcasts a payment. Because it signs, it needs the `age` identity file that
+decrypts the spending key. `--value` is in zatoshis (1 TAZ = 100,000,000
+zatoshis), and `--memo` attaches a text memo of up to 512 bytes. Memos are
+only delivered to shielded receivers, so send to a Unified or Sapling address.
+Here we send to a second testnet wallet, `../memo-wallet`, created with `init`
+as above:
+
+```bash
+λ cargo run --release --all-features -- wallet -w ../dev-wallet send -i ../dev-wallet/dev-key.txt \
+  --address <...> --value 10000 --memo "Hello from zcash-devtool!" -s zecrocks
+```
+
+The command prints the transaction id once the transaction has been sent.
+
+On the receiving side, `sync` alone is not enough to see the memo. `sync`
+scans compact blocks, which carry enough of each shielded output to detect and
+value the note, but not its memo. After the transaction is mined, a `sync`
+followed by `list-tx` shows the received note, with no memo yet:
+
+```bash
+λ cargo run --release --all-features -- wallet -w ../memo-wallet sync -s zecrocks
+λ cargo run --release --all-features -- wallet -w ../memo-wallet list-tx
+Transactions:
+<txid>
+     Mined: 4581755 (2026-11-04 10:35:14.0 +00:00:00)
+    Amount:   0.00010000 TAZ
+  Fee paid: Unknown
+  Sent 0 notes, received 1 notes, 0 memos
+  Output 0 (Ironwood)
+    Value:   0.00010000 TAZ
+    Received by account: <...> (ZDevMemo)
+    To: <...>
+```
+
+`wallet enhance` downloads the full transactions from the server and decrypts
+them, which fills in the memo (and the fee):
+
+```bash
+λ cargo run --release --all-features -- wallet -w ../memo-wallet enhance -s zecrocks
+λ cargo run --release --all-features -- wallet -w ../memo-wallet list-tx
+Transactions:
+<txid>
+     Mined: 4581755 (2026-11-04 10:35:14.0 +00:00:00)
+    Amount:   0.00010000 TAZ
+  Fee paid:   0.00010000 TAZ
+  Sent 0 notes, received 1 notes, 1 memos
+  Output 0 (Ironwood)
+    Value:   0.00010000 TAZ
+    Received by account: <...> (ZDevMemo)
+    To: <...>
+    Memo: Memo::Text("Hello from zcash-devtool!")
+```
+
+The text output prints the memo in Rust debug form, without escaping any
+quotes inside it. To get just the memo text, use the CSV output, which has a
+`Memo` column (`--json` lists only transaction ids and mined heights):
+
+```bash
+λ cargo run --release --all-features -- wallet -w ../memo-wallet list-tx --mode csv
+Date,Action,Symbol,Volume,Currency,Account,Total,Price,Fee,FeeCurrency,Memo
+2026-11-04 10:35:14 +00:00:00,RECEIVE,TAZ,  0.00010000 TAZ,USD,<...> (ZDevMemo),,,  0.00010000 TAZ,TAZ,Hello from zcash-devtool!
+```
+
 PCZT Support
 ------------
 
