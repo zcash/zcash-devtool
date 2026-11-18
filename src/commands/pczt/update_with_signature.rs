@@ -1,15 +1,11 @@
 use anyhow::anyhow;
-use blake2b_simd::Hash as Blake2bHash;
 use clap::Args;
 use pczt::{
     Pczt,
     roles::{low_level_signer, signer::EffectsOnly},
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt, stdin, stdout};
-use zcash_primitives::transaction::{
-    TransactionData, TxDigests, sighash::SignableInput, sighash_v5::v5_signature_hash,
-    txid::TxIdDigester,
-};
+use zcash_primitives::transaction::sighash::{PrecomputedSighashData, SignableInput};
 use zcash_protocol::PoolType;
 
 // Options accepted for the `pczt update-with-signature` command
@@ -36,14 +32,13 @@ impl Command {
         let pczt = Pczt::parse(&buf).map_err(|e| anyhow!("Failed to read PCZT: {:?}", e))?;
 
         let tx_data = pczt.clone().into_effects().map_err(|e| anyhow!("{e:?}"))?;
-        let txid_parts = tx_data.digest(TxIdDigester);
+        let sighash_data =
+            PrecomputedSighashData::new_zip244(tx_data).map_err(|e| anyhow!("{e}"))?;
 
         let signer = low_level_signer::Signer::new(pczt);
 
         let signer = match self.pool {
-            PoolType::Transparent => {
-                add_transparent(signer, &tx_data, &txid_parts, self.index, sig_bytes)
-            }
+            PoolType::Transparent => add_transparent(signer, &sighash_data, self.index, sig_bytes),
             PoolType::SAPLING => Err(anyhow!("TODO: Maybe support this")),
             PoolType::ORCHARD => Err(anyhow!("TODO: Maybe support this")),
             // Ironwood spends are Orchard-shaped; signing support here is stubbed for
@@ -76,8 +71,7 @@ fn parse_pool_type(s: &str) -> anyhow::Result<PoolType> {
 
 fn add_transparent(
     signer: low_level_signer::Signer,
-    tx_data: &TransactionData<EffectsOnly>,
-    txid_parts: &TxDigests<Blake2bHash>,
+    sighash_data: &PrecomputedSighashData<EffectsOnly>,
     index: usize,
     sig_bytes: Vec<u8>,
 ) -> anyhow::Result<low_level_signer::Signer> {
@@ -102,10 +96,9 @@ fn add_transparent(
                 input.append_signature(
                     index,
                     |input| {
-                        v5_signature_hash(tx_data, &SignableInput::Transparent(input), txid_parts)
+                        *sighash_data
+                            .signature_hash(&SignableInput::Transparent(input))
                             .as_ref()
-                            .try_into()
-                            .unwrap()
                     },
                     sig,
                 )?;

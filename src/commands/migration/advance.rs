@@ -14,6 +14,7 @@ use zcash_pool_migration::satisfiability::{
 };
 use zcash_pool_migration::state::{AdvanceStep, StepKind};
 use zcash_pool_migration::wallet::WalletMigrationProver;
+use zcash_protocol::zip318::BlockSpacing;
 
 use crate::{commands::select_account, config::get_wallet_network, data::get_db_paths};
 
@@ -70,7 +71,7 @@ impl Command {
         let targets = DuenessTargets::new(scanned + 1, tip + 1);
 
         let mut rng = UnwrapErr(SysRng);
-        let config = AdvanceConfig::new(REORG_SETTLE_DEPTH);
+        let config = AdvanceConfig::new(REORG_SETTLE_DEPTH, BlockSpacing::for_network(&params));
 
         // `advance_migration` plans the next step, verifies it against the store's satisfiability
         // oracle, and persists every determination it makes along the way -- so the step it

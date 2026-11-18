@@ -13,9 +13,7 @@ use ::transparent::sighash::SighashType;
 use transparent::address::TransparentAddress;
 use zcash_keys::encoding::AddressCodec;
 use zcash_primitives::transaction::{
-    TxVersion,
-    sighash::SignableInput,
-    sighash_v5::v5_signature_hash,
+    sighash::{PrecomputedSighashData, SignableInput},
     txid::{TxIdDigester, to_txid},
 };
 use zcash_protocol::consensus::{NetworkConstants, Parameters};
@@ -369,21 +367,28 @@ impl Command {
 
                 let txid_parts = tx_data.digest(TxIdDigester);
 
-                let txid = to_txid(
+                match to_txid(
                     tx_data.version(),
                     tx_data.consensus_branch_id(),
                     &txid_parts,
-                );
-                println!("TxID: {txid}");
+                ) {
+                    Some(txid) => println!("TxID: {txid}"),
+                    None => println!("TxID: not available for this transaction version"),
+                }
                 println!("Version: {:?}", tx_data.version());
 
-                if matches!(tx_data.version(), TxVersion::V5) {
-                    if tx_data.sapling_bundle().is_some() || tx_data.orchard_bundle().is_some() {
+                // The signature hashes are shown for a version 5 or later transaction.
+                if let Ok(sighash_data) = PrecomputedSighashData::new_zip244(tx_data) {
+                    let tx_data = sighash_data.tx();
+                    if tx_data.sapling_bundle().is_some()
+                        || tx_data.orchard_bundle().is_some()
+                        || tx_data.ironwood_bundle().is_some()
+                    {
                         let shielded_sighash =
-                            v5_signature_hash(&tx_data, &SignableInput::Shielded, &txid_parts);
+                            sighash_data.signature_hash(&SignableInput::Shielded);
                         println!(
                             "Sighash for shielded components: {}",
-                            hex::encode(shielded_sighash)
+                            hex::encode(shielded_sighash.as_ref())
                         );
                     }
 
@@ -392,23 +397,19 @@ impl Command {
                         for (index, (hash_type, redeem_script, script_pubkey, value, _, _)) in
                             transparent_inputs.into_iter().enumerate()
                         {
-                            let sighash = v5_signature_hash(
-                                &tx_data,
-                                &SignableInput::Transparent(
-                                    transparent::sighash::SignableInput::from_parts(
-                                        transparent_bundle,
-                                        hash_type,
-                                        index,
-                                        &redeem_script.as_ref().unwrap_or(&script_pubkey).into(), // for p2pkh, always the same as script_pubkey
-                                        &script_pubkey.into(),
-                                        value,
-                                    )
-                                    .expect("input index is within bundle bounds"),
-                                ),
-                                &txid_parts,
-                            );
+                            let sighash = sighash_data.signature_hash(&SignableInput::Transparent(
+                                transparent::sighash::SignableInput::from_parts(
+                                    transparent_bundle,
+                                    hash_type,
+                                    index,
+                                    &redeem_script.as_ref().unwrap_or(&script_pubkey).into(), // for p2pkh, always the same as script_pubkey
+                                    &script_pubkey.into(),
+                                    value,
+                                )
+                                .expect("input index is within bundle bounds"),
+                            ));
 
-                            println!("- {index}: {}", hex::encode(sighash));
+                            println!("- {index}: {}", hex::encode(sighash.as_ref()));
                         }
                     }
                 }

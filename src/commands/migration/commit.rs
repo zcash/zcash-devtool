@@ -14,8 +14,9 @@ use zcash_pool_migration::engine::{
 };
 use zcash_pool_migration::satisfiability::ReplanThreshold;
 use zcash_pool_migration::wallet::WalletMigration;
+use zcash_protocol::PoolType;
 
-use crate::{commands::select_account, config::WalletConfig, data::get_db_paths};
+use crate::{commands::select_account, config::WalletConfig, data::get_db_paths, error::Error};
 
 use super::store::{InMemoryStore, load_migration, open_connection, persist_migration};
 
@@ -165,7 +166,8 @@ impl Command {
                         &params,
                         target_height,
                         &mut migration,
-                        usk.orchard(),
+                        usk.orchard()
+                            .ok_or(Error::MissingSpendingKey(PoolType::ORCHARD))?,
                         &plan,
                         &mut rng,
                         ReplanThreshold::DEFAULT,

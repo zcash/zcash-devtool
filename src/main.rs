@@ -171,6 +171,7 @@ fn main() -> Result<(), anyhow::Error> {
                 }
                 commands::wallet::Command::DeleteAccount(command) => command.run(wallet_dir),
                 commands::wallet::Command::ListAccounts(command) => command.run(wallet_dir),
+                commands::wallet::Command::FindAccount(command) => command.run(wallet_dir),
                 commands::wallet::Command::GenerateAddress(command) => command.run(wallet_dir),
                 commands::wallet::Command::ListAddresses(command) => command.run(wallet_dir),
                 commands::wallet::Command::DeriveAddress(command) => command.run(),

@@ -9,6 +9,7 @@ use zcash_client_sqlite::{
 };
 use zcash_keys::keys::DerivationError;
 use zcash_primitives::transaction::fees::zip317;
+use zcash_protocol::PoolType;
 use zip321::Zip321Error;
 
 pub(crate) type WalletErrorT = WalletError<
@@ -50,7 +51,12 @@ pub enum Error {
     InvalidMemo,
     InvalidKeysFile,
     InvalidTreeState,
-    SendFailed { code: i32, reason: String },
+    /// A unified spending key holds no key for the given pool.
+    MissingSpendingKey(PoolType),
+    SendFailed {
+        code: i32,
+        reason: String,
+    },
     SendMax(SendMaxErrorT),
     Shield(ShieldErrorT),
     Wallet(WalletErrorT),
@@ -67,6 +73,9 @@ impl fmt::Display for Error {
             Error::InvalidMemo => write!(f, "Invalid memo"),
             Error::InvalidKeysFile => write!(f, "Invalid keys file"),
             Error::InvalidTreeState => write!(f, "Invalid TreeState received from server"),
+            Error::MissingSpendingKey(pool) => {
+                write!(f, "The spending key holds no {pool} key")
+            }
             Error::SendFailed { code, reason } => write!(f, "Send failed: ({code}) {reason}"),
             Error::SendMax(e) => e.fmt(f),
             Error::Shield(e) => e.fmt(f),

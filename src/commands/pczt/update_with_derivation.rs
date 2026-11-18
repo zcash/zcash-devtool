@@ -19,7 +19,7 @@ use zcash_protocol::{
 use zcash_script::solver;
 use zip32::fingerprint::SeedFingerprint;
 
-use crate::config::WalletConfig;
+use crate::{config::WalletConfig, error::Error};
 
 // Options accepted for the `pczt update-with-derivation` command
 #[derive(Debug, Args)]
@@ -86,6 +86,7 @@ impl Command {
                     let pubkey =
                         UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account)?
                             .transparent()
+                            .ok_or(Error::MissingSpendingKey(PoolType::Transparent))?
                             .to_account_pubkey()
                             .derive_address_pubkey(scope, address_index)
                             .map_err(|e| anyhow!("{e}"))?;
@@ -142,6 +143,7 @@ impl Command {
 
                 let dfvk = UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account)?
                     .sapling()
+                    .ok_or(Error::MissingSpendingKey(PoolType::SAPLING))?
                     .to_diversifiable_full_viewing_key();
 
                 add_sapling(updater, dfvk, derivation)
@@ -161,6 +163,7 @@ impl Command {
 
                 let fvk = UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account)?
                     .orchard()
+                    .ok_or(Error::MissingSpendingKey(PoolType::ORCHARD))?
                     .into();
 
                 add_orchard(updater, fvk, derivation)
@@ -182,6 +185,7 @@ impl Command {
 
                 let fvk = UnifiedSpendingKey::from_seed(&params, seed.expose_secret(), account)?
                     .orchard()
+                    .ok_or(Error::MissingSpendingKey(PoolType::ORCHARD))?
                     .into();
 
                 add_ironwood(updater, fvk, derivation)
