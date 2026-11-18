@@ -81,10 +81,15 @@ impl Lightwalletd {
         };
         let response = self.inner.get_transaction(request).await.ok()?.into_inner();
 
-        // `RawTransaction.height` has type u64 in the protobuf format, but is documented
-        // as using -1 for the "not mined" sentinel. Given that we only support u32 block
-        // heights, -1 in two's complement will fall outside that range.
-        let mined_height = response.height.try_into().ok();
+        // lightwalletd reports `RawTransaction.height` as 0 for a transaction in the
+        // mempool and as u64::MAX (-1 in two's complement) for one mined outside the main
+        // chain; neither is a main-chain block height. Treating 0 as a height reported
+        // mempool transactions as "Mined in … block 0" and parsed them with that height's
+        // consensus branch.
+        let mined_height = match response.height {
+            0 => None,
+            height => height.try_into().ok(),
+        };
 
         Transaction::read(
             &response.data[..],
