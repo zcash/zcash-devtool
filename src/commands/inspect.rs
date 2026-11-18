@@ -144,6 +144,11 @@ async fn inspect_bytes(bytes: Vec<u8>, context: Option<Context>, lookup: bool) {
         block::inspect_header(&header, context);
     } else if let Some(tx) = complete(&bytes, |r| Transaction::read(r, BranchId::Nu5)) {
         // TODO: Take the branch ID used above from the context if present.
+        let context = if lookup {
+            with_looked_up_coins(&tx, context).await
+        } else {
+            context
+        };
         // https://github.com/zcash/zcash/issues/6831
         transaction::inspect(tx, context, None);
     } else if let Ok(script) =
@@ -230,6 +235,60 @@ fn render_memo(memo_bytes: &MemoBytes) -> String {
     }
 }
 
+/// Whether `tx` spends transparent inputs whose coins the context does not already provide.
+fn needs_coins(tx: &Transaction, context: &Option<Context>) -> bool {
+    tx.transparent_bundle().is_some_and(|b| !b.vin.is_empty())
+        && context
+            .as_ref()
+            .and_then(|c| c.transparent_coins())
+            .is_none()
+}
+
+/// With `--lookup`, fetches the coins spent by `tx`'s transparent inputs from `lwd`, so that
+/// their signatures and the fee can be checked without passing `transparentcoins` by hand.
+async fn coins_from(
+    lwd: &mut lookup::Lightwalletd,
+    tx: &Transaction,
+    context: Option<Context>,
+) -> Option<Context> {
+    if !needs_coins(tx, &context) {
+        return context;
+    }
+    match lwd.lookup_prevouts(tx).await {
+        Some(coins) => Some(Context::with_looked_up_coins(context, lwd.network(), coins)),
+        None => {
+            eprintln!(
+                "⚠️  Could not look up the coins spent by this transaction's transparent inputs"
+            );
+            context
+        }
+    }
+}
+
+/// Like [`coins_from`] for a transaction whose network is unknown: tries mainnet, then testnet.
+async fn with_looked_up_coins(tx: &Transaction, context: Option<Context>) -> Option<Context> {
+    if !needs_coins(tx, &context) {
+        return context;
+    }
+    for mainnet in [true, false] {
+        let lwd = if mainnet {
+            lookup::Lightwalletd::mainnet().await
+        } else {
+            lookup::Lightwalletd::testnet().await
+        };
+        match lwd {
+            Ok(mut lwd) => {
+                if let Some(coins) = lwd.lookup_prevouts(tx).await {
+                    return Some(Context::with_looked_up_coins(context, lwd.network(), coins));
+                }
+            }
+            Err(e) => eprintln!("Error: Failed to connect to lightwalletd: {e:?}"),
+        }
+    }
+    eprintln!("⚠️  Could not look up the coins spent by this transaction's transparent inputs");
+    context
+}
+
 async fn inspect_possible_hash(bytes: [u8; 32], context: Option<Context>, lookup: bool) {
     let mut maybe_mainnet_block_hash = bytes.iter().take(4).all(|c| c == &0);
 
@@ -251,6 +310,7 @@ async fn inspect_possible_hash(bytes: [u8; 32], context: Option<Context>, lookup
                     }
 
                     if let Some((tx, mined_height)) = mainnet.lookup_txid(candidate).await {
+                        let context = coins_from(&mut mainnet, &tx, context).await;
                         transaction::inspect(tx, context, mined_height.map(|h| ("mainnet", h)));
                         return true;
                     }
@@ -266,6 +326,7 @@ async fn inspect_possible_hash(bytes: [u8; 32], context: Option<Context>, lookup
                     }
 
                     if let Some((tx, mined_height)) = testnet.lookup_txid(candidate).await {
+                        let context = coins_from(&mut testnet, &tx, context).await;
                         transaction::inspect(tx, context, mined_height.map(|h| ("testnet", h)));
                         return true;
                     }

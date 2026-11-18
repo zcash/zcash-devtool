@@ -315,6 +315,26 @@ impl Context {
             .map(|accounts| accounts.iter().map(|id| id.0).collect())
     }
 
+    /// Returns this context (or an empty one) with the given transparent coins, which the
+    /// caller looked up from the chain, and the network they were found on. Coins the user
+    /// already supplied are kept.
+    pub(crate) fn with_looked_up_coins(
+        base: Option<Context>,
+        network: Network,
+        coins: Vec<TxOut>,
+    ) -> Context {
+        let mut ctx = base.unwrap_or(Context {
+            network: None,
+            accounts: None,
+            chainhistoryroot: None,
+            transparentcoins: None,
+        });
+        ctx.network.get_or_insert(JsonNetwork(network));
+        ctx.transparentcoins
+            .get_or_insert_with(|| coins.into_iter().map(ZTxOut::from).collect());
+        ctx
+    }
+
     pub(crate) fn transparent_coins(&self) -> Option<Vec<transparent::TxOut>> {
         self.transparentcoins.as_ref().map(|coins| {
             coins
