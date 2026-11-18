@@ -66,7 +66,7 @@ chrono = "0.4"
 rpassword = "7"
 
 # Currency conversion
-iso_currency = { version = "0.5", features = ["with-serde"] }
+iso_currency = { version = "0.7", features = ["with-serde"] }
 rust_decimal = "1"
 
 # Inspect
