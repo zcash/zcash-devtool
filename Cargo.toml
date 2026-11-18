@@ -8,6 +8,8 @@ publish = false
 
 [dependencies]
 anyhow = "1"
+bf-client = { git = "https://github.com/YASASWIP012/blindfetch", rev = "310222fd1eaaa456e27c4f5ccfe7982b8801fd53" }
+bf-core = { git = "https://github.com/YASASWIP012/blindfetch", rev = "310222fd1eaaa456e27c4f5ccfe7982b8801fd53" }
 bip0039 = { version = "0.14", features = ["std", "all-languages"] }
 bip32 = { version = "0.6", default-features = false, features = ["secp256k1-ffi"] }
 futures-util = "0.3"
