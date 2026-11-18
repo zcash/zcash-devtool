@@ -29,7 +29,9 @@ use crate::{
     config::WalletConfig,
     data::Network,
     error,
-    helpers::pczt::create_manual::{add_inputs, add_recipient, handle_recipient, parse_coins},
+    helpers::pczt::create_manual::{
+        add_inputs, add_recipient, handle_recipient, ironwood_active, parse_coins,
+    },
     remote::ConnectionArgs,
 };
 
@@ -109,6 +111,13 @@ impl Command {
         let tree_state = client.get_tree_state(latest_block).await?.into_inner();
         let sapling_anchor = Some(tree_state.sapling_tree()?.root().into());
         let orchard_anchor = Some(tree_state.orchard_tree()?.root().into());
+        // From NU6.3, payments to Orchard receivers are Ironwood outputs.
+        let ironwood = ironwood_active(&params, target_height);
+        let ironwood_anchor = if ironwood {
+            Some(tree_state.ironwood_tree()?.root().into())
+        } else {
+            None
+        };
 
         let mut transparent_inputs = vec![];
         let mut value_in = Zatoshis::ZERO;
@@ -164,14 +173,14 @@ impl Command {
                 zcash_primitives::transaction::builder::BuildConfig::Standard {
                     sapling_anchor,
                     orchard_anchor,
-                    ironwood_anchor: None,
+                    ironwood_anchor,
                     orchard_padding: zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
                     ironwood_padding:
                         zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
                 },
             );
             add_inputs(&mut builder, transparent_inputs)?;
-            add_recipient(&mut builder, recipient, value, memo)?;
+            add_recipient(&mut builder, recipient, value, memo, ironwood)?;
             Ok(builder)
         };
 
@@ -239,29 +248,43 @@ impl Command {
                     .map_err(|e| anyhow!("{e:?}"))
             },
             |_, (updater, user_address)| {
-                updater
-                    .update_orchard_with(|mut u| {
-                        // Because of padding, we need to find the action that contains
-                        // the output. We could do this with the Orchard bundle metadata,
-                        // but as there is only one real output we can just look for it.
-                        assert_eq!(u.bundle().actions().len(), 2);
-                        let index =
-                            u.bundle()
-                                .actions()
-                                .iter()
-                                .enumerate()
-                                .find_map(|(i, action)| {
-                                    action.output().value().and_then(|v| {
-                                        (v.inner() == value_out.into_u64()).then_some(i)
-                                    })
-                                })
-                                .expect("present");
-                        u.update_action_with(index, |mut au| {
-                            au.set_output_user_address(user_address);
-                            Ok(())
+                // Because of padding, we need to find the action that contains the output.
+                // We could do this with the bundle metadata, but as there is only one real
+                // output we can just look for it. From NU6.3 it is in the Ironwood bundle.
+                let find_output = |actions: &[orchard::pczt::Action]| {
+                    assert_eq!(actions.len(), 2);
+                    actions
+                        .iter()
+                        .enumerate()
+                        .find_map(|(i, action)| {
+                            action
+                                .output()
+                                .value()
+                                .and_then(|v| (v.inner() == value_out.into_u64()).then_some(i))
                         })
-                    })
-                    .map_err(|e| anyhow!("{e:?}"))
+                        .expect("present")
+                };
+                if ironwood {
+                    updater
+                        .update_ironwood_with(|mut u| {
+                            let index = find_output(u.bundle().actions());
+                            u.update_action_with(index, |mut au| {
+                                au.set_output_user_address(user_address);
+                                Ok(())
+                            })
+                        })
+                        .map_err(|e| anyhow!("{e:?}"))
+                } else {
+                    updater
+                        .update_orchard_with(|mut u| {
+                            let index = find_output(u.bundle().actions());
+                            u.update_action_with(index, |mut au| {
+                                au.set_output_user_address(user_address);
+                                Ok(())
+                            })
+                        })
+                        .map_err(|e| anyhow!("{e:?}"))
+                }
             },
         )?
         .finish();
