@@ -1873,14 +1873,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba91f619216e76a5eb2515783f7ec2e271938b51aadac592f4930517f4626863"
 dependencies = [
  "heck",
- "indexmap 2.14.2",
+ "indexmap 1.9.3",
  "itertools 0.15.0",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
  "sha3 0.12.0",
  "strum",
- "syn 3.0.9",
+ "syn 2.0.119",
  "unicode-ident",
  "void",
 ]
@@ -5299,7 +5299,7 @@ dependencies = [
  "proc-macro-error-attr3",
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -9615,7 +9615,7 @@ dependencies = [
  "tokio",
  "tokio-socks",
  "tokio-util",
- "toml 0.8.23",
+ "toml 1.1.8+spec-1.1.0",
  "tonic",
  "tower",
  "tracing",
